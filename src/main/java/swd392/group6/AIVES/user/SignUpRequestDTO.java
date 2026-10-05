@@ -14,13 +14,15 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class UserCreateRequestDTO {
+public class SignUpRequestDTO {
 
+    @NotBlank(message = "Full name is required")
+    @Size(max = 100, message = "Full name cannot exceed 100 characters")
     private String fullName;
-    private String username;
 
     @NotBlank(message = "Email is required")
     @Email(message = "Email format is invalid")
+    @Size(max = 100, message = "Email cannot exceed 100 characters")
     private String email;
 
     @NotBlank(message = "Password is required")
@@ -28,11 +30,4 @@ public class UserCreateRequestDTO {
     private String password;
 
     private Short roleId;
-
-    public String resolveFullName() {
-        if (fullName != null && !fullName.isBlank()) {
-            return fullName;
-        }
-        return username != null ? username : "";
-    }
 }

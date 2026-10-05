@@ -2,7 +2,6 @@ package swd392.group6.AIVES.user;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -14,25 +13,12 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class UserCreateRequestDTO {
-
-    private String fullName;
-    private String username;
+public class LoginRequestDTO {
 
     @NotBlank(message = "Email is required")
     @Email(message = "Email format is invalid")
     private String email;
 
     @NotBlank(message = "Password is required")
-    @Size(min = 6, max = 100, message = "Password must be between 6 and 100 characters")
     private String password;
-
-    private Short roleId;
-
-    public String resolveFullName() {
-        if (fullName != null && !fullName.isBlank()) {
-            return fullName;
-        }
-        return username != null ? username : "";
-    }
 }
