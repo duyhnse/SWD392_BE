@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aives_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: aives_db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    volumes:
+      # Automatically executes .sql files inside the container on first startup
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+      # Persists data to host volume across container restarts
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
