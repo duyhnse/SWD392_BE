@@ -1,0 +1,68 @@
+package swd392.group6.AIVES.user;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import org.hibernate.annotations.CreationTimestamp;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Entity
+@Table(name = "users")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class User {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "user_id", updatable = false, nullable = false)
+    private UUID userId;
+
+    @NotNull(message = "Role ID is required")
+    @Column(name = "role_id", nullable = false)
+    private Short roleId;
+
+    @NotBlank(message = "Full name is required")
+    @Size(max = 100, message = "Full name cannot exceed 100 characters")
+    @Column(name = "full_name", nullable = false, length = 100)
+    private String fullName;
+
+    @NotBlank(message = "Email is required")
+    @Email(message = "Email format is invalid")
+    @Size(max = 100, message = "Email cannot exceed 100 characters")
+    @Column(name = "email", nullable = false, unique = true, length = 100)
+    private String email;
+
+    @NotBlank(message = "Password hash is required")
+    @Size(max = 255, message = "Password hash cannot exceed 255 characters")
+    @Column(name = "hashed_password", nullable = false, length = 255)
+    private String hashedPassword;
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    protected void onCreate() {
+        if (this.createdAt == null) {
+            this.createdAt = LocalDateTime.now();
+        }
+    }
+}
