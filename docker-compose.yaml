@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
       # Automatically executes .sql files inside the container on first startup
       - ./init-scripts:/docker-entrypoint-initdb.d:ro
