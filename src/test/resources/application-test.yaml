@@ -1,0 +1,8 @@
+# Used by integration tests only. The database itself comes from Testcontainers.
+spring:
+  datasource:
+    password: unused-testcontainers-overrides-it
+application:
+  security:
+    jwt:
+      secret-key: dGVzdC1vbmx5LXNlY3JldC1rZXktMzItYnl0ZXMtbG9uZyEh

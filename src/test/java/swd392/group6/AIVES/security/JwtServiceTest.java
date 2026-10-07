@@ -1,8 +1,9 @@
 package swd392.group6.AIVES.security;
 
+import io.jsonwebtoken.JwtException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
+import swd392.group6.AIVES.user.Role;
 import swd392.group6.AIVES.user.User;
 
 import java.util.UUID;
@@ -11,34 +12,58 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class JwtServiceTest {
 
+    // 256-bit Base64 test key
+    private static final String SECRET = "dGVzdC1vbmx5LXNlY3JldC1rZXktMzItYnl0ZXMtbG9uZyEh";
+
     private JwtService jwtService;
+    private User user;
 
     @BeforeEach
     void setUp() {
-        jwtService = new JwtService();
-        // 256-bit base64 secret key
-        ReflectionTestUtils.setField(jwtService, "secretKey", "404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970");
-        ReflectionTestUtils.setField(jwtService, "jwtExpiration", 86400000L);
+        jwtService = new JwtService(SECRET, 86_400_000L);
+        user = User.builder()
+                .userId(UUID.randomUUID())
+                .email("test@example.com")
+                .fullName("Test User")
+                .roleId(Role.ADMIN.getId())
+                .hashedPassword("someHashedPassword")
+                .build();
     }
 
     @Test
-    void testGenerateTokenAndValidate() {
-        UUID userId = UUID.randomUUID();
-        User user = User.builder()
-                .userId(userId)
-                .email("test@example.com")
-                .fullName("Test User")
-                .roleId((short) 1)
-                .hashedPassword("someHashedPassword")
-                .build();
-
+    void generatedTokenIsValidAndCarriesSubject() {
         String token = jwtService.generateToken(user);
-        assertNotNull(token);
-        assertFalse(token.isBlank());
 
-        String username = jwtService.extractUsername(token);
-        assertEquals("test@example.com", username);
-
+        assertEquals("test@example.com", jwtService.extractUsername(token));
+        assertEquals("ADMIN", jwtService.extractClaim(token, claims -> claims.get("role", String.class)));
         assertTrue(jwtService.isTokenValid(token, user));
+    }
+
+    @Test
+    void tokenForAnotherUserIsInvalid() {
+        String token = jwtService.generateToken(user);
+        User other = User.builder().email("other@example.com").hashedPassword("x").build();
+
+        assertFalse(jwtService.isTokenValid(token, other));
+    }
+
+    @Test
+    void expiredTokenIsRejected() {
+        JwtService shortLived = new JwtService(SECRET, -1_000L);
+        String token = shortLived.generateToken(user);
+
+        assertThrows(JwtException.class, () -> shortLived.isTokenValid(token, user));
+    }
+
+    @Test
+    void tamperedTokenIsRejected() {
+        String token = jwtService.generateToken(user);
+
+        assertThrows(JwtException.class, () -> jwtService.extractUsername(token + "x"));
+    }
+
+    @Test
+    void tooShortSecretFailsFast() {
+        assertThrows(IllegalStateException.class, () -> new JwtService("c2hvcnQ=", 1000L));
     }
 }

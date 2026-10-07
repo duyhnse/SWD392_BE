@@ -1,13 +1,15 @@
 package swd392.group6.AIVES.user;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
@@ -23,115 +25,95 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
 
-    @Mock
-    private UserRepository userRepository;
+    @Mock private UserRepository userRepository;
+    @Mock private PasswordEncoder passwordEncoder;
+    @Mock private JwtService jwtService;
+    @Mock private AuthenticationManager authenticationManager;
 
-    @Mock
-    private PasswordEncoder passwordEncoder;
+    @InjectMocks private UserService userService;
 
-    @Mock
-    private JwtService jwtService;
-
-    @Mock
-    private AuthenticationManager authenticationManager;
-
-    @InjectMocks
-    private UserService userService;
-
-    private User sampleUser;
-
-    @BeforeEach
-    void setUp() {
-        sampleUser = User.builder()
-                .userId(UUID.randomUUID())
-                .fullName("John Doe")
-                .email("john.doe@example.com")
-                .hashedPassword("encodedSecretPassword")
-                .roleId(User.ROLE_STUDENT)
+    private static SignUpRequestDTO signUpRequest(String email) {
+        return SignUpRequestDTO.builder()
+                .fullName("  Jane Doe ")
+                .email(email)
+                .password("plainPassword123")
                 .build();
     }
 
     @Test
-    void testSignUpWithDefaultRoleIdStudent() {
-        SignUpRequestDTO request = SignUpRequestDTO.builder()
-                .fullName("Jane Doe")
-                .email("jane.doe@example.com")
-                .password("plainPassword123")
-                // roleId is null, should default to 3 (STUDENT)
-                .build();
+    void signUpAlwaysCreatesStudentWithNormalizedEmailAndHashedPassword() {
+        when(userRepository.existsByEmail("jane@example.com")).thenReturn(false);
+        when(passwordEncoder.encode("plainPassword123")).thenReturn("hashed");
+        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(jwtService.generateToken(any(User.class))).thenReturn("jwt-token");
+        when(jwtService.getExpirationTime()).thenReturn(1000L);
 
-        when(userRepository.existsByEmail("jane.doe@example.com")).thenReturn(false);
-        when(passwordEncoder.encode("plainPassword123")).thenReturn("encodedSecretPassword");
-        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(jwtService.generateToken(any(User.class))).thenReturn("mocked.jwt.token");
-        when(jwtService.getExpirationTime()).thenReturn(86400000L);
+        AuthResponseDTO response = userService.signUp(signUpRequest("  Jane@Example.com "));
 
-        AuthResponseDTO response = userService.signUp(request);
-
-        assertNotNull(response);
-        assertEquals((short) 3, response.getUser().getRoleId());
-
-        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
-        verify(userRepository).save(userCaptor.capture());
-        assertEquals((short) 3, userCaptor.getValue().getRoleId());
+        ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).saveAndFlush(saved.capture());
+        assertEquals(Role.STUDENT.getId(), saved.getValue().getRoleId());
+        assertEquals("jane@example.com", saved.getValue().getEmail());
+        assertEquals("Jane Doe", saved.getValue().getFullName());
+        assertEquals("hashed", saved.getValue().getHashedPassword());
+        assertEquals("jwt-token", response.getToken());
     }
 
     @Test
-    void testSignUpSuccessWithCustomRoleId() {
-        SignUpRequestDTO request = SignUpRequestDTO.builder()
-                .fullName("John Doe")
-                .email("john.doe@example.com")
-                .password("plainPassword123")
-                .roleId((short) 1)
-                .build();
+    void signUpWithExistingEmailIsConflict() {
+        when(userRepository.existsByEmail("jane@example.com")).thenReturn(true);
 
-        when(userRepository.existsByEmail("john.doe@example.com")).thenReturn(false);
-        when(passwordEncoder.encode("plainPassword123")).thenReturn("encodedSecretPassword");
-        when(userRepository.save(any(User.class))).thenReturn(sampleUser);
-        when(jwtService.generateToken(sampleUser)).thenReturn("mocked.jwt.token");
-        when(jwtService.getExpirationTime()).thenReturn(86400000L);
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> userService.signUp(signUpRequest("jane@example.com")));
 
-        AuthResponseDTO response = userService.signUp(request);
-
-        assertNotNull(response);
-        assertEquals("mocked.jwt.token", response.getToken());
-        assertEquals("Bearer", response.getTokenType());
-        assertEquals("john.doe@example.com", response.getUser().getEmail());
-        assertEquals("John Doe", response.getUser().getFullName());
-        verify(userRepository, times(1)).save(any(User.class));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        verify(userRepository, never()).saveAndFlush(any());
     }
 
     @Test
-    void testSignUpEmailAlreadyExists() {
-        SignUpRequestDTO request = SignUpRequestDTO.builder()
-                .fullName("John Doe")
-                .email("john.doe@example.com")
-                .password("plainPassword123")
-                .build();
+    void signUpRaceOnUniqueConstraintIsConflict() {
+        when(userRepository.existsByEmail(any())).thenReturn(false);
+        when(passwordEncoder.encode(any())).thenReturn("hashed");
+        when(userRepository.saveAndFlush(any(User.class))).thenThrow(new DataIntegrityViolationException("dup"));
 
-        when(userRepository.existsByEmail("john.doe@example.com")).thenReturn(true);
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> userService.signUp(signUpRequest("jane@example.com")));
 
-        assertThrows(ResponseStatusException.class, () -> userService.signUp(request));
-        verify(userRepository, never()).save(any(User.class));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
     }
 
     @Test
-    void testLoginSuccess() {
-        LoginRequestDTO request = LoginRequestDTO.builder()
-                .email("john.doe@example.com")
-                .password("plainPassword123")
-                .build();
+    void loginSuccessReturnsToken() {
+        User user = User.builder().userId(UUID.randomUUID()).fullName("John").email("john@example.com")
+                .hashedPassword("hashed").roleId(Role.LECTURER.getId()).build();
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+                .thenReturn(new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()));
+        when(jwtService.generateToken(user)).thenReturn("jwt-token");
 
-        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class))).thenReturn(null);
-        when(userRepository.findByEmail("john.doe@example.com")).thenReturn(Optional.of(sampleUser));
-        when(jwtService.generateToken(sampleUser)).thenReturn("mocked.jwt.token");
-        when(jwtService.getExpirationTime()).thenReturn(86400000L);
+        AuthResponseDTO response = userService.login(
+                LoginRequestDTO.builder().email(" John@Example.com").password("pw").build());
 
-        AuthResponseDTO response = userService.login(request);
+        assertEquals("jwt-token", response.getToken());
+        assertEquals("john@example.com", response.getUser().getEmail());
+    }
 
-        assertNotNull(response);
-        assertEquals("mocked.jwt.token", response.getToken());
-        assertEquals("john.doe@example.com", response.getUser().getEmail());
-        verify(authenticationManager, times(1)).authenticate(any(UsernamePasswordAuthenticationToken.class));
+    @Test
+    void loginWithBadCredentialsIsUnauthorized() {
+        when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("bad"));
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+                () -> userService.login(LoginRequestDTO.builder().email("a@b.com").password("pw").build()));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
+    }
+
+    @Test
+    void getUserProfileNotFound() {
+        UUID id = UUID.randomUUID();
+        when(userRepository.findById(id)).thenReturn(Optional.empty());
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> userService.getUserProfile(id));
+
+        assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
     }
 }
