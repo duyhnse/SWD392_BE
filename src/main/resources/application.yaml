@@ -21,10 +21,23 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  mail:
+    # Only used when application.mail.mode=smtp (e.g. Gmail: smtp.gmail.com:587 + an app password)
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
   servlet:
     multipart:
       max-file-size: 50MB
       max-request-size: 55MB
+
+server:
+  # Trust X-Forwarded-* from the reverse proxy (Caddy) so client IPs are real (rate limits, BR-A3)
+  forward-headers-strategy: native
 
 management:
   endpoints:
@@ -41,6 +54,12 @@ springdoc:
     path: /swagger-ui.html
 
 application:
+  # Used to build links in emails (password reset / activation)
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  mail:
+    # log = write emails to the log (default); smtp = send through spring.mail.*
+    mode: ${MAIL_MODE:log}
+    from: ${MAIL_FROM:AIVES <no-reply@vindng.com>}
   security:
     jwt:
       # Base64-encoded secret of at least 256 bits. Required: no default on purpose.

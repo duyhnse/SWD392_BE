@@ -6,7 +6,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
-/** Lets Spring Security load users by email without the security package depending on this module. */
+/** Lets Spring Security load users by username without the security package depending on this module. */
 @Service
 @RequiredArgsConstructor
 class UserDetailsServiceImpl implements UserDetailsService {
@@ -15,7 +15,7 @@ class UserDetailsServiceImpl implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String username) {
-        return userRepository.findByEmail(username.trim().toLowerCase())
+        return userRepository.findByUsername(username.trim().toLowerCase())
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
     }
 }

@@ -1,19 +1,19 @@
 -- ============================================================================
 -- Demo seed data (profile "demo" only) — 11_IMPLEMENTATION_PLAN.md §5.
 -- Repeatable migration: re-applied when this file changes; every insert is idempotent.
--- All demo accounts use the password  Aives@123  (development/demo only).
+-- Demo accounts log in with their username (admin, lecturer1, student1, ...) and password  Aives@123.
 -- ============================================================================
 
 -- Users ----------------------------------------------------------------------
-INSERT INTO users (user_id, role_id, full_name, email, hashed_password, student_code) VALUES
-  ('00000000-0000-4000-8000-000000000001', 1, 'Quản trị viên',        'admin@aives.local',     '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', NULL),
-  ('00000000-0000-4000-8000-000000000011', 2, 'Giảng viên Một',       'lecturer1@aives.local', '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', NULL),
-  ('00000000-0000-4000-8000-000000000012', 2, 'Giảng viên Hai',       'lecturer2@aives.local', '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', NULL),
-  ('00000000-0000-4000-8000-000000000021', 3, 'Sinh viên Một',        'student1@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190001'),
-  ('00000000-0000-4000-8000-000000000022', 3, 'Sinh viên Hai',        'student2@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190002'),
-  ('00000000-0000-4000-8000-000000000023', 3, 'Sinh viên Ba',         'student3@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190003'),
-  ('00000000-0000-4000-8000-000000000024', 3, 'Sinh viên Bốn',        'student4@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190004'),
-  ('00000000-0000-4000-8000-000000000025', 3, 'Sinh viên Năm',        'student5@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190005')
+INSERT INTO users (user_id, role_id, username, full_name, email, hashed_password, student_code) VALUES
+  ('00000000-0000-4000-8000-000000000001', 1, 'admin', 'Quản trị viên',        'admin@aives.local',     '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', NULL),
+  ('00000000-0000-4000-8000-000000000011', 2, 'lecturer1', 'Giảng viên Một',       'lecturer1@aives.local', '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', NULL),
+  ('00000000-0000-4000-8000-000000000012', 2, 'lecturer2', 'Giảng viên Hai',       'lecturer2@aives.local', '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', NULL),
+  ('00000000-0000-4000-8000-000000000021', 3, 'student1', 'Sinh viên Một',        'student1@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190001'),
+  ('00000000-0000-4000-8000-000000000022', 3, 'student2', 'Sinh viên Hai',        'student2@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190002'),
+  ('00000000-0000-4000-8000-000000000023', 3, 'student3', 'Sinh viên Ba',         'student3@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190003'),
+  ('00000000-0000-4000-8000-000000000024', 3, 'student4', 'Sinh viên Bốn',        'student4@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190004'),
+  ('00000000-0000-4000-8000-000000000025', 3, 'student5', 'Sinh viên Năm',        'student5@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190005')
 ON CONFLICT DO NOTHING;
 
 -- Course + lecturer assignment -------------------------------------------------

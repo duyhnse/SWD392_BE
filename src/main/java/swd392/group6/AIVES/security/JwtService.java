@@ -9,11 +9,13 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.Map;
 import java.util.function.Function;
 
-/** Issues and verifies the stateless JWT (single 24 h token, subject = email — D15). */
+/** Issues and verifies the stateless JWT (single 24 h token, subject = username — D15, D22). */
 @Service
 public class JwtService {
 
@@ -45,7 +47,7 @@ public class JwtService {
     }
 
     /**
-     * @param subject     the login id (email)
+     * @param subject     the login id (username)
      * @param extraClaims non-sensitive claims the frontend may read (userId, role, fullName, ...)
      */
     public String generateToken(String subject, Map<String, Object> extraClaims) {
@@ -65,7 +67,16 @@ public class JwtService {
 
     public boolean isTokenValid(String token, UserDetails userDetails) {
         final String username = extractUsername(token);
-        return username.equals(userDetails.getUsername()) && !isTokenExpired(token);
+        return username.equals(userDetails.getUsername()) && !isTokenExpired(token) && !isRevoked(token, userDetails);
+    }
+
+    /** JWT "iat" has second precision, so compare against the revocation time truncated to seconds. */
+    private boolean isRevoked(String token, UserDetails userDetails) {
+        if (!(userDetails instanceof TokenRevocation revocable) || revocable.tokensValidFrom() == null) {
+            return false;
+        }
+        Instant issuedAt = extractClaim(token, Claims::getIssuedAt).toInstant();
+        return issuedAt.isBefore(revocable.tokensValidFrom().truncatedTo(ChronoUnit.SECONDS));
     }
 
     private boolean isTokenExpired(String token) {

@@ -17,13 +17,26 @@ CREATE TABLE "users" (
   "user_id" uuid PRIMARY KEY,
   "role_id" smallint NOT NULL,
   "full_name" varchar(100) NOT NULL,
+  "username" varchar(50) UNIQUE NOT NULL,
   "email" varchar(100) UNIQUE NOT NULL,
   "hashed_password" varchar(255) NOT NULL,
   "student_code" varchar(20) UNIQUE,
   "preferred_language" varchar(30) NOT NULL DEFAULT 'VI' CHECK ("preferred_language" IN ('VI', 'EN')),
   "is_active" boolean NOT NULL DEFAULT true,
+  "password_changed_at" timestamptz,
+  "google_subject" varchar(255) UNIQUE,
   "created_at" timestamptz NOT NULL DEFAULT (now()),
   "updated_at" timestamptz NOT NULL DEFAULT (now())
+);
+
+CREATE TABLE "password_reset_tokens" (
+  "token_id" uuid PRIMARY KEY,
+  "user_id" uuid NOT NULL,
+  "token_hash" varchar(64) UNIQUE NOT NULL,
+  "expires_at" timestamptz NOT NULL,
+  "used_at" timestamptz,
+  "requested_ip" varchar(45),
+  "created_at" timestamptz NOT NULL DEFAULT (now())
 );
 
 CREATE TABLE "courses" (
@@ -373,13 +386,23 @@ CREATE UNIQUE INDEX ON "criterion_scores" ("question_grade_id", "criterion_id");
 
 COMMENT ON COLUMN "roles"."role_id" IS '1 ADMIN, 2 LECTURER, 3 STUDENT — seeded, fixed (mirrors Java enum Role)';
 
-COMMENT ON COLUMN "users"."email" IS 'stored lowercase; login id and JWT subject';
+COMMENT ON COLUMN "users"."username" IS 'University Wi-Fi username, stored lowercase; login id and JWT subject (D22)';
+
+COMMENT ON COLUMN "users"."email" IS 'stored lowercase; channel for activation/reset links';
 
 COMMENT ON COLUMN "users"."hashed_password" IS 'BCrypt';
 
 COMMENT ON COLUMN "users"."student_code" IS 'e.g. SE190180; STUDENT only';
 
 COMMENT ON COLUMN "users"."is_active" IS 'inactive users cannot log in';
+
+COMMENT ON COLUMN "users"."password_changed_at" IS 'JWTs issued before this are rejected (D24)';
+
+COMMENT ON COLUMN "users"."google_subject" IS 'P1: linked Google account (OIDC sub) — D25';
+
+COMMENT ON TABLE "password_reset_tokens" IS 'Forgot-password / activation links (14_AUTH_AND_ACCOUNTS.md §3.2)';
+
+COMMENT ON COLUMN "password_reset_tokens"."token_hash" IS 'SHA-256 hex of the random token; the token itself is never stored';
 
 COMMENT ON COLUMN "courses"."code" IS 'e.g. SWD392';
 
@@ -508,6 +531,8 @@ COMMENT ON COLUMN "criterion_scores"."weight_percent" IS 'snapshot';
 COMMENT ON COLUMN "grade_change_log"."field" IS 'final_score, lecturer_comment, include_in_total, status';
 
 ALTER TABLE "users" ADD FOREIGN KEY ("role_id") REFERENCES "roles" ("role_id");
+
+ALTER TABLE "password_reset_tokens" ADD FOREIGN KEY ("user_id") REFERENCES "users" ("user_id");
 
 ALTER TABLE "course_lecturers" ADD FOREIGN KEY ("course_id") REFERENCES "courses" ("course_id");
 

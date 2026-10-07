@@ -20,6 +20,7 @@ public class UserResponseDTO {
     private UUID userId;
     private Short roleId;
     private Role role;
+    private String username;
     private String fullName;
     private String email;
     private String studentCode;
@@ -34,6 +35,7 @@ public class UserResponseDTO {
                 .userId(user.getUserId())
                 .roleId(user.getRoleId())
                 .role(user.getRole())
+                .username(user.getUsername())
                 .fullName(user.getFullName())
                 .email(user.getEmail())
                 .studentCode(user.getStudentCode())

@@ -52,6 +52,13 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
       AI_MODE: ${AI_MODE:-mock}
       STORAGE_LOCAL_DIR: /app/data/storage
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      MAIL_MODE: ${MAIL_MODE:-log}
+      MAIL_FROM: ${MAIL_FROM:-AIVES <no-reply@vindng.com>}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

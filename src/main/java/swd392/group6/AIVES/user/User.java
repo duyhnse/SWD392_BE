@@ -23,6 +23,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import swd392.group6.AIVES.common.Language;
+import swd392.group6.AIVES.security.TokenRevocation;
 
 import java.time.Instant;
 import java.util.Collection;
@@ -36,7 +37,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class User implements UserDetails {
+public class User implements UserDetails, TokenRevocation {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -47,6 +48,12 @@ public class User implements UserDetails {
     @NotNull(message = "Role ID is required")
     @Column(name = "role_id", nullable = false)
     private Short roleId = Role.STUDENT.getId();
+
+    /** University Wi-Fi username, lowercase — the login id (D22). */
+    @NotBlank(message = "Username is required")
+    @Size(max = 50)
+    @Column(name = "username", nullable = false, unique = true, length = 50)
+    private String username;
 
     @NotBlank(message = "Full name is required")
     @Size(max = 100, message = "Full name cannot exceed 100 characters")
@@ -78,6 +85,14 @@ public class User implements UserDetails {
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 
+    /** Tokens issued before this instant are rejected (D24). */
+    @Column(name = "password_changed_at")
+    private Instant passwordChangedAt;
+
+    /** P1: linked Google account (OIDC subject) — D25. */
+    @Column(name = "google_subject", unique = true)
+    private String googleSubject;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -102,7 +117,12 @@ public class User implements UserDetails {
 
     @Override
     public String getUsername() {
-        return this.email;
+        return this.username;
+    }
+
+    @Override
+    public Instant tokensValidFrom() {
+        return this.passwordChangedAt;
     }
 
     /** Deactivated users cannot log in, and their existing tokens stop working. */

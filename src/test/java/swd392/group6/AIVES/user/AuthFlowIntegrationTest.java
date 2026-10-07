@@ -5,93 +5,70 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.ResultActions;
 import swd392.group6.AIVES.support.IntegrationTest;
+import swd392.group6.AIVES.support.TestUsers;
 
-import java.util.UUID;
-
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static swd392.group6.AIVES.support.TestUsers.PASSWORD;
 
 @IntegrationTest
 class AuthFlowIntegrationTest {
 
-    private static final String PASSWORD = "S3curePassw0rd";
-
     @Autowired private MockMvc mockMvc;
+    @Autowired private TestUsers users;
     @Autowired private UserRepository userRepository;
 
-    private static String uniqueEmail() {
-        return "user-" + UUID.randomUUID() + "@example.com";
-    }
-
-    private ResultActions signUp(String body) throws Exception {
-        return mockMvc.perform(post("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON).content(body));
-    }
-
-    private static String signUpBody(String email, String extraJson) {
-        return "{\"fullName\":\"Test User\",\"email\":\"" + email + "\",\"password\":\"" + PASSWORD + "\"" + extraJson + "}";
-    }
-
-    private String registerAndGetToken(String email) throws Exception {
-        String json = signUp(signUpBody(email, "")).andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(json, "$.token");
+    private static String loginBody(String username, String password) {
+        return "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}";
     }
 
     @Test
-    void signUpCreatesStudentEvenIfClientAsksForAdmin() throws Exception {
-        String email = uniqueEmail();
+    void loginWithUsernameInAnyCase_AC_A1() throws Exception {
+        User user = users.create(Role.STUDENT);
 
-        signUp(signUpBody(email, ",\"roleId\":1"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.user.roleId").value(Role.STUDENT.getId().intValue()))
-                .andExpect(jsonPath("$.token").isNotEmpty());
-
-        // Also confirm what actually reached the database.
-        org.junit.jupiter.api.Assertions.assertEquals(
-                Role.STUDENT.getId(), userRepository.findByEmail(email).orElseThrow().getRoleId());
+        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("  " + user.getUsername().toUpperCase() + " ", PASSWORD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.user.username").value(user.getUsername()))
+                .andExpect(jsonPath("$.user.role").value("STUDENT"));
     }
 
     @Test
-    void duplicateEmailReturnsConflictWithUniformErrorBody() throws Exception {
-        String email = uniqueEmail();
-        signUp(signUpBody(email, "")).andExpect(status().isCreated());
+    void wrongPasswordUnknownUserAndInactiveAccountAllLookTheSame_AC_A1() throws Exception {
+        User inactive = users.create(Role.STUDENT);
+        inactive.setActive(false);
+        userRepository.save(inactive);
+        User active = users.create(Role.STUDENT);
 
-        signUp(signUpBody(email.toUpperCase(), ""))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.code").value("EMAIL_ALREADY_REGISTERED"))
-                .andExpect(jsonPath("$.detail").value("Email is already registered"));
+        for (String body : new String[]{loginBody(active.getUsername(), "wrong-password"),
+                loginBody("nobody-here", PASSWORD), loginBody(inactive.getUsername(), PASSWORD)}) {
+            mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+        }
     }
 
     @Test
-    void invalidSignUpListsFieldErrors() throws Exception {
-        signUp("{\"fullName\":\"\",\"email\":\"not-an-email\",\"password\":\"123\"}")
+    void selfSignUpNoLongerExists_AC_A2() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/signup").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fullName\":\"X\",\"email\":\"x@example.com\",\"password\":\"password123\"}"))
+                .andExpect(status().is4xxClientError());
+    }
+
+    @Test
+    void invalidLoginBodyListsFieldErrors() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
-                .andExpect(jsonPath("$.errors[*].field", containsInAnyOrder("fullName", "email", "password")));
-    }
-
-    @Test
-    void loginSucceedsWithRightPasswordAndFailsWithWrongOne() throws Exception {
-        String email = uniqueEmail();
-        registerAndGetToken(email);
-
-        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"" + email + "\",\"password\":\"" + PASSWORD + "\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").isNotEmpty());
-
-        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"" + email + "\",\"password\":\"wrong-password\"}"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+                .andExpect(jsonPath("$.errors[*].field", containsInAnyOrder("username", "password")));
     }
 
     @Test
@@ -105,64 +82,66 @@ class AuthFlowIntegrationTest {
 
     @Test
     void meReturnsTheCurrentUser() throws Exception {
-        String email = uniqueEmail();
-        String token = registerAndGetToken(email);
+        User user = users.create(Role.LECTURER);
+        String token = TestUsers.login(mockMvc, user.getUsername(), PASSWORD);
 
         mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value(email));
+                .andExpect(jsonPath("$.username").value(user.getUsername()))
+                .andExpect(jsonPath("$.role").value("LECTURER"));
     }
 
     @Test
-    void userCanReadSelfButNotSomeoneElse() throws Exception {
-        String emailA = uniqueEmail();
-        String emailB = uniqueEmail();
-        String tokenA = registerAndGetToken(emailA);
-        registerAndGetToken(emailB);
-        UUID idA = userRepository.findByEmail(emailA).orElseThrow().getUserId();
-        UUID idB = userRepository.findByEmail(emailB).orElseThrow().getUserId();
+    void userCanReadSelfButNotSomeoneElse_andAdminCanReadAnyone() throws Exception {
+        User a = users.create(Role.STUDENT);
+        User b = users.create(Role.STUDENT);
+        User admin = users.create(Role.ADMIN);
+        String tokenA = TestUsers.login(mockMvc, a.getUsername(), PASSWORD);
+        String adminToken = TestUsers.login(mockMvc, admin.getUsername(), PASSWORD);
 
-        mockMvc.perform(get("/api/v1/users/" + idA).header("Authorization", "Bearer " + tokenA))
+        mockMvc.perform(get("/api/v1/users/" + a.getUserId()).header("Authorization", "Bearer " + tokenA))
                 .andExpect(status().isOk());
-        mockMvc.perform(get("/api/v1/users/" + idB).header("Authorization", "Bearer " + tokenA))
+        mockMvc.perform(get("/api/v1/users/" + b.getUserId()).header("Authorization", "Bearer " + tokenA))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.status").value(403))
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        mockMvc.perform(get("/api/v1/users/" + b.getUserId()).header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
     }
 
     @Test
-    void deactivatedUserCannotLogInAndTheirTokenStopsWorking() throws Exception {
-        String email = uniqueEmail();
-        String token = registerAndGetToken(email);
-        User user = userRepository.findByEmail(email).orElseThrow();
+    void deactivatedUsersTokenStopsWorking() throws Exception {
+        User user = users.create(Role.STUDENT);
+        String token = TestUsers.login(mockMvc, user.getUsername(), PASSWORD);
         user.setActive(false);
         userRepository.save(user);
 
         mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"" + email + "\",\"password\":\"" + PASSWORD + "\"}"))
-                .andExpect(status().isUnauthorized());
     }
 
     @Test
-    void adminCanReadAnyUser() throws Exception {
-        String adminEmail = uniqueEmail();
-        String studentEmail = uniqueEmail();
-        registerAndGetToken(adminEmail);
-        registerAndGetToken(studentEmail);
-        // Admins are never self-registered: promote directly in the database, then log in again.
-        User admin = userRepository.findByEmail(adminEmail).orElseThrow();
-        admin.setRoleId(Role.ADMIN.getId());
-        userRepository.save(admin);
-        String json = mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"" + adminEmail + "\",\"password\":\"" + PASSWORD + "\"}"))
-                .andReturn().getResponse().getContentAsString();
-        String adminToken = JsonPath.read(json, "$.token");
-        UUID studentId = userRepository.findByEmail(studentEmail).orElseThrow().getUserId();
+    void changePasswordChecksCurrentAndLogsOutOtherSessions_AC_A7() throws Exception {
+        User user = users.create(Role.STUDENT);
+        String oldToken = TestUsers.login(mockMvc, user.getUsername(), PASSWORD);
+        Thread.sleep(1100); // JWT "iat" has second precision
 
-        mockMvc.perform(get("/api/v1/users/" + studentId).header("Authorization", "Bearer " + adminToken))
+        mockMvc.perform(put("/api/v1/users/me/password").header("Authorization", "Bearer " + oldToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"not-it\",\"newPassword\":\"BrandNewPass1\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("CURRENT_PASSWORD_INCORRECT"));
+
+        String json = mockMvc.perform(put("/api/v1/users/me/password").header("Authorization", "Bearer " + oldToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"" + PASSWORD + "\",\"newPassword\":\"BrandNewPass1\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value(studentEmail));
+                .andReturn().getResponse().getContentAsString();
+        String newToken = JsonPath.read(json, "$.token");
+
+        mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + oldToken))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + newToken))
+                .andExpect(status().isOk());
+        TestUsers.login(mockMvc, user.getUsername(), "BrandNewPass1");
     }
 }
