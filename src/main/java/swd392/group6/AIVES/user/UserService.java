@@ -2,7 +2,6 @@ package swd392.group6.AIVES.user;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -10,9 +9,11 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
+import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.security.JwtService;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -60,7 +61,7 @@ public class UserService {
                     new UsernamePasswordAuthenticationToken(normalizeEmail(request.getEmail()), request.getPassword()));
         } catch (AuthenticationException e) {
             // Same message for unknown email and wrong password to avoid account enumeration.
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password");
+            throw ApiException.unauthorized("INVALID_CREDENTIALS", "Invalid email or password");
         }
         return toAuthResponse((User) authentication.getPrincipal());
     }
@@ -69,23 +70,32 @@ public class UserService {
     public UserResponseDTO getUserProfile(UUID id) {
         return userRepository.findById(id)
                 .map(UserResponseDTO::fromEntity)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found with id: " + id));
+                .orElseThrow(() -> ApiException.notFound("USER_NOT_FOUND", "User not found with id: " + id));
     }
 
     private AuthResponseDTO toAuthResponse(User user) {
         return AuthResponseDTO.builder()
-                .token(jwtService.generateToken(user))
+                .token(jwtService.generateToken(user.getEmail(), tokenClaims(user)))
                 .tokenType("Bearer")
                 .expiresIn(jwtService.getExpirationTime())
                 .user(UserResponseDTO.fromEntity(user))
                 .build();
     }
 
+    private static Map<String, Object> tokenClaims(User user) {
+        Map<String, Object> claims = new LinkedHashMap<>();
+        claims.put("userId", user.getUserId().toString());
+        claims.put("role", user.getRole().name());
+        claims.put("roleId", user.getRoleId());
+        claims.put("fullName", user.getFullName());
+        return claims;
+    }
+
     private static String normalizeEmail(String email) {
         return email.trim().toLowerCase();
     }
 
-    private static ResponseStatusException emailTaken() {
-        return new ResponseStatusException(HttpStatus.CONFLICT, "Email is already registered");
+    private static ApiException emailTaken() {
+        return ApiException.conflict("EMAIL_ALREADY_REGISTERED", "Email is already registered");
     }
 }

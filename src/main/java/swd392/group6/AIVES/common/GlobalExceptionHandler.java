@@ -2,59 +2,81 @@ package swd392.group6.AIVES.common;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.lang.NonNull;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
-import java.time.Instant;
-import java.util.LinkedHashMap;
+import java.net.URI;
+import java.util.List;
 import java.util.Map;
 
+/**
+ * Turns every error into application/problem+json (RFC 9457) with an extra {@code code} property,
+ * plus {@code errors[]} for validation failures. Format: 09_API_SPEC.md §1.
+ */
 @Slf4j
 @RestControllerAdvice
-public class GlobalExceptionHandler {
+public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
-    @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<ApiError> handleResponseStatus(ResponseStatusException ex, HttpServletRequest request) {
-        return build(ex.getStatusCode(), ex.getReason(), request, null);
-    }
+    public static final String TYPE_PREFIX = "https://aives/errors/";
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex, HttpServletRequest request) {
-        Map<String, String> fieldErrors = new LinkedHashMap<>();
-        ex.getBindingResult().getFieldErrors()
-                .forEach(error -> fieldErrors.putIfAbsent(error.getField(), error.getDefaultMessage()));
-        return build(HttpStatus.BAD_REQUEST, "Validation failed", request, fieldErrors);
-    }
-
-    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
-    public ResponseEntity<ApiError> handleBadRequest(Exception ex, HttpServletRequest request) {
-        return build(HttpStatus.BAD_REQUEST, "Malformed request", request, null);
+    @ExceptionHandler(ApiException.class)
+    public ProblemDetail handleApiException(ApiException ex) {
+        return problem(ex.getStatus(), ex.getCode(), ex.getMessage());
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ApiError> handleAccessDenied(AccessDeniedException ex, HttpServletRequest request) {
-        return build(HttpStatus.FORBIDDEN, "You do not have permission to perform this action", request, null);
+    public ProblemDetail handleAccessDenied(AccessDeniedException ex) {
+        return problem(HttpStatus.FORBIDDEN, "FORBIDDEN", "You do not have permission to perform this action");
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiError> handleUnexpected(Exception ex, HttpServletRequest request) {
-        // Never leak internals to the client; the full stack trace goes to the log only.
+    public ProblemDetail handleUnexpected(Exception ex, HttpServletRequest request) {
+        // Never leak internals to the client; the stack trace goes to the log only.
         log.error("Unhandled exception on {} {}", request.getMethod(), request.getRequestURI(), ex);
-        return build(HttpStatus.INTERNAL_SERVER_ERROR, "Unexpected server error", request, null);
+        return problem(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Unexpected server error");
     }
 
-    private ResponseEntity<ApiError> build(
-            HttpStatusCode status, String message, HttpServletRequest request, Map<String, String> fieldErrors) {
-        String error = status instanceof HttpStatus http ? http.getReasonPhrase() : status.toString();
-        ApiError body = new ApiError(Instant.now(), status.value(), error, message, request.getRequestURI(), fieldErrors);
-        return ResponseEntity.status(status).body(body);
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(
+            @NonNull MethodArgumentNotValidException ex, @NonNull HttpHeaders headers,
+            @NonNull HttpStatusCode status, @NonNull WebRequest request) {
+        List<Map<String, String>> errors = ex.getBindingResult().getFieldErrors().stream()
+                .map(error -> Map.of(
+                        "field", error.getField(),
+                        "message", String.valueOf(error.getDefaultMessage())))
+                .toList();
+        ProblemDetail body = problem(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", "Validation failed");
+        body.setProperty("errors", errors);
+        return ResponseEntity.badRequest().body(body);
+    }
+
+    /** Framework errors (malformed JSON, wrong method, 404 route, ...) keep Spring's status but get our code. */
+    @Override
+    protected ResponseEntity<Object> createResponseEntity(
+            Object body, @NonNull HttpHeaders headers, @NonNull HttpStatusCode statusCode, @NonNull WebRequest request) {
+        if (body instanceof ProblemDetail detail && detail.getProperties() == null) {
+            HttpStatus status = HttpStatus.resolve(statusCode.value());
+            String code = status != null ? status.name() : "HTTP_" + statusCode.value();
+            detail.setType(URI.create(TYPE_PREFIX + code));
+            detail.setProperty("code", code);
+        }
+        return super.createResponseEntity(body, headers, statusCode, request);
+    }
+
+    public static ProblemDetail problem(HttpStatusCode status, String code, String detail) {
+        ProblemDetail body = ProblemDetail.forStatusAndDetail(status, detail);
+        body.setType(URI.create(TYPE_PREFIX + code));
+        body.setProperty("code", code);
+        return body;
     }
 }

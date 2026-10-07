@@ -1,0 +1,5 @@
+# Profile "demo": adds the demo accounts, course, questions and viva exam (password Aives@123).
+# Never enable on a database with real users.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/demo

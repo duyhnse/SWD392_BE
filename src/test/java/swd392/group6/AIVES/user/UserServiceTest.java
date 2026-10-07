@@ -12,7 +12,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.server.ResponseStatusException;
+import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.security.JwtService;
 
 import java.util.Optional;
@@ -20,6 +20,8 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -44,8 +46,12 @@ class UserServiceTest {
     void signUpAlwaysCreatesStudentWithNormalizedEmailAndHashedPassword() {
         when(userRepository.existsByEmail("jane@example.com")).thenReturn(false);
         when(passwordEncoder.encode("plainPassword123")).thenReturn("hashed");
-        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(jwtService.generateToken(any(User.class))).thenReturn("jwt-token");
+        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(inv -> {
+            User u = inv.getArgument(0);
+            u.setUserId(UUID.randomUUID());
+            return u;
+        });
+        when(jwtService.generateToken(eq("jane@example.com"), anyMap())).thenReturn("jwt-token");
         when(jwtService.getExpirationTime()).thenReturn(1000L);
 
         AuthResponseDTO response = userService.signUp(signUpRequest("  Jane@Example.com "));
@@ -63,10 +69,11 @@ class UserServiceTest {
     void signUpWithExistingEmailIsConflict() {
         when(userRepository.existsByEmail("jane@example.com")).thenReturn(true);
 
-        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+        ApiException ex = assertThrows(ApiException.class,
                 () -> userService.signUp(signUpRequest("jane@example.com")));
 
-        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals(HttpStatus.CONFLICT, ex.getStatus());
+        assertEquals("EMAIL_ALREADY_REGISTERED", ex.getCode());
         verify(userRepository, never()).saveAndFlush(any());
     }
 
@@ -76,10 +83,10 @@ class UserServiceTest {
         when(passwordEncoder.encode(any())).thenReturn("hashed");
         when(userRepository.saveAndFlush(any(User.class))).thenThrow(new DataIntegrityViolationException("dup"));
 
-        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+        ApiException ex = assertThrows(ApiException.class,
                 () -> userService.signUp(signUpRequest("jane@example.com")));
 
-        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+        assertEquals(HttpStatus.CONFLICT, ex.getStatus());
     }
 
     @Test
@@ -88,7 +95,7 @@ class UserServiceTest {
                 .hashedPassword("hashed").roleId(Role.LECTURER.getId()).build();
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                 .thenReturn(new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()));
-        when(jwtService.generateToken(user)).thenReturn("jwt-token");
+        when(jwtService.generateToken(eq("john@example.com"), anyMap())).thenReturn("jwt-token");
 
         AuthResponseDTO response = userService.login(
                 LoginRequestDTO.builder().email(" John@Example.com").password("pw").build());
@@ -101,10 +108,10 @@ class UserServiceTest {
     void loginWithBadCredentialsIsUnauthorized() {
         when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("bad"));
 
-        ResponseStatusException ex = assertThrows(ResponseStatusException.class,
+        ApiException ex = assertThrows(ApiException.class,
                 () -> userService.login(LoginRequestDTO.builder().email("a@b.com").password("pw").build()));
 
-        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
+        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatus());
     }
 
     @Test
@@ -112,8 +119,8 @@ class UserServiceTest {
         UUID id = UUID.randomUUID();
         when(userRepository.findById(id)).thenReturn(Optional.empty());
 
-        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> userService.getUserProfile(id));
+        ApiException ex = assertThrows(ApiException.class, () -> userService.getUserProfile(id));
 
-        assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, ex.getStatus());
     }
 }

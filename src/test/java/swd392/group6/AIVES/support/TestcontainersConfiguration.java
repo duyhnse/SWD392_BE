@@ -4,18 +4,15 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.MountableFile;
+import org.testcontainers.utility.DockerImageName;
 
-/** Throw-away PostgreSQL seeded with the same schema script the real database uses. */
+/** Throw-away PostgreSQL (+pgvector); Flyway applies the real migrations on startup. */
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
 
     @Bean
     @ServiceConnection
     PostgreSQLContainer postgresContainer() {
-        return new PostgreSQLContainer("postgres:16-alpine")
-                .withCopyFileToContainer(
-                        MountableFile.forHostPath("init-scripts/init_schema.sql"),
-                        "/docker-entrypoint-initdb.d/init_schema.sql");
+        return new PostgreSQLContainer(DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres"));
     }
 }

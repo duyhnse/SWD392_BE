@@ -5,8 +5,9 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import swd392.group6.AIVES.common.Language;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Getter
@@ -18,9 +19,12 @@ public class UserResponseDTO {
 
     private UUID userId;
     private Short roleId;
+    private Role role;
     private String fullName;
     private String email;
-    private LocalDateTime createdAt;
+    private String studentCode;
+    private Language preferredLanguage;
+    private Instant createdAt;
 
     public static UserResponseDTO fromEntity(User user) {
         if (user == null) {
@@ -29,8 +33,11 @@ public class UserResponseDTO {
         return UserResponseDTO.builder()
                 .userId(user.getUserId())
                 .roleId(user.getRoleId())
+                .role(user.getRole())
                 .fullName(user.getFullName())
                 .email(user.getEmail())
+                .studentCode(user.getStudentCode())
+                .preferredLanguage(user.getPreferredLanguage())
                 .createdAt(user.getCreatedAt())
                 .build();
     }

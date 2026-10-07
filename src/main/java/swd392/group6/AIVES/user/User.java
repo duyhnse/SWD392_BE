@@ -2,10 +2,11 @@ package swd392.group6.AIVES.user;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -17,11 +18,13 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
+import swd392.group6.AIVES.common.Language;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -61,23 +64,35 @@ public class User implements UserDetails {
     @Column(name = "hashed_password", nullable = false, length = 255)
     private String hashedPassword;
 
+    /** e.g. SE190180 — students only. */
+    @Size(max = 20)
+    @Column(name = "student_code", unique = true, length = 20)
+    private String studentCode;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "preferred_language", nullable = false, length = 30)
+    private Language preferredLanguage = Language.VI;
+
+    @Builder.Default
+    @Column(name = "is_active", nullable = false)
+    private boolean active = true;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
-    @PrePersist
-    protected void onCreate() {
-        if (this.createdAt == null) {
-            this.createdAt = LocalDateTime.now();
-        }
-        if (this.roleId == null) {
-            this.roleId = Role.STUDENT.getId();
-        }
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
+
+    public Role getRole() {
+        return Role.fromId(roleId);
     }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority(Role.fromId(this.roleId).authority()));
+        return List.of(new SimpleGrantedAuthority(getRole().authority()));
     }
 
     @Override
@@ -90,23 +105,9 @@ public class User implements UserDetails {
         return this.email;
     }
 
-    @Override
-    public boolean isAccountNonExpired() {
-        return true;
-    }
-
-    @Override
-    public boolean isAccountNonLocked() {
-        return true;
-    }
-
-    @Override
-    public boolean isCredentialsNonExpired() {
-        return true;
-    }
-
+    /** Deactivated users cannot log in, and their existing tokens stop working. */
     @Override
     public boolean isEnabled() {
-        return true;
+        return this.active;
     }
 }
