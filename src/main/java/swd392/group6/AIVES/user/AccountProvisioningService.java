@@ -112,7 +112,7 @@ class AccountProvisioningService implements UserApi {
                 .email(email)
                 .studentCode(code)
                 .roleId(role.getId())
-                .hashedPassword(passwordEncoder.encode(randomSecret())) // unusable until activated (§3.2)
+                .hashedPassword(passwordEncoder.encode(randomSecret())) // real password lives in the university system; here: Forgot password (§3.4)
                 .build());
         return new ProvisionResult(user.getUserId(), true, null, null, null);
     }

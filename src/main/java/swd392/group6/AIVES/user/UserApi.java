@@ -10,8 +10,8 @@ import java.util.UUID;
 public interface UserApi {
 
     /**
-     * Matches students by username and creates the missing ones as STUDENT accounts (no usable password —
-     * they activate through the forgot-password link). Idempotent (AC-A9).
+     * Matches students by username and creates the missing ones as STUDENT accounts (stand-in for the
+     * university account sync; they set a password via Forgot password). Idempotent (AC-A9).
      *
      * @return one entry per input row, in order: the student's id or the row's error
      */

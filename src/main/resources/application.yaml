@@ -54,7 +54,7 @@ springdoc:
     path: /swagger-ui.html
 
 application:
-  # Used to build links in emails (password reset / activation)
+  # Used to build links in emails (password reset)
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
   mail:
     # log = write emails to the log (default); smtp = send through spring.mail.*

@@ -25,6 +25,8 @@ public class UserResponseDTO {
     private String email;
     private String studentCode;
     private Language preferredLanguage;
+    /** Whether a Google account is linked (D25); the Google subject itself is never exposed. */
+    private boolean googleLinked;
     private Instant createdAt;
 
     public static UserResponseDTO fromEntity(User user) {
@@ -40,6 +42,7 @@ public class UserResponseDTO {
                 .email(user.getEmail())
                 .studentCode(user.getStudentCode())
                 .preferredLanguage(user.getPreferredLanguage())
+                .googleLinked(user.getGoogleSubject() != null)
                 .createdAt(user.getCreatedAt())
                 .build();
     }

@@ -1,7 +1,8 @@
 -- ============================================================================
 -- Demo seed data (profile "demo" only) — 11_IMPLEMENTATION_PLAN.md §5.
 -- Repeatable migration: re-applied when this file changes; every insert is idempotent.
--- Demo accounts log in with their username (admin, lecturer1, student1, ...) and password  Aives@123.
+-- Demo accounts log in with their username (admin, lecturer1, student1, ...) and password  Aives@123
+-- (except vinhdqse190180, see below).
 -- ============================================================================
 
 -- Users ----------------------------------------------------------------------
@@ -13,7 +14,9 @@ INSERT INTO users (user_id, role_id, username, full_name, email, hashed_password
   ('00000000-0000-4000-8000-000000000022', 3, 'student2', 'Sinh viên Hai',        'student2@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190002'),
   ('00000000-0000-4000-8000-000000000023', 3, 'student3', 'Sinh viên Ba',         'student3@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190003'),
   ('00000000-0000-4000-8000-000000000024', 3, 'student4', 'Sinh viên Bốn',        'student4@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190004'),
-  ('00000000-0000-4000-8000-000000000025', 3, 'student5', 'Sinh viên Năm',        'student5@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190005')
+  ('00000000-0000-4000-8000-000000000025', 3, 'student5', 'Sinh viên Năm',        'student5@aives.local',  '$2a$10$PYoFIkLPo99vyWpZPRNSAu2KEtNOpfb1FNIg8i42ZuCOJqIyEanp6', 'SE190005'),
+  -- Team member's sample account (password VinhAives@2026)
+  ('00000000-0000-4000-8000-000000000031', 3, 'vinhdqse190180', 'Dương Quốc Vinh', 'vinhdqse190180@fpt.edu.vn', '$2a$10$NOpdBA0mJwNrR0EC6H0NF.E/LzWE7pWccov0sszzOTuaz/0b5GbcW', 'SE190180')
 ON CONFLICT DO NOTHING;
 
 -- Course + lecturer assignment -------------------------------------------------

@@ -13,7 +13,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.Instant;
 import java.util.UUID;
 
-/** One forgot-password / activation link. Only the SHA-256 of the token is stored (BR-A2). */
+/** One forgot-password link. Only the SHA-256 of the token is stored (BR-A2). */
 @Entity
 @Table(name = "password_reset_tokens")
 @Getter

@@ -20,7 +20,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
 
-/** Forgot password and first-time activation (14_AUTH_AND_ACCOUNTS.md §3.2, BR-A1..A6). */
+/** Forgot password (14_AUTH_AND_ACCOUNTS.md §3.2, BR-A1..A6). */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -77,17 +77,17 @@ class PasswordResetService {
         tokenRepository.save(new PasswordResetToken(user.getUserId(), sha256(token), clock.instant().plus(TOKEN_TTL), clientIp));
 
         String link = frontendUrl + "/reset-password?token=" + token;
-        mailPort.send(new MailMessage(user.getEmail(), "AIVES – Đặt mật khẩu / Set your password", """
+        mailPort.send(new MailMessage(user.getEmail(), "AIVES – Đặt lại mật khẩu / Reset your password", """
                 Xin chào %s,
 
-                Có yêu cầu đặt mật khẩu cho tài khoản AIVES "%s".
+                Có yêu cầu đặt lại mật khẩu cho tài khoản AIVES "%s".
                 Mở liên kết sau trong vòng 30 phút để đặt mật khẩu mới:
                 %s
 
                 Nếu bạn không yêu cầu, hãy bỏ qua email này — mật khẩu hiện tại vẫn giữ nguyên.
 
                 ---
-                Someone asked to set the password of AIVES account "%s".
+                Someone asked to reset the password of AIVES account "%s".
                 Open the link above within 30 minutes. If it wasn't you, ignore this email.
                 """.formatted(user.getFullName(), user.getUsername(), link, user.getUsername())));
     }

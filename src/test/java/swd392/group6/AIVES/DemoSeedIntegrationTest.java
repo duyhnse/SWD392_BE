@@ -28,4 +28,13 @@ class DemoSeedIntegrationTest {
                     .andExpect(jsonPath("$.user.role").value(account[1]));
         }
     }
+
+    @Test
+    void teamSampleAccountLogsInWithItsOwnPassword() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"vinhdqse190180\",\"password\":\"VinhAives@2026\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.studentCode").value("SE190180"))
+                .andExpect(jsonPath("$.user.googleLinked").value(false));
+    }
 }
