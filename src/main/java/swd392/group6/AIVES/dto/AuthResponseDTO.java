@@ -1,4 +1,4 @@
-package swd392.group6.AIVES.user;
+package swd392.group6.AIVES.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

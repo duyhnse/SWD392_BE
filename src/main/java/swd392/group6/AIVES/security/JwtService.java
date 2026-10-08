@@ -7,8 +7,8 @@ import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
-import swd392.group6.AIVES.user.Role;
-import swd392.group6.AIVES.user.User;
+import swd392.group6.AIVES.model.Role;
+import swd392.group6.AIVES.model.User;
 
 import javax.crypto.SecretKey;
 import java.util.Date;

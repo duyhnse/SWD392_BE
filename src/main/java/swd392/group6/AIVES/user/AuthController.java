@@ -8,6 +8,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import swd392.group6.AIVES.dto.AuthResponseDTO;
+import swd392.group6.AIVES.dto.LoginRequestDTO;
+import swd392.group6.AIVES.dto.SignUpRequestDTO;
+import swd392.group6.AIVES.service.UserService;
 
 @RestController
 @RequestMapping("/api/v1/auth")

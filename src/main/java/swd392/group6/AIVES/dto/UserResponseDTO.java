@@ -1,10 +1,11 @@
-package swd392.group6.AIVES.user;
+package swd392.group6.AIVES.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import swd392.group6.AIVES.model.User;
 
 import java.time.LocalDateTime;
 import java.util.UUID;

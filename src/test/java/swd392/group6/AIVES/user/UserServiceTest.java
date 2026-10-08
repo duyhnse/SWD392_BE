@@ -13,7 +13,14 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
+import swd392.group6.AIVES.dto.AuthResponseDTO;
+import swd392.group6.AIVES.dto.LoginRequestDTO;
+import swd392.group6.AIVES.dto.SignUpRequestDTO;
+import swd392.group6.AIVES.model.Role;
+import swd392.group6.AIVES.model.User;
+import swd392.group6.AIVES.repository.UserRepository;
 import swd392.group6.AIVES.security.JwtService;
+import swd392.group6.AIVES.service.UserService;
 
 import java.util.Optional;
 import java.util.UUID;

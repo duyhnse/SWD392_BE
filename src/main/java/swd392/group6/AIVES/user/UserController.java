@@ -8,6 +8,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import swd392.group6.AIVES.dto.UserResponseDTO;
+import swd392.group6.AIVES.model.User;
+import swd392.group6.AIVES.service.UserService;
 
 import java.util.UUID;
 

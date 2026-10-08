@@ -3,8 +3,8 @@ package swd392.group6.AIVES.security;
 import io.jsonwebtoken.JwtException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import swd392.group6.AIVES.user.Role;
-import swd392.group6.AIVES.user.User;
+import swd392.group6.AIVES.model.Role;
+import swd392.group6.AIVES.model.User;
 
 import java.util.UUID;
 

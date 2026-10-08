@@ -1,4 +1,4 @@
-package swd392.group6.AIVES.user;
+package swd392.group6.AIVES.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -11,7 +11,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import swd392.group6.AIVES.dto.AuthResponseDTO;
+import swd392.group6.AIVES.dto.LoginRequestDTO;
+import swd392.group6.AIVES.dto.SignUpRequestDTO;
+import swd392.group6.AIVES.dto.UserResponseDTO;
+import swd392.group6.AIVES.model.Role;
+import swd392.group6.AIVES.model.User;
 import swd392.group6.AIVES.security.JwtService;
+import swd392.group6.AIVES.repository.UserRepository;
 
 import java.util.UUID;
 

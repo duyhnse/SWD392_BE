@@ -1,4 +1,4 @@
-package swd392.group6.AIVES.user;
+package swd392.group6.AIVES.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
