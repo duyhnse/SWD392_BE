@@ -6,3 +6,5 @@ application:
   security:
     jwt:
       secret-key: dGVzdC1vbmx5LXNlY3JldC1rZXktMzItYnl0ZXMtbG9uZyEh
+  storage:
+    provider: memory

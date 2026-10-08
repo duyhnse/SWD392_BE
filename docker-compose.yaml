@@ -1,6 +1,9 @@
+# Local development: `docker compose up -d --wait` starts PostgreSQL (+pgvector) and MinIO.
+# Whole stack incl. the backend container: `docker compose --profile app up -d --build`.
+# Every port is bound to 127.0.0.1 — Docker bypasses the host firewall, never publish on 0.0.0.0.
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: aives_postgres
     restart: unless-stopped
     environment:
@@ -8,11 +11,8 @@ services:
       POSTGRES_USER: ${DB_USER:-admin}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env (copy .env.example)}
     ports:
-      # Bound to localhost only: Docker bypasses the host firewall, never publish a DB on 0.0.0.0
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
-      # Executed only on the first startup (empty volume). To re-apply: docker compose down -v
-      - ./init-scripts:/docker-entrypoint-initdb.d:ro
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -20,5 +20,51 @@ services:
       timeout: 3s
       retries: 10
 
+  minio:
+    # The official minio/minio image is no longer published; Chainguard ships the same MinIO server.
+    image: chainguard/minio:latest
+    container_name: aives_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aives}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env (copy .env.example)}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+
+  backend:
+    profiles: ["app"]
+    build: .
+    container_name: aives_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-aives_db}
+      DB_USER: ${DB_USER:-admin}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      AI_MODE: ${AI_MODE:-mock}
+      STORAGE_LOCAL_DIR: /app/data/storage
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      MAIL_MODE: ${MAIL_MODE:-log}
+      MAIL_FROM: ${MAIL_FROM:-AIVES <no-reply@vindng.com>}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - backend_storage:/app/data/storage
+
 volumes:
   postgres_data:
+  minio_data:
+  backend_storage:

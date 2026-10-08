@@ -7,15 +7,15 @@ import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
-import swd392.group6.AIVES.user.Role;
-import swd392.group6.AIVES.user.User;
 
 import javax.crypto.SecretKey;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 
+/** Issues and verifies the stateless JWT (single 24 h token, subject = username — D15, D22). */
 @Service
 public class JwtService {
 
@@ -46,59 +46,48 @@ public class JwtService {
         return claimsResolver.apply(claims);
     }
 
-    public String generateToken(User user) {
-        Map<String, Object> extraClaims = new HashMap<>();
-        extraClaims.put("userId", user.getUserId());
-        extraClaims.put("roleId", user.getRoleId());
-        extraClaims.put("role", Role.fromId(user.getRoleId()).name());
-        extraClaims.put("fullName", user.getFullName());
-        return generateToken(extraClaims, user);
-    }
-
-    public String generateToken(Map<String, Object> extraClaims, UserDetails userDetails) {
-        return buildToken(extraClaims, userDetails, jwtExpiration);
+    /**
+     * @param subject     the login id (username)
+     * @param extraClaims non-sensitive claims the frontend may read (userId, role, fullName, ...)
+     */
+    public String generateToken(String subject, Map<String, Object> extraClaims) {
+        long now = System.currentTimeMillis();
+        return Jwts.builder()
+                .claims(extraClaims)
+                .subject(subject)
+                .issuedAt(new Date(now))
+                .expiration(new Date(now + jwtExpiration))
+                .signWith(signInKey)
+                .compact();
     }
 
     public long getExpirationTime() {
         return jwtExpiration;
     }
 
-    private String buildToken(
-            Map<String, Object> extraClaims,
-            UserDetails userDetails,
-            long expiration
-    ) {
-        return Jwts.builder()
-                .claims(extraClaims)
-                .subject(userDetails.getUsername())
-                .issuedAt(new Date(System.currentTimeMillis()))
-                .expiration(new Date(System.currentTimeMillis() + expiration))
-                .signWith(getSignInKey())
-                .compact();
-    }
-
     public boolean isTokenValid(String token, UserDetails userDetails) {
         final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername())) && !isTokenExpired(token);
+        return username.equals(userDetails.getUsername()) && !isTokenExpired(token) && !isRevoked(token, userDetails);
+    }
+
+    /** JWT "iat" has second precision, so compare against the revocation time truncated to seconds. */
+    private boolean isRevoked(String token, UserDetails userDetails) {
+        if (!(userDetails instanceof TokenRevocation revocable) || revocable.tokensValidFrom() == null) {
+            return false;
+        }
+        Instant issuedAt = extractClaim(token, Claims::getIssuedAt).toInstant();
+        return issuedAt.isBefore(revocable.tokensValidFrom().truncatedTo(ChronoUnit.SECONDS));
     }
 
     private boolean isTokenExpired(String token) {
-        return extractExpiration(token).before(new Date());
-    }
-
-    private Date extractExpiration(String token) {
-        return extractClaim(token, Claims::getExpiration);
+        return extractClaim(token, Claims::getExpiration).before(new Date());
     }
 
     private Claims extractAllClaims(String token) {
         return Jwts.parser()
-                .verifyWith(getSignInKey())
+                .verifyWith(signInKey)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
-    }
-
-    private SecretKey getSignInKey() {
-        return signInKey;
     }
 }

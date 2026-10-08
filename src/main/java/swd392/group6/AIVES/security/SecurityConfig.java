@@ -17,7 +17,6 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -25,7 +24,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import swd392.group6.AIVES.user.UserRepository;
+import swd392.group6.AIVES.common.GlobalExceptionHandler;
 
 import java.util.List;
 
@@ -35,16 +34,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final UserRepository userRepository;
-
     @Value("${application.cors.allowed-origins}")
     private List<String> allowedOrigins;
-
-    @Bean
-    public UserDetailsService userDetailsService() {
-        return username -> userRepository.findByEmail(username)
-                .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + username));
-    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -52,8 +43,9 @@ public class SecurityConfig {
     }
 
     @Bean
-    public AuthenticationProvider authenticationProvider() {
-        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider(userDetailsService());
+    public AuthenticationProvider authenticationProvider(UserDetailsService userDetailsService) {
+        // UserDetailsService is implemented by the user module; security does not depend on it directly.
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider(userDetailsService);
         authProvider.setPasswordEncoder(passwordEncoder());
         return authProvider;
     }
@@ -76,13 +68,15 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/error").permitAll()
+                        .requestMatchers("/actuator/health/**").permitAll()
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, e) ->
-                                writeError(response, 401, "Unauthorized", "Authentication required"))
+                                writeError(response, 401, "UNAUTHORIZED", "Authentication required"))
                         .accessDeniedHandler((request, response, e) ->
-                                writeError(response, 403, "Forbidden", "You do not have permission to perform this action"))
+                                writeError(response, 403, "FORBIDDEN", "You do not have permission to perform this action"))
                 )
                 .authenticationProvider(authenticationProvider)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
@@ -104,11 +98,12 @@ public class SecurityConfig {
         return source;
     }
 
-    private static void writeError(HttpServletResponse response, int status, String error, String message)
+    private static void writeError(HttpServletResponse response, int status, String code, String message)
             throws java.io.IOException {
+        // Same problem+json shape as GlobalExceptionHandler; written by hand because this runs in the filter chain.
         response.setStatus(status);
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write(
-                "{\"status\":" + status + ",\"error\":\"" + error + "\",\"message\":\"" + message + "\"}");
+        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        response.getWriter().write("{\"type\":\"" + GlobalExceptionHandler.TYPE_PREFIX + code + "\",\"status\":" + status
+                + ",\"code\":\"" + code + "\",\"detail\":\"" + message + "\"}");
     }
 }
