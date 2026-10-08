@@ -35,8 +35,6 @@ import java.util.UUID;
 @Builder
 public class User implements UserDetails {
 
-    public static final Short ROLE_STUDENT = 3;
-
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "user_id", updatable = false, nullable = false)
@@ -45,7 +43,7 @@ public class User implements UserDetails {
     @Builder.Default
     @NotNull(message = "Role ID is required")
     @Column(name = "role_id", nullable = false)
-    private Short roleId = ROLE_STUDENT;
+    private Short roleId = Role.STUDENT.getId();
 
     @NotBlank(message = "Full name is required")
     @Size(max = 100, message = "Full name cannot exceed 100 characters")
@@ -73,16 +71,13 @@ public class User implements UserDetails {
             this.createdAt = LocalDateTime.now();
         }
         if (this.roleId == null) {
-            this.roleId = ROLE_STUDENT;
+            this.roleId = Role.STUDENT.getId();
         }
     }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        if (this.roleId == null) {
-            return List.of(new SimpleGrantedAuthority("ROLE_STUDENT"));
-        }
-        return List.of(new SimpleGrantedAuthority("ROLE_" + this.roleId));
+        return List.of(new SimpleGrantedAuthority(Role.fromId(this.roleId).authority()));
     }
 
     @Override

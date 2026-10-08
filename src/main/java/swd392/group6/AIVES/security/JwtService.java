@@ -7,6 +7,7 @@ import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
+import swd392.group6.AIVES.user.Role;
 import swd392.group6.AIVES.user.User;
 
 import javax.crypto.SecretKey;
@@ -18,11 +19,23 @@ import java.util.function.Function;
 @Service
 public class JwtService {
 
-    @Value("${application.security.jwt.secret-key:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}")
-    private String secretKey;
+    private static final int MIN_KEY_BYTES = 32; // 256 bits
 
-    @Value("${application.security.jwt.expiration:86400000}")
-    private long jwtExpiration;
+    private final SecretKey signInKey;
+    private final long jwtExpiration;
+
+    public JwtService(
+            @Value("${application.security.jwt.secret-key}") String secretKey,
+            @Value("${application.security.jwt.expiration}") long jwtExpiration
+    ) {
+        byte[] keyBytes = Decoders.BASE64.decode(secretKey);
+        if (keyBytes.length < MIN_KEY_BYTES) {
+            throw new IllegalStateException(
+                    "JWT_SECRET must be a Base64 string of at least 256 bits (generate one with: openssl rand -base64 32)");
+        }
+        this.signInKey = Keys.hmacShaKeyFor(keyBytes);
+        this.jwtExpiration = jwtExpiration;
+    }
 
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);
@@ -37,6 +50,7 @@ public class JwtService {
         Map<String, Object> extraClaims = new HashMap<>();
         extraClaims.put("userId", user.getUserId());
         extraClaims.put("roleId", user.getRoleId());
+        extraClaims.put("role", Role.fromId(user.getRoleId()).name());
         extraClaims.put("fullName", user.getFullName());
         return generateToken(extraClaims, user);
     }
@@ -85,7 +99,6 @@ public class JwtService {
     }
 
     private SecretKey getSignInKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(secretKey);
-        return Keys.hmacShaKeyFor(keyBytes);
+        return signInKey;
     }
 }

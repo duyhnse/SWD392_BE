@@ -1,13 +1,11 @@
 package swd392.group6.AIVES.user;
 
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,19 +18,15 @@ public class UserController {
 
     private final UserService userService;
 
-    @PostMapping("/signup")
-    public ResponseEntity<AuthResponseDTO> signUp(@Valid @RequestBody SignUpRequestDTO request) {
-        AuthResponseDTO response = userService.signUp(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    /** Profile of the currently authenticated user. */
+    @GetMapping("/me")
+    public ResponseEntity<UserResponseDTO> me(@AuthenticationPrincipal User currentUser) {
+        return ResponseEntity.ok(UserResponseDTO.fromEntity(currentUser));
     }
 
-    @PostMapping("/login")
-    public ResponseEntity<AuthResponseDTO> login(@Valid @RequestBody LoginRequestDTO request) {
-        AuthResponseDTO response = userService.login(request);
-        return ResponseEntity.ok(response);
-    }
-
+    /** A user can read their own profile; only an ADMIN can read anybody else's. */
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or #id == authentication.principal.userId")
     public ResponseEntity<UserResponseDTO> getUser(@PathVariable UUID id) {
         return ResponseEntity.ok(userService.getUserProfile(id));
     }
