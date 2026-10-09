@@ -61,6 +61,36 @@ public class UserService {
         return toAuthResponse(user);
     }
 
+    /** Self-service profile edit: only the UI language; name, email and code come from the university (15 §5.1). */
+    @Transactional
+    public UserResponseDTO updateOwnProfile(UUID userId, UpdateProfileRequest request) {
+        User user = load(userId);
+        if (request.preferredLanguage() != null) {
+            user.setPreferredLanguage(request.preferredLanguage());
+        }
+        return UserResponseDTO.fromEntity(userRepository.saveAndFlush(user));
+    }
+
+    /** Unlink Google (D34): clears subject, email and link time. Idempotent. */
+    @Transactional
+    public UserResponseDTO unlinkGoogle(UUID userId) {
+        User user = load(userId);
+        user.setGoogleSubject(null);
+        user.setGoogleEmail(null);
+        user.setGoogleLinkedAt(null);
+        return UserResponseDTO.fromEntity(userRepository.saveAndFlush(user));
+    }
+
+    @Transactional(readOnly = true)
+    public UserResponseDTO currentProfile(UUID userId) {
+        return UserResponseDTO.fromEntity(load(userId));
+    }
+
+    private User load(UUID userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> ApiException.notFound("USER_NOT_FOUND", "User not found"));
+    }
+
     private AuthResponseDTO toAuthResponse(User user) {
         return AuthResponseDTO.builder()
                 .token(jwtService.generateToken(user.getUsername(), tokenClaims(user)))

@@ -27,6 +27,10 @@ public class UserResponseDTO {
     private Language preferredLanguage;
     /** Whether a Google account is linked (D25); the Google subject itself is never exposed. */
     private boolean googleLinked;
+    private String googleEmail;
+    /** Public picture URL with a cache-busting version, or null when the user has no avatar (D33). */
+    private String avatarUrl;
+    private boolean active;
     private Instant createdAt;
 
     public static UserResponseDTO fromEntity(User user) {
@@ -43,7 +47,18 @@ public class UserResponseDTO {
                 .studentCode(user.getStudentCode())
                 .preferredLanguage(user.getPreferredLanguage())
                 .googleLinked(user.getGoogleSubject() != null)
+                .googleEmail(user.getGoogleEmail())
+                .avatarUrl(avatarUrl(user))
+                .active(user.isActive())
                 .createdAt(user.getCreatedAt())
                 .build();
+    }
+
+    static String avatarUrl(User user) {
+        if (user.getAvatarKey() == null || user.getUserId() == null) {
+            return null;
+        }
+        long version = user.getAvatarUpdatedAt() == null ? 0 : user.getAvatarUpdatedAt().getEpochSecond();
+        return "/api/v1/avatars/" + user.getUserId() + "?v=" + version;
     }
 }
