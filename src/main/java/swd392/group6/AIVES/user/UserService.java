@@ -56,6 +56,9 @@ public class UserService {
         if (!passwordEncoder.matches(request.currentPassword(), user.getHashedPassword())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "CURRENT_PASSWORD_INCORRECT", "Current password is incorrect");
         }
+        if (passwordEncoder.matches(request.newPassword(), user.getHashedPassword())) {
+            throw ApiException.unprocessable("PASSWORD_UNCHANGED", "The new password must be different from the current one");
+        }
         user.setHashedPassword(passwordEncoder.encode(request.newPassword()));
         user.setPasswordChangedAt(clock.instant());
         return toAuthResponse(user);

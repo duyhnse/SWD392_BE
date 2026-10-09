@@ -32,6 +32,8 @@ public class UserResponseDTO {
     private String avatarUrl;
     private boolean active;
     private Instant createdAt;
+    /** Last password change (null = never changed in AIVES). */
+    private Instant passwordChangedAt;
 
     public static UserResponseDTO fromEntity(User user) {
         if (user == null) {
@@ -51,6 +53,7 @@ public class UserResponseDTO {
                 .avatarUrl(avatarUrl(user))
                 .active(user.isActive())
                 .createdAt(user.getCreatedAt())
+                .passwordChangedAt(user.getPasswordChangedAt())
                 .build();
     }
 

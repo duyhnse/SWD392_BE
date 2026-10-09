@@ -72,6 +72,7 @@ class UserServiceTest {
         User user = user();
         when(userRepository.findById(user.getUserId())).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("old", "hashed")).thenReturn(true);
+        when(passwordEncoder.matches("NewPassword1", "hashed")).thenReturn(false);
         when(passwordEncoder.encode("NewPassword1")).thenReturn("new-hash");
         when(jwtService.generateToken(eq("vinhdq"), anyMap())).thenReturn("fresh");
 
