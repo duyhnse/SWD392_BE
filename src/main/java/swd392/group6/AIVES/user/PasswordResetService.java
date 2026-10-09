@@ -55,6 +55,18 @@ class PasswordResetService {
                 .ifPresent(user -> issueAndSend(user, clientIp));
     }
 
+    /**
+     * Admin-triggered reset (15 §5.1): mails the user the same one-time link as Forgot password.
+     * Not rate-limited; inactive accounts are refused because their link could never be used.
+     */
+    @Transactional
+    public void sendResetLinkFor(User user, String clientIp) {
+        if (!user.isActive()) {
+            throw ApiException.conflict("USER_INACTIVE", "Activate the account before sending a reset link");
+        }
+        issueAndSend(user, clientIp);
+    }
+
     @Transactional
     public void confirm(PasswordResetConfirm request) {
         Instant now = clock.instant();
