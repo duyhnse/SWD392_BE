@@ -102,7 +102,7 @@ class CourseService {
 
     /**
      * Hard delete of an empty course. Lecturer assignments are not course content and go with it; anything
-     * else that references the course (topics, terms, materials, rubrics, questions, exams, ...) blocks it.
+     * else that references the course (chapters, terms, materials, rubrics, questions, exams, ...) blocks it.
      */
     @Transactional
     public void delete(UUID courseId) {
@@ -112,7 +112,7 @@ class CourseService {
             jdbc.sql("delete from courses where course_id = ?").param(courseId).update();
         } catch (DataIntegrityViolationException e) {
             throw ApiException.conflict("COURSE_IN_USE",
-                    "The course has content (topics, questions, exams, ...). Deactivate it instead.");
+                    "The course has content (chapters, questions, exams, ...). Deactivate it instead.");
         }
     }
 

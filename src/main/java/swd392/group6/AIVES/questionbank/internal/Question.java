@@ -37,8 +37,8 @@ public class Question {
     @Column(name = "course_id", nullable = false, updatable = false)
     private UUID courseId;
 
-    @Column(name = "topic_id", nullable = false)
-    private UUID topicId;
+    @Column(name = "chapter_id", nullable = false)
+    private UUID chapterId;
 
     @Column(name = "content", nullable = false)
     private String content;

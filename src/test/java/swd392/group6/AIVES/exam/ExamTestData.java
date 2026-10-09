@@ -51,10 +51,12 @@ class ExamTestData {
         return id;
     }
 
-    UUID topic(UUID courseId, User creator) {
+    UUID chapter(UUID courseId, User creator) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into topics (topic_id, course_id, name, created_by) values (?, ?, ?, ?)",
-                id, courseId, "Topic " + id.toString().substring(0, 6), creator.getUserId());
+        jdbc.update("""
+                insert into chapters (chapter_id, course_id, chapter_no, title, created_by)
+                values (?, ?, (select coalesce(max(chapter_no), 0) + 1 from chapters where course_id = ?), ?, ?)""",
+                id, courseId, courseId, "Chapter " + id.toString().substring(0, 6), creator.getUserId());
         return id;
     }
 
@@ -68,34 +70,29 @@ class ExamTestData {
         return id;
     }
 
-    UUID question(UUID courseId, UUID topicId, BloomLevel bloom, UUID rubricId, User owner) {
-        return question(courseId, topicId, bloom, rubricId, owner, "PUBLISHED");
+    UUID question(UUID courseId, UUID chapterId, BloomLevel bloom, UUID rubricId, User owner) {
+        return question(courseId, chapterId, bloom, rubricId, owner, "PUBLISHED");
     }
 
-    UUID question(UUID courseId, UUID topicId, BloomLevel bloom, UUID rubricId, User owner, String status) {
+    UUID question(UUID courseId, UUID chapterId, BloomLevel bloom, UUID rubricId, User owner, String status) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                insert into questions (question_id, course_id, topic_id, content, reference_answer, bloom_level, language,
+                insert into questions (question_id, course_id, chapter_id, content, reference_answer, bloom_level, language,
                                        status, origin, rubric_id, owner_id)
                 values (?, ?, ?, ?, 'Reference', ?, 'VI', ?, 'MANUAL', ?, ?)""",
-                id, courseId, topicId, "Question " + bloom + " " + id.toString().substring(0, 6), bloom.name(), status,
+                id, courseId, chapterId, "Question " + bloom + " " + id.toString().substring(0, 6), bloom.name(), status,
                 rubricId, owner.getUserId());
         return id;
     }
 
-    void sessionState(UUID sessionId, String status, Instant startedAt, Instant endedAt) {
-        jdbc.update("update exam_sessions set status = ?, started_at = ?, ended_at = ?, deadline_at = ? where session_id = ?",
-                status, ts(startedAt), ts(endedAt), startedAt == null ? null : ts(startedAt.plusSeconds(900)), sessionId);
+    void attemptState(UUID attemptId, String status, Instant endedAt) {
+        jdbc.update("update exam_attempts set status = ?, ended_at = ?, end_reason = ? where attempt_id = ?",
+                status, ts(endedAt), "COMPLETED".equals(status) ? "ALL_QUESTIONS_DONE" : null, attemptId);
     }
 
-    void evaluation(UUID sessionId, String status) {
-        jdbc.update("insert into grade_evaluations (evaluation_id, session_id, status) values (?, ?, ?)",
-                UUID.randomUUID(), sessionId, status);
-    }
-
-    UUID sessionOf(UUID examId, User student) {
-        return jdbc.queryForObject("select session_id from exam_sessions where viva_exam_id = ? and student_id = ?",
-                UUID.class, examId, student.getUserId());
+    void evaluation(UUID attemptId, String status) {
+        jdbc.update("insert into grade_evaluations (evaluation_id, attempt_id, status) values (?, ?, ?)",
+                UUID.randomUUID(), attemptId, status);
     }
 
     private static Timestamp ts(Instant i) {

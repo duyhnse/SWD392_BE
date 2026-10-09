@@ -129,8 +129,8 @@ class MaterialsIntegrationTest {
     @Test
     void citedMaterialCannotBeDeleted_BR_Q12() throws Exception {
         UUID id = upload("cited.pdf", PDF, new byte[] {1});
-        UUID topic = fx.topic(lecturer, courseId, "T");
-        UUID question = fx.question(lecturer, courseId, "{\"topicId\":\"" + topic + "\",\"content\":\"Q\"}");
+        UUID chapter = fx.chapter(lecturer, courseId, "T");
+        UUID question = fx.question(lecturer, courseId, "{\"chapterId\":\"" + chapter + "\",\"content\":\"Q\"}");
         jdbc.update("insert into question_sources (question_source_id, question_id, material_id, location_label) values (?, ?, ?, 'Page 1')",
                 UUID.randomUUID(), question, id);
         fx.perform(lecturer, delete("/api/v1/materials/" + id))

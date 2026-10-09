@@ -64,20 +64,19 @@ class ExamStudentService {
         Instant now = clock.instant();
         return jdbc.query("""
                         select v.student_id, u.username, u.full_name, u.student_code, v.seq_no, v.added_at,
-                               s.session_id, s.status, s.cancel_reason
+                               a.attempt_id, a.status
                         from viva_exam_students v join users u on u.user_id = v.student_id
-                        left join exam_sessions s on s.viva_exam_id = v.viva_exam_id and s.student_id = v.student_id
+                        left join exam_attempts a on a.viva_exam_id = v.viva_exam_id and a.student_id = v.student_id
                         where v.viva_exam_id = :e order by v.seq_no""", ExamQueries.params(examId),
                 (rs, i) -> new StudentView(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3), rs.getString(4),
                         rs.getInt(5), ExamQueries.instant(rs.getTimestamp(6)), rs.getObject(7, UUID.class), rs.getString(8),
-                        rs.getString(8) == null ? null : SessionStage.of(rs.getString(8), rs.getString(9), exam.getStatus(),
-                                exam.getWindowStart(), exam.getWindowEnd(), now)));
+                        ExamStage.of(rs.getString(8), exam.getStatus(), exam.getCheckinOpensAt(),
+                                exam.getCheckinClosesAt(), now)));
     }
 
     AddStudentsReport add(UUID examId, Object studentCodes, Object usernames, User user) {
         refresher.refreshDue();
-        VivaExam exam = access.write(examId, user);
-        VivaExamService.requireDraft(exam);
+        requireRosterEditable(access.write(examId, user));
         return addResolved(examId, tokens(studentCodes, true), tokens(usernames, false), null, user.getUserId());
     }
 
@@ -130,8 +129,7 @@ class ExamStudentService {
     /** Class list CSV (username, full_name, email, student_code): missing students are created by the user module. */
     ImportReport importCsv(UUID examId, InputStream input, User user) {
         refresher.refreshDue();
-        VivaExam exam = access.write(examId, user);
-        VivaExamService.requireDraft(exam);
+        requireRosterEditable(access.write(examId, user));
 
         List<NewAccount> accounts = new ArrayList<>();
         List<Integer> rows = new ArrayList<>();
@@ -179,37 +177,31 @@ class ExamStudentService {
         return new ImportReport(accounts.size(), created, report.added(), report.alreadyInExam(), notStudent, errors);
     }
 
-    /**
-     * Before the student started: DRAFT → just leave the list; generated → the lượt thi becomes
-     * CANCELLED / REMOVED_BY_LECTURER. The remaining students keep a contiguous order.
-     */
+    /** Only students who have not checked in can leave the roster; the others keep a contiguous order. */
     void remove(UUID examId, UUID studentId, User user) {
         refresher.refreshDue();
-        VivaExam exam = access.write(examId, user);
-        if (exam.getStatus() == ExamStatus.CLOSED || exam.getStatus() == ExamStatus.CANCELLED) {
-            throw ApiException.conflict("EXAM_NOT_EDITABLE", "The student list of a closed or cancelled exam is final");
-        }
+        requireRosterEditable(access.write(examId, user));
         MapSqlParameterSource p = ExamQueries.params(examId).addValue("s", studentId);
         List<Integer> seq = jdbc.queryForList(
                 "select seq_no from viva_exam_students where viva_exam_id = :e and student_id = :s", p, Integer.class);
         if (seq.isEmpty()) {
             throw ApiException.notFound("STUDENT_NOT_IN_EXAM", "The student is not in this exam");
         }
-        List<Map<String, Object>> session = jdbc.queryForList(
-                "select status, started_at from exam_sessions where viva_exam_id = :e and student_id = :s", p);
-        if (!session.isEmpty()) {
-            String status = (String) session.getFirst().get("status");
-            if (session.getFirst().get("started_at") != null
-                    || !("SCHEDULED".equals(status) || "CANCELLED".equals(status))) {
-                throw ApiException.conflict("SESSION_ALREADY_STARTED", "The student already started this exam");
-            }
-            jdbc.update("""
-                    update exam_sessions set status = 'CANCELLED', cancel_reason = 'REMOVED_BY_LECTURER'
-                    where viva_exam_id = :e and student_id = :s and status = 'SCHEDULED'""", p);
+        Boolean checkedIn = jdbc.queryForObject(
+                "select exists(select 1 from exam_attempts where viva_exam_id = :e and student_id = :s)", p, Boolean.class);
+        if (Boolean.TRUE.equals(checkedIn)) {
+            throw ApiException.conflict("ATTEMPT_EXISTS", "The student already checked in");
         }
         jdbc.update("delete from viva_exam_students where viva_exam_id = :e and student_id = :s", p);
         jdbc.update("update viva_exam_students set seq_no = seq_no - 1 where viva_exam_id = :e and seq_no > :seq",
                 p.addValue("seq", seq.getFirst()));
+    }
+
+    /** The roster can change until check-in closes: students draw their questions only at check-in (D48). */
+    private static void requireRosterEditable(VivaExam exam) {
+        if (exam.getStatus() == ExamStatus.CLOSED || exam.getStatus() == ExamStatus.CANCELLED) {
+            throw ApiException.conflict("EXAM_NOT_EDITABLE", "The student list of a closed or cancelled exam is final");
+        }
     }
 
     /** Splits pasted text on commas, semicolons, whitespace and new lines; de-duplicates case-insensitively. */

@@ -44,14 +44,14 @@ class QuestionController {
     @GetMapping("/courses/{courseId}/questions")
     public PageResponse<QuestionSummaryDto> list(@PathVariable UUID courseId,
                                                  @RequestParam(required = false) List<QuestionStatus> status,
-                                                 @RequestParam(required = false) List<UUID> topicId,
+                                                 @RequestParam(required = false) List<UUID> chapterId,
                                                  @RequestParam(required = false) List<BloomLevel> bloomLevel,
                                                  @RequestParam(required = false) List<QuestionOrigin> origin,
                                                  @RequestParam(required = false) String q,
                                                  @RequestParam(defaultValue = "0") int page,
                                                  @RequestParam(defaultValue = "20") int size,
                                                  @AuthenticationPrincipal User user) {
-        return service.list(courseId, new QuestionFilter(status, topicId, bloomLevel, origin, q), page, size, user);
+        return service.list(courseId, new QuestionFilter(status, chapterId, bloomLevel, origin, q), page, size, user);
     }
 
     @PostMapping("/courses/{courseId}/questions")

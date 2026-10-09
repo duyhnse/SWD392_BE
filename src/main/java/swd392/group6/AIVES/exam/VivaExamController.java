@@ -21,17 +21,17 @@ import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.common.PageResponse;
 import swd392.group6.AIVES.exam.ExamDtos.AddStudentsReport;
 import swd392.group6.AIVES.exam.ExamDtos.AddStudentsRequest;
-import swd392.group6.AIVES.exam.ExamDtos.BlueprintRequest;
+import swd392.group6.AIVES.exam.ExamDtos.AttemptDetail;
+import swd392.group6.AIVES.exam.ExamDtos.AttemptRow;
 import swd392.group6.AIVES.exam.ExamDtos.CancelRequest;
 import swd392.group6.AIVES.exam.ExamDtos.CreateExamRequest;
 import swd392.group6.AIVES.exam.ExamDtos.ExamDetail;
 import swd392.group6.AIVES.exam.ExamDtos.ExamSummary;
-import swd392.group6.AIVES.exam.ExamDtos.GenerationResult;
 import swd392.group6.AIVES.exam.ExamDtos.ImportReport;
-import swd392.group6.AIVES.exam.ExamDtos.QuestionPoolRequest;
+import swd392.group6.AIVES.exam.ExamDtos.PoolCheck;
+import swd392.group6.AIVES.exam.ExamDtos.PublishResult;
 import swd392.group6.AIVES.exam.ExamDtos.RetakeRequest;
 import swd392.group6.AIVES.exam.ExamDtos.RetakeResult;
-import swd392.group6.AIVES.exam.ExamDtos.SessionRow;
 import swd392.group6.AIVES.exam.ExamDtos.StudentView;
 import swd392.group6.AIVES.exam.ExamDtos.UpdateExamRequest;
 import swd392.group6.AIVES.user.User;
@@ -40,7 +40,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 
-/** FG2 buổi thi endpoints for lecturers (ADMIN read-only) — 15 §5.3. Authorization is enforced in the services. */
+/** FG2 buổi thi and lượt thi endpoints for lecturers (ADMIN read-only) — 15 §5.3. Authorization is in the services. */
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
@@ -50,7 +50,8 @@ class VivaExamController {
 
     private final VivaExamService exams;
     private final ExamStudentService students;
-    private final ExamSessionService sessions;
+    private final ExamLifecycleService lifecycle;
+    private final AttemptService attempts;
 
     @GetMapping("/courses/{courseId}/viva-exams")
     PageResponse<ExamSummary> list(@PathVariable UUID courseId, @AuthenticationPrincipal User user,
@@ -84,18 +85,6 @@ class VivaExamController {
         return ResponseEntity.noContent().build();
     }
 
-    @PutMapping("/viva-exams/{id}/blueprint")
-    ExamDetail blueprint(@PathVariable UUID id, @AuthenticationPrincipal User user,
-                         @Valid @RequestBody BlueprintRequest request) {
-        return exams.replaceBlueprint(id, request, user);
-    }
-
-    @PutMapping("/viva-exams/{id}/question-pool")
-    ExamDetail questionPool(@PathVariable UUID id, @AuthenticationPrincipal User user,
-                            @Valid @RequestBody QuestionPoolRequest request) {
-        return exams.replaceQuestionPool(id, request, user);
-    }
-
     @GetMapping("/viva-exams/{id}/students")
     List<StudentView> students(@PathVariable UUID id, @AuthenticationPrincipal User user) {
         return students.list(id, user);
@@ -123,50 +112,60 @@ class VivaExamController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/viva-exams/{id}/generate-sessions")
-    GenerationResult generate(@PathVariable UUID id, @AuthenticationPrincipal User user) {
-        return sessions.generate(id, user);
+    @GetMapping("/viva-exams/{id}/pool-check")
+    PoolCheck poolCheck(@PathVariable UUID id, @AuthenticationPrincipal User user) {
+        return lifecycle.poolCheck(id, user);
     }
 
-    @PostMapping("/viva-exams/{id}/reset-sessions")
-    ExamDetail reset(@PathVariable UUID id, @AuthenticationPrincipal User user) {
-        return sessions.reset(id, user);
+    @PostMapping("/viva-exams/{id}/publish")
+    PublishResult publish(@PathVariable UUID id, @AuthenticationPrincipal User user) {
+        return lifecycle.publish(id, user);
+    }
+
+    @PostMapping("/viva-exams/{id}/unpublish")
+    ExamDetail unpublish(@PathVariable UUID id, @AuthenticationPrincipal User user) {
+        return lifecycle.unpublish(id, user);
     }
 
     @PostMapping("/viva-exams/{id}/open")
     ExamDetail open(@PathVariable UUID id, @AuthenticationPrincipal User user) {
-        return sessions.open(id, user);
+        return lifecycle.open(id, user);
     }
 
     @PostMapping("/viva-exams/{id}/close")
     ExamDetail close(@PathVariable UUID id, @AuthenticationPrincipal User user) {
-        return sessions.close(id, user);
+        return lifecycle.close(id, user);
     }
 
     @PostMapping("/viva-exams/{id}/cancel")
     ExamDetail cancel(@PathVariable UUID id, @AuthenticationPrincipal User user,
                       @RequestBody(required = false) CancelRequest request) {
-        return sessions.cancel(id, request == null ? null : request.reason(), user);
+        return lifecycle.cancel(id, request == null ? null : request.reason(), user);
     }
 
     @PostMapping("/viva-exams/{id}/retake")
     ResponseEntity<RetakeResult> retake(@PathVariable UUID id, @AuthenticationPrincipal User user,
                                         @Valid @RequestBody RetakeRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(sessions.retake(id, request, user));
+        return ResponseEntity.status(HttpStatus.CREATED).body(lifecycle.retake(id, request, user));
     }
 
     @PostMapping("/viva-exams/{id}/release-results")
     ExamDetail release(@PathVariable UUID id, @AuthenticationPrincipal User user) {
-        return sessions.setResultsReleased(id, true, user);
+        return lifecycle.setResultsReleased(id, true, user);
     }
 
     @PostMapping("/viva-exams/{id}/unrelease-results")
     ExamDetail unrelease(@PathVariable UUID id, @AuthenticationPrincipal User user) {
-        return sessions.setResultsReleased(id, false, user);
+        return lifecycle.setResultsReleased(id, false, user);
     }
 
-    @GetMapping("/viva-exams/{id}/sessions")
-    List<SessionRow> sessions(@PathVariable UUID id, @AuthenticationPrincipal User user) {
-        return sessions.sessions(id, user);
+    @GetMapping("/viva-exams/{id}/attempts")
+    List<AttemptRow> attempts(@PathVariable UUID id, @AuthenticationPrincipal User user) {
+        return lifecycle.attempts(id, user);
+    }
+
+    @GetMapping("/attempts/{id}")
+    AttemptDetail attempt(@PathVariable UUID id, @AuthenticationPrincipal User user) {
+        return attempts.get(id, user);
     }
 }

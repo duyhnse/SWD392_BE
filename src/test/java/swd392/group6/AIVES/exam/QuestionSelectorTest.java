@@ -5,8 +5,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import swd392.group6.AIVES.exam.QuestionSelector.Candidate;
-import swd392.group6.AIVES.exam.QuestionSelector.Examinee;
-import swd392.group6.AIVES.exam.QuestionSelector.Result;
 import swd392.group6.AIVES.exam.QuestionSelector.Row;
 import swd392.group6.AIVES.questionbank.BloomLevel;
 
@@ -14,6 +12,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -27,22 +27,62 @@ import static swd392.group6.AIVES.questionbank.BloomLevel.APPLY;
 import static swd392.group6.AIVES.questionbank.BloomLevel.REMEMBER;
 import static swd392.group6.AIVES.questionbank.BloomLevel.UNDERSTAND;
 
-/** RANDOM_BALANCED with blueprint — 07 §2, 15 §3 (AC-E1..E4, AC-E7, AC-C4, AC-C5). */
+/**
+ * RANDOM_BALANCED draw at check-in with template rows — 07 §2, 15 §3, D48 (AC-E1..E4, AC-E7, AC-C4, AC-C5).
+ * {@link #simulate} checks students in one after another, as {@code CheckInService} does.
+ */
 class QuestionSelectorTest {
 
-    private static final UUID TOPIC_A = new UUID(0, 0xA);
-    private static final UUID TOPIC_B = new UUID(0, 0xB);
+    record Examinee(UUID studentId, Set<UUID> excluded) {
+    }
+
+    record Result(Map<UUID, List<UUID>> assignments, List<QuestionSelector.Warning> warnings,
+                  List<QuestionSelector.RowShortage> shortages) {
+
+        boolean failed() {
+            return !shortages.isEmpty();
+        }
+    }
+
+    /** Coverage check (publish) + one draw per student: previous examinee's questions avoided, usage counted. */
+    static Result simulate(List<Candidate> pool, List<Row> rows, List<Examinee> examinees, long seed) {
+        QuestionSelector.Coverage coverage = QuestionSelector.coverage(pool, rows);
+        if (!coverage.shortages().isEmpty()) {
+            return new Result(Map.of(), List.of(), coverage.shortages());
+        }
+        List<QuestionSelector.Warning> warnings = new ArrayList<>(coverage.warnings());
+        Map<UUID, List<UUID>> assignments = new LinkedHashMap<>();
+        Map<UUID, Integer> usage = new HashMap<>();
+        Set<UUID> previous = Set.of();
+        int i = 0;
+        for (Examinee e : examinees) {
+            QuestionSelector.Draw draw = QuestionSelector.draw(pool, rows, e.studentId(), e.excluded(), previous, usage,
+                    seed + i++);
+            if (draw.failed()) {
+                return new Result(Map.of(), List.of(), draw.shortages());
+            }
+            List<UUID> ids = draw.picks().stream().map(QuestionSelector.Pick::questionId).toList();
+            ids.forEach(id -> usage.merge(id, 1, Integer::sum));
+            warnings.addAll(draw.warnings());
+            assignments.put(e.studentId(), ids);
+            previous = new LinkedHashSet<>(ids);
+        }
+        return new Result(assignments, warnings, List.of());
+    }
+
+    private static final UUID CHAPTER_A = new UUID(0, 0xA);
+    private static final UUID CHAPTER_B = new UUID(0, 0xB);
     private static final long SEED = 42L;
 
     private static int counter;
 
-    private static Candidate q(UUID topic, BloomLevel bloom) {
-        return new Candidate(new UUID(1, ++counter), topic, bloom);
+    private static Candidate q(UUID chapter, BloomLevel bloom) {
+        return new Candidate(new UUID(1, ++counter), chapter, bloom);
     }
 
     private static List<Candidate> pool(int n) {
         BloomLevel[] levels = BloomLevel.values();
-        return IntStream.range(0, n).mapToObj(i -> q(TOPIC_A, levels[i % levels.length])).toList();
+        return IntStream.range(0, n).mapToObj(i -> q(CHAPTER_A, levels[i % levels.length])).toList();
     }
 
     private static List<Examinee> students(int n) {
@@ -73,7 +113,7 @@ class QuestionSelectorTest {
     @MethodSource("consecutiveCases")
     void consecutiveStudentsShareNoQuestionWhenThePoolAllows(int poolSize, int n, int studentCount, boolean overlap) {
         List<Examinee> students = students(studentCount);
-        Result r = QuestionSelector.select(pool(poolSize), any(n), students, SEED);
+        Result r = simulate(pool(poolSize), any(n), students, SEED);
 
         assertThat(r.failed()).isFalse();
         for (int i = 0; i < students.size(); i++) {
@@ -88,7 +128,7 @@ class QuestionSelectorTest {
 
     @Test
     void poolSmallerThanNFails_AC_E3() {
-        Result r = QuestionSelector.select(pool(2), any(3), students(2), SEED);
+        Result r = simulate(pool(2), any(3), students(2), SEED);
 
         assertThat(r.failed()).isTrue();
         assertThat(r.shortages()).singleElement().satisfies(s -> {
@@ -103,7 +143,7 @@ class QuestionSelectorTest {
         Map<UUID, BloomLevel> bloom = new HashMap<>();
         pool.forEach(c -> bloom.put(c.questionId(), c.bloomLevel()));
 
-        Result r = QuestionSelector.select(pool, any(4), students(5), SEED);
+        Result r = simulate(pool, any(4), students(5), SEED);
 
         r.assignments().values().forEach(ids -> {
             List<Integer> levels = ids.stream().map(id -> bloom.get(id).ordinal()).toList();
@@ -119,15 +159,15 @@ class QuestionSelectorTest {
         List<Candidate> shuffled = new ArrayList<>(pool);
         Collections.shuffle(shuffled);
 
-        Result first = QuestionSelector.select(pool, any(3), students(8), SEED);
-        Result second = QuestionSelector.select(shuffled, any(3), students(8), SEED);
+        Result first = simulate(pool, any(3), students(8), SEED);
+        Result second = simulate(shuffled, any(3), students(8), SEED);
 
         assertThat(second.assignments()).isEqualTo(first.assignments());
     }
 
     @Test
     void leastUsedQuestionsComeFirst() {
-        Result r = QuestionSelector.select(pool(9), any(3), students(3), SEED);
+        Result r = simulate(pool(9), any(3), students(3), SEED);
 
         Set<UUID> used = new HashSet<>();
         r.assignments().values().forEach(used::addAll);
@@ -136,12 +176,12 @@ class QuestionSelectorTest {
 
     @Test
     void rowsWithoutBloomSpreadOverLevels() {
-        List<Candidate> pool = List.of(q(TOPIC_A, REMEMBER), q(TOPIC_A, REMEMBER), q(TOPIC_A, REMEMBER), q(TOPIC_A, REMEMBER),
-                q(TOPIC_A, ANALYZE), q(TOPIC_A, ANALYZE));
+        List<Candidate> pool = List.of(q(CHAPTER_A, REMEMBER), q(CHAPTER_A, REMEMBER), q(CHAPTER_A, REMEMBER), q(CHAPTER_A, REMEMBER),
+                q(CHAPTER_A, ANALYZE), q(CHAPTER_A, ANALYZE));
         Map<UUID, BloomLevel> bloom = new HashMap<>();
         pool.forEach(c -> bloom.put(c.questionId(), c.bloomLevel()));
 
-        Result r = QuestionSelector.select(pool, any(2), students(2), SEED);
+        Result r = simulate(pool, any(2), students(2), SEED);
 
         r.assignments().values().forEach(ids ->
                 assertThat(ids.stream().map(bloom::get)).containsExactly(REMEMBER, ANALYZE));
@@ -151,27 +191,27 @@ class QuestionSelectorTest {
     void blueprintGivesEveryStudentTheExactMix_AC_C4() {
         List<Candidate> pool = new ArrayList<>();
         for (int i = 0; i < 4; i++) {
-            pool.add(q(TOPIC_A, UNDERSTAND));
+            pool.add(q(CHAPTER_A, UNDERSTAND));
         }
-        pool.add(q(TOPIC_B, APPLY));
-        pool.add(q(TOPIC_B, APPLY));
-        pool.add(q(TOPIC_A, APPLY));        // distractors: right topic or right level only
-        pool.add(q(TOPIC_B, UNDERSTAND));
+        pool.add(q(CHAPTER_B, APPLY));
+        pool.add(q(CHAPTER_B, APPLY));
+        pool.add(q(CHAPTER_A, APPLY));        // distractors: right chapter or right level only
+        pool.add(q(CHAPTER_B, UNDERSTAND));
         Map<UUID, Candidate> byId = new HashMap<>();
         pool.forEach(c -> byId.put(c.questionId(), c));
-        List<Row> blueprint = List.of(new Row(TOPIC_A, UNDERSTAND, 2), new Row(TOPIC_B, APPLY, 1));
+        List<Row> blueprint = List.of(new Row(CHAPTER_A, UNDERSTAND, 2), new Row(CHAPTER_B, APPLY, 1));
         List<Examinee> students = students(5);
 
-        Result r = QuestionSelector.select(pool, blueprint, students, SEED);
+        Result r = simulate(pool, blueprint, students, SEED);
 
         assertThat(r.failed()).isFalse();
         assertThat(warningCodes(r)).doesNotContain(QuestionSelector.OVERLAP_UNAVOIDABLE);
         for (int i = 0; i < students.size(); i++) {
             List<Candidate> mine = r.assignments().get(students.get(i).studentId()).stream().map(byId::get).toList();
-            assertThat(mine).extracting(Candidate::topicId, Candidate::bloomLevel).containsExactly(
-                    org.assertj.core.groups.Tuple.tuple(TOPIC_A, UNDERSTAND),
-                    org.assertj.core.groups.Tuple.tuple(TOPIC_A, UNDERSTAND),
-                    org.assertj.core.groups.Tuple.tuple(TOPIC_B, APPLY));
+            assertThat(mine).extracting(Candidate::chapterId, Candidate::bloomLevel).containsExactly(
+                    org.assertj.core.groups.Tuple.tuple(CHAPTER_A, UNDERSTAND),
+                    org.assertj.core.groups.Tuple.tuple(CHAPTER_A, UNDERSTAND),
+                    org.assertj.core.groups.Tuple.tuple(CHAPTER_B, APPLY));
             if (i > 0) {
                 assertThat(r.assignments().get(students.get(i).studentId()))
                         .doesNotContainAnyElementsOf(r.assignments().get(students.get(i - 1).studentId()));
@@ -181,22 +221,22 @@ class QuestionSelectorTest {
 
     @Test
     void blueprintRowThatCannotBeSatisfiedIsReported() {
-        List<Candidate> pool = List.of(q(TOPIC_A, UNDERSTAND), q(TOPIC_B, APPLY), q(TOPIC_B, APPLY));
-        List<Row> blueprint = List.of(new Row(TOPIC_A, UNDERSTAND, 2), new Row(TOPIC_B, APPLY, 1));
+        List<Candidate> pool = List.of(q(CHAPTER_A, UNDERSTAND), q(CHAPTER_B, APPLY), q(CHAPTER_B, APPLY));
+        List<Row> blueprint = List.of(new Row(CHAPTER_A, UNDERSTAND, 2), new Row(CHAPTER_B, APPLY, 1));
 
-        Result r = QuestionSelector.select(pool, blueprint, students(2), SEED);
+        Result r = simulate(pool, blueprint, students(2), SEED);
 
         assertThat(r.failed()).isTrue();
         assertThat(r.shortages()).singleElement().satisfies(s -> {
             assertThat(s.rowIndex()).isZero();
-            assertThat(s.topicId()).isEqualTo(TOPIC_A);
+            assertThat(s.chapterId()).isEqualTo(CHAPTER_A);
             assertThat(s.available()).isEqualTo(1);
         });
     }
 
     @Test
     void smallPoolIsAWarning() {
-        Result r = QuestionSelector.select(pool(5), any(3), students(1), SEED);
+        Result r = simulate(pool(5), any(3), students(1), SEED);
 
         assertThat(warningCodes(r)).contains(QuestionSelector.POOL_SMALL);
     }
@@ -207,7 +247,7 @@ class QuestionSelectorTest {
         Set<UUID> before = Set.of(pool.get(0).questionId(), pool.get(1).questionId(), pool.get(2).questionId());
         Examinee retaker = new Examinee(new UUID(3, 1), before);
 
-        Result r = QuestionSelector.select(pool, any(3), List.of(new Examinee(new UUID(3, 0), Set.of()), retaker), SEED);
+        Result r = simulate(pool, any(3), List.of(new Examinee(new UUID(3, 0), Set.of()), retaker), SEED);
 
         assertThat(r.assignments().get(retaker.studentId())).doesNotContainAnyElementsOf(before);
         assertThat(warningCodes(r)).doesNotContain(QuestionSelector.RETAKE_OVERLAP_UNAVOIDABLE);
@@ -218,7 +258,7 @@ class QuestionSelectorTest {
         List<Candidate> pool = pool(4);
         Set<UUID> before = Set.of(pool.get(0).questionId(), pool.get(1).questionId(), pool.get(2).questionId());
 
-        Result r = QuestionSelector.select(pool, any(3), List.of(new Examinee(new UUID(3, 1), before)), SEED);
+        Result r = simulate(pool, any(3), List.of(new Examinee(new UUID(3, 1), before)), SEED);
 
         assertThat(r.failed()).isFalse();
         assertThat(r.assignments().get(new UUID(3, 1))).contains(pool.get(3).questionId());

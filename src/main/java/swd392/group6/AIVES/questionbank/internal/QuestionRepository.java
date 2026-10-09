@@ -10,14 +10,14 @@ import java.util.UUID;
 
 public interface QuestionRepository extends JpaRepository<Question, UUID>, JpaSpecificationExecutor<Question> {
 
-    boolean existsByTopicId(UUID topicId);
+    boolean existsByChapterId(UUID chapterId);
 
     boolean existsByRubricId(UUID rubricId);
 
     long countByRubricId(UUID rubricId);
 
-    @Query("select q.topicId, count(q) from Question q where q.courseId = :courseId group by q.topicId")
-    List<Object[]> countByTopic(UUID courseId);
+    @Query("select q.chapterId, count(q) from Question q where q.courseId = :courseId group by q.chapterId")
+    List<Object[]> countByChapter(UUID courseId);
 
     @Query("select q.rubricId, count(q) from Question q where q.rubricId in :rubricIds group by q.rubricId")
     List<Object[]> countByRubric(Collection<UUID> rubricIds);

@@ -55,7 +55,7 @@ class QuestionBankAuthorizationIntegrationTest {
     private List<AbstractMockHttpServletRequestBuilder<?>> reads() {
         UUID c = bank.courseId();
         return List.of(
-                get("/api/v1/courses/" + c + "/topics"),
+                get("/api/v1/courses/" + c + "/chapters"),
                 get("/api/v1/courses/" + c + "/terms"),
                 get("/api/v1/courses/" + c + "/rubrics"),
                 get("/api/v1/rubrics/" + bank.rubricId()),
@@ -70,18 +70,18 @@ class QuestionBankAuthorizationIntegrationTest {
         UUID c = bank.courseId();
         String json = "application/json";
         return List.of(
-                post("/api/v1/courses/" + c + "/topics").contentType(json).content("{\"name\":\"New topic\"}"),
-                patch("/api/v1/topics/" + bank.topicId()).contentType(json).content("{\"name\":\"Renamed\"}"),
-                delete("/api/v1/topics/" + bank.topicId()),
+                post("/api/v1/courses/" + c + "/chapters").contentType(json).content("{\"title\":\"New chapter\"}"),
+                patch("/api/v1/chapters/" + bank.chapterId()).contentType(json).content("{\"title\":\"Renamed\"}"),
+                delete("/api/v1/chapters/" + bank.chapterId()),
                 put("/api/v1/courses/" + c + "/terms").contentType(json).content("{\"terms\":[\"x\"]}"),
                 post("/api/v1/courses/" + c + "/rubrics").contentType(json).content(rubricBody("Another", 100)),
                 put("/api/v1/rubrics/" + bank.rubricId()).contentType(json).content(rubricBody("Changed", 100)),
                 delete("/api/v1/rubrics/" + bank.rubricId()),
                 post("/api/v1/rubrics/" + bank.rubricId() + "/duplicate").contentType(json).content("{\"name\":\"Dup\"}"),
                 post("/api/v1/courses/" + c + "/questions").contentType(json)
-                        .content(completeQuestion(bank.topicId(), bank.rubricId(), "New")),
-                put("/api/v1/questions/" + questionId).contentType(json).content("{\"version\":0,\"topicId\":\""
-                        + bank.topicId() + "\",\"content\":\"x\"}"),
+                        .content(completeQuestion(bank.chapterId(), bank.rubricId(), "New")),
+                put("/api/v1/questions/" + questionId).contentType(json).content("{\"version\":0,\"chapterId\":\""
+                        + bank.chapterId() + "\",\"content\":\"x\"}"),
                 post("/api/v1/questions/" + questionId + "/discard"),
                 post("/api/v1/questions/" + questionId + "/restore"),
                 post("/api/v1/questions/" + questionId + "/unpublish"),
@@ -147,7 +147,7 @@ class QuestionBankAuthorizationIntegrationTest {
     @Test
     void unknownCourseIs404ForAdminToo() throws Exception {
         Actor admin = fx.actor(Role.ADMIN);
-        fx.perform(admin, get("/api/v1/courses/" + UUID.randomUUID() + "/topics"))
+        fx.perform(admin, get("/api/v1/courses/" + UUID.randomUUID() + "/chapters"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("COURSE_NOT_FOUND"));
     }

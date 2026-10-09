@@ -10,16 +10,11 @@ import jakarta.persistence.Version;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
-import swd392.group6.AIVES.common.Language;
-import swd392.group6.AIVES.questionbank.BloomLevel;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
-/** Buổi thi — {@code viva_exams} (V1 + V2). */
+/** Buổi thi — a đề thi + check-in window + roster + connection rules (D47). {@code viva_exams}. */
 @Entity
 @Table(name = "viva_exams")
 @Getter
@@ -52,57 +47,35 @@ class VivaExam {
     @Column(name = "examiner_id", nullable = false)
     private UUID examinerId;
 
-    @Column(name = "window_start", nullable = false)
-    private Instant windowStart;
+    @Column(name = "exam_template_id", nullable = false)
+    private UUID templateId;
 
-    @Column(name = "window_end", nullable = false)
-    private Instant windowEnd;
+    /** Students may start (check in) from … */
+    @Column(name = "checkin_opens_at", nullable = false)
+    private Instant checkinOpensAt;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "language", nullable = false, length = 30)
-    private Language language;
+    /** … until here. There is no fixed end: every attempt ends at its own deadline (D47). */
+    @Column(name = "checkin_closes_at", nullable = false)
+    private Instant checkinClosesAt;
 
-    @Column(name = "main_question_count", nullable = false)
-    private int mainQuestionCount;
-
-    @Column(name = "max_followups_per_question", nullable = false)
-    private int maxFollowupsPerQuestion;
-
-    @Column(name = "time_limit_per_student_sec", nullable = false)
-    private int timeLimitPerStudentSec;
-
-    @Column(name = "answer_time_limit_sec", nullable = false)
-    private int answerTimeLimitSec;
-
-    @Column(name = "silence_warning_sec", nullable = false)
-    private int silenceWarningSec;
-
+    /** Offline longer than this → the attempt is INTERRUPTED (D51). */
     @Column(name = "reconnect_grace_sec", nullable = false)
-    private int reconnectGraceSec;
+    private int reconnectGraceSec = 60;
 
-    /** Legacy filter, null = all topics. Ignored when a blueprint exists. */
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "topic_ids")
-    private List<UUID> topicIds;
+    @Column(name = "max_disconnects", nullable = false)
+    private int maxDisconnects = 3;
 
-    /** Legacy filter, null = all levels. Ignored when a blueprint exists. */
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "bloom_levels")
-    private List<BloomLevel> bloomLevels;
+    /** Total offline (frozen) time allowed per attempt. */
+    @Column(name = "max_frozen_sec", nullable = false)
+    private int maxFrozenSec = 180;
 
-    @Column(name = "selection_strategy", nullable = false, length = 30)
-    private String selectionStrategy = "RANDOM_BALANCED";
-
-    @Column(name = "show_question_text", nullable = false)
-    private boolean showQuestionText = true;
+    /** Offline longer than this during a main question → the question is replaced when the pool allows. */
+    @Column(name = "replace_main_after_sec", nullable = false)
+    private int replaceMainAfterSec = 20;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)
     private ExamStatus status = ExamStatus.DRAFT;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "question_pool_mode", nullable = false, length = 30)
-    private QuestionPoolMode questionPoolMode = QuestionPoolMode.COURSE_BANK;
 
     @Column(name = "results_released", nullable = false)
     private boolean resultsReleased;

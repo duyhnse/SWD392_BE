@@ -11,7 +11,7 @@ import swd392.group6.AIVES.common.GlobalExceptionHandler;
 
 /** Adds the per-row details to POOL_TOO_SMALL; everything else falls through to {@link GlobalExceptionHandler}. */
 @Order(Ordered.HIGHEST_PRECEDENCE)
-@RestControllerAdvice(assignableTypes = VivaExamController.class)
+@RestControllerAdvice(assignableTypes = {VivaExamController.class, ExamTemplateController.class, MyExamController.class})
 class ExamExceptionHandler {
 
     @ExceptionHandler(PoolTooSmallException.class)
@@ -21,10 +21,10 @@ class ExamExceptionHandler {
         return body;
     }
 
-    /** Two lecturers saved the same buổi thi at once (optimistic locking on {@code viva_exams.version}). */
+    /** Two lecturers saved the same buổi thi / đề thi at once (optimistic locking on {@code version}). */
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     ProblemDetail versionConflict() {
         return GlobalExceptionHandler.problem(HttpStatus.CONFLICT, "VERSION_CONFLICT",
-                "The exam was changed by someone else; reload it");
+                "It was changed by someone else; reload it");
     }
 }

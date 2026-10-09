@@ -5,6 +5,7 @@ import swd392.group6.AIVES.common.Language;
 import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -16,22 +17,51 @@ public interface QuestionBankApi {
      *
      * @param restrictToIds when not empty, only these question ids (SELECTED pool mode)
      */
-    List<PublishedQuestion> findPublished(UUID courseId, Collection<UUID> topicIds, Collection<BloomLevel> bloomLevels,
+    List<PublishedQuestion> findPublished(UUID courseId, Collection<UUID> chapterIds, Collection<BloomLevel> bloomLevels,
                                           Collection<UUID> restrictToIds);
 
     Optional<QuestionInfo> getQuestion(UUID questionId);
 
-    /** Rubric of the question with its criteria, for grading snapshots. Empty when the question has no rubric. */
+    /** Rubric of the question with its criteria. Empty when the question has no rubric. */
     Optional<RubricSnapshot> getRubricSnapshot(UUID questionId);
 
-    boolean topicBelongsToCourse(UUID topicId, UUID courseId);
+    /** A rubric with its criteria (exam-template overrides). Empty when it does not exist. */
+    Optional<RubricSnapshot> getRubric(UUID rubricId);
 
-    record PublishedQuestion(UUID questionId, UUID courseId, UUID topicId, BloomLevel bloomLevel, Language language,
+    boolean chapterBelongsToCourse(UUID chapterId, UUID courseId);
+
+    /** True when the rubric exists, belongs to the course and its weights total 100 (BR-Q3). */
+    boolean rubricUsableInCourse(UUID rubricId, UUID courseId);
+
+    /** Chapters of a course by id (for exam-template views). */
+    Map<UUID, ChapterInfo> chapters(UUID courseId);
+
+    /**
+     * Everything an attempt must keep about the drawn questions (D49): content, reference answer, chapter, Bloom,
+     * language, version and the question's own rubric.
+     */
+    Map<UUID, QuestionSnapshot> snapshot(Collection<UUID> questionIds);
+
+    /**
+     * Locks questions drawn into an attempt and their rubrics (BR-Q8 since D49): further changes need a successor.
+     * Bumps the question version so concurrent editors get {@code VERSION_CONFLICT}.
+     */
+    void lockForExam(Collection<UUID> questionIds, Collection<UUID> rubricIds);
+
+    record PublishedQuestion(UUID questionId, UUID courseId, UUID chapterId, BloomLevel bloomLevel, Language language,
                              String content) {
     }
 
-    record QuestionInfo(UUID questionId, UUID courseId, UUID topicId, String content, String referenceAnswer,
+    record QuestionInfo(UUID questionId, UUID courseId, UUID chapterId, String content, String referenceAnswer,
                         BloomLevel bloomLevel, Language language, String status, UUID rubricId, boolean locked) {
+    }
+
+    record ChapterInfo(UUID chapterId, int chapterNo, String title) {
+    }
+
+    record QuestionSnapshot(UUID questionId, UUID chapterId, int chapterNo, String chapterTitle, String content,
+                            String referenceAnswer, BloomLevel bloomLevel, Language language, int version,
+                            RubricSnapshot rubric) {
     }
 
     record RubricSnapshot(UUID rubricId, String name, List<Criterion> criteria) {

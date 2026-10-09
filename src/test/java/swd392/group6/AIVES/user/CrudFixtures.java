@@ -3,6 +3,7 @@ package swd392.group6.AIVES.user;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import swd392.group6.AIVES.support.ExamRows;
 import swd392.group6.AIVES.support.TestUsers;
 
 import java.sql.Timestamp;
@@ -52,26 +53,20 @@ final class CrudFixtures {
         jdbc.update("insert into course_lecturers (course_id, lecturer_id) values (?, ?)", courseId, lecturerId);
     }
 
-    UUID topic(UUID courseId, UUID createdBy) {
+    UUID chapter(UUID courseId, UUID createdBy) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into topics (topic_id, course_id, name, created_by) values (?, ?, ?, ?)",
-                id, courseId, "Topic " + unique(), createdBy);
+        jdbc.update("""
+                insert into chapters (chapter_id, course_id, chapter_no, title, created_by)
+                values (?, ?, (select coalesce(max(chapter_no), 0) + 1 from chapters where course_id = ?), ?, ?)""",
+                id, courseId, courseId, "Chapter " + unique(), createdBy);
         return id;
     }
 
-    /** One buổi thi with one lượt thi for the student. */
+    /** One buổi thi with one lượt thi (attempt) for the student. */
     UUID examSession(UUID courseId, UUID lecturerId, UUID studentId) {
-        UUID exam = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
-        jdbc.update("""
-                        insert into viva_exams (viva_exam_id, course_id, title, created_by, examiner_id, window_start, window_end,
-                                                language, main_question_count, max_followups_per_question, time_limit_per_student_sec)
-                        values (?, ?, 'Fixture exam', ?, ?, ?, ?, 'VI', 3, 1, 900)""",
-                exam, courseId, lecturerId, lecturerId, Timestamp.from(now), Timestamp.from(now.plus(1, ChronoUnit.DAYS)));
-        UUID session = UUID.randomUUID();
-        jdbc.update("insert into exam_sessions (session_id, viva_exam_id, course_id, student_id, examiner_id) values (?, ?, ?, ?, ?)",
-                session, exam, courseId, studentId, lecturerId);
-        return session;
+        UUID exam = ExamRows.exam(jdbc, courseId, lecturerId, 3, now, now.plus(1, ChronoUnit.DAYS), "OPEN");
+        return ExamRows.attempt(jdbc, exam, studentId, "IN_PROGRESS", now, null);
     }
 
     /** Bytes that only look like a PNG (magic number + zeros) — for size checks that happen before decoding. */

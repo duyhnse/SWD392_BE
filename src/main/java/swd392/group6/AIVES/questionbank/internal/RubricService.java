@@ -66,7 +66,7 @@ public class RubricService {
         Rubric rubric = new Rubric();
         rubric.setCourseId(courseId);
         rubric.setName(name);
-        rubric.setDescription(TopicService.blankToNull(request.description()));
+        rubric.setDescription(ChapterService.blankToNull(request.description()));
         rubric.setCreatedBy(user.getUserId());
         rubric.setCreatedAt(now);
         rubric.setUpdatedAt(now);
@@ -83,7 +83,7 @@ public class RubricService {
         String name = request.name().trim();
         requireFreeName(rubric.getCourseId(), name, rubric.getId());
         rubric.setName(name);
-        rubric.setDescription(TopicService.blankToNull(request.description()));
+        rubric.setDescription(ChapterService.blankToNull(request.description()));
         rubric.setUpdatedAt(Instant.now(clock));
         rubric.getCriteria().clear();
         rubrics.flush();
@@ -95,8 +95,11 @@ public class RubricService {
     public void delete(UUID rubricId, User user) {
         Rubric rubric = load(rubricId);
         access.write(rubric.getCourseId(), user, "RUBRIC_NOT_FOUND", "Rubric not found");
-        if (questions.existsByRubricId(rubricId) || criteriaScored(rubricId)) {
-            throw ApiException.conflict("RUBRIC_IN_USE", "The rubric is attached to questions; detach it first");
+        Boolean usedByTemplate = jdbc.queryForObject("""
+                select exists(select 1 from exam_templates where rubric_id = ?)
+                    or exists(select 1 from exam_template_items where rubric_id = ?)""", Boolean.class, rubricId, rubricId);
+        if (questions.existsByRubricId(rubricId) || criteriaScored(rubricId) || Boolean.TRUE.equals(usedByTemplate)) {
+            throw ApiException.conflict("RUBRIC_IN_USE", "The rubric is attached to questions or exam templates; detach it first");
         }
         rubrics.delete(rubric);
     }
@@ -142,7 +145,7 @@ public class RubricService {
     private void requireUnlocked(Rubric rubric) {
         if (rubric.isLocked() || criteriaScored(rubric.getId())) {
             throw ApiException.conflict("RUBRIC_LOCKED",
-                    "The rubric was used in a completed session and cannot change; duplicate it instead");
+                    "The rubric was used in an exam attempt and cannot change; duplicate it instead");
         }
     }
 

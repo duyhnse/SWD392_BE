@@ -4,10 +4,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
-import swd392.group6.AIVES.exam.ExamDtos.BlueprintItemView;
 import swd392.group6.AIVES.exam.ExamDtos.ExamDetail;
-import swd392.group6.AIVES.exam.ExamDtos.QuestionPoolView;
+import swd392.group6.AIVES.exam.ExamDtos.TemplateDetail;
+import swd392.group6.AIVES.exam.ExamDtos.TemplateItemView;
+import swd392.group6.AIVES.exam.ExamDtos.TemplateSummary;
 import swd392.group6.AIVES.questionbank.QuestionBankApi;
+import swd392.group6.AIVES.questionbank.QuestionBankApi.ChapterInfo;
 import swd392.group6.AIVES.questionbank.QuestionBankApi.PublishedQuestion;
 
 import java.sql.Timestamp;
@@ -18,35 +20,82 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Shared reads of the exam module: pool, selected questions, counts, the detail view. */
+/** Shared reads of the exam module: template rows and pool, counts, the detail views. */
 @Component
 @RequiredArgsConstructor
 class ExamQueries {
 
     private final NamedParameterJdbcTemplate jdbc;
     private final QuestionBankApi questionBank;
-    private final BlueprintItemRepository blueprintItems;
+    private final ExamTemplateItemRepository items;
+    private final ExamTemplateRepository templates;
     private final Clock clock;
 
-    List<UUID> selectedQuestionIds(UUID examId) {
-        return jdbc.queryForList("select question_id from viva_exam_questions where viva_exam_id = :e order by question_id",
-                params(examId), UUID.class);
+    List<UUID> selectedQuestionIds(UUID templateId) {
+        return jdbc.queryForList("select question_id from exam_template_questions where exam_template_id = :t order by question_id",
+                new MapSqlParameterSource("t", templateId), UUID.class);
     }
 
-    /**
-     * Pool P of 15 §3: SELECTED → the picked questions still PUBLISHED; COURSE_BANK → every PUBLISHED question of
-     * the course, narrowed by the legacy topic / Bloom filters only when there is no blueprint.
-     */
-    List<PublishedQuestion> pool(VivaExam exam, boolean hasBlueprint) {
-        if (exam.getQuestionPoolMode() == QuestionPoolMode.SELECTED) {
-            List<UUID> selected = selectedQuestionIds(exam.getId());
+    /** Pool P of 15 §3: SELECTED → the picked questions still PUBLISHED; COURSE_BANK → every PUBLISHED question. */
+    List<PublishedQuestion> pool(ExamTemplate t) {
+        if (t.getQuestionPoolMode() == QuestionPoolMode.SELECTED) {
+            List<UUID> selected = selectedQuestionIds(t.getId());
             // An empty restriction means "no restriction" to the question bank: never pass it.
-            return selected.isEmpty() ? List.of() : questionBank.findPublished(exam.getCourseId(), null, null, selected);
+            return selected.isEmpty() ? List.of() : questionBank.findPublished(t.getCourseId(), null, null, selected);
         }
-        if (hasBlueprint) {
-            return questionBank.findPublished(exam.getCourseId(), null, null, null);
-        }
-        return questionBank.findPublished(exam.getCourseId(), exam.getTopicIds(), exam.getBloomLevels(), null);
+        return questionBank.findPublished(t.getCourseId(), null, null, null);
+    }
+
+    List<QuestionSelector.Candidate> candidates(ExamTemplate t) {
+        return pool(t).stream()
+                .map(q -> new QuestionSelector.Candidate(q.questionId(), q.chapterId(), q.bloomLevel())).toList();
+    }
+
+    static List<QuestionSelector.Row> rows(List<ExamTemplateItem> items) {
+        return items.stream().map(i -> new QuestionSelector.Row(i.getChapterId(), i.getBloomLevel(), i.getQuestionCount()))
+                .toList();
+    }
+
+    static int questionCount(List<ExamTemplateItem> items) {
+        return items.stream().mapToInt(ExamTemplateItem::getQuestionCount).sum();
+    }
+
+    /** Σ count × seconds — the longest an attempt can take without frozen time (D46). */
+    static int durationSec(List<ExamTemplateItem> items) {
+        return items.stream().mapToInt(i -> i.getQuestionCount() * i.getSecondsPerQuestion()).sum();
+    }
+
+    long usedByExamCount(UUID templateId) {
+        Long n = jdbc.queryForObject("select count(*) from viva_exams where exam_template_id = :t",
+                new MapSqlParameterSource("t", templateId), Long.class);
+        return n == null ? 0 : n;
+    }
+
+    TemplateSummary summary(ExamTemplate t) {
+        List<ExamTemplateItem> rows = items.findByTemplateIdOrderBySortOrder(t.getId());
+        return new TemplateSummary(t.getId(), t.getCourseId(), t.getTitle(), questionCount(rows), durationSec(rows),
+                t.getPassScore(), t.isLocked(), t.isArchived(), usedByExamCount(t.getId()), version(t.getVersion()),
+                t.getUpdatedAt());
+    }
+
+    TemplateDetail templateDetail(ExamTemplate t) {
+        List<ExamTemplateItem> rows = items.findByTemplateIdOrderBySortOrder(t.getId());
+        Map<UUID, ChapterInfo> chapters = questionBank.chapters(t.getCourseId());
+        List<QuestionSelector.Candidate> pool = candidates(t);
+        List<TemplateItemView> views = rows.stream().map(i -> {
+            QuestionSelector.Row row = new QuestionSelector.Row(i.getChapterId(), i.getBloomLevel(), i.getQuestionCount());
+            ChapterInfo chapter = i.getChapterId() == null ? null : chapters.get(i.getChapterId());
+            return new TemplateItemView(i.getId(), i.getChapterId(), chapter == null ? null : chapter.chapterNo(),
+                    chapter == null ? null : chapter.title(), i.getBloomLevel(), i.getQuestionCount(),
+                    i.getSecondsPerQuestion(), i.getRubricId(), i.getSortOrder(), (int) pool.stream().filter(row::matches).count());
+        }).toList();
+        boolean sufficient = !rows.isEmpty() && QuestionSelector.coverage(pool, rows(rows)).shortages().isEmpty();
+        List<UUID> selected = t.getQuestionPoolMode() == QuestionPoolMode.SELECTED ? selectedQuestionIds(t.getId()) : List.of();
+        return new TemplateDetail(t.getId(), t.getCourseId(), t.getTitle(), t.getDescription(), t.getLanguage(),
+                t.getMaxFollowupsPerQuestion(), t.getMaxAnswerSec(), t.getSilenceWarningSec(), t.isShowQuestionText(),
+                t.getPassScore(), t.getRubricId(), t.getQuestionPoolMode(), selected, views, questionCount(rows),
+                durationSec(rows), sufficient, t.isLocked(), t.isArchived(), usedByExamCount(t.getId()), t.getCreatedBy(),
+                version(t.getVersion()), t.getCreatedAt(), t.getUpdatedAt());
     }
 
     long studentCount(UUID examId) {
@@ -54,52 +103,52 @@ class ExamQueries {
         return n == null ? 0 : n;
     }
 
-    Map<SessionStage, Long> stageCounts(VivaExam exam) {
-        Map<SessionStage, Long> counts = new EnumMap<>(SessionStage.class);
-        for (SessionStage stage : SessionStage.values()) {
+    /** Stage of every roster student (D31): attempt status when checked in, otherwise from the window. */
+    Map<ExamStage, Long> stageCounts(VivaExam exam) {
+        Map<ExamStage, Long> counts = new EnumMap<>(ExamStage.class);
+        for (ExamStage stage : ExamStage.values()) {
             counts.put(stage, 0L);
         }
         Instant now = clock.instant();
-        jdbc.query("select status, cancel_reason from exam_sessions where viva_exam_id = :e", params(exam.getId()),
+        jdbc.query("""
+                        select a.status from viva_exam_students v
+                        left join exam_attempts a on a.viva_exam_id = v.viva_exam_id and a.student_id = v.student_id
+                        where v.viva_exam_id = :e""", params(exam.getId()),
                 rs -> {
-                    SessionStage stage = SessionStage.of(rs.getString(1), rs.getString(2), exam.getStatus(),
-                            exam.getWindowStart(), exam.getWindowEnd(), now);
+                    ExamStage stage = ExamStage.of(rs.getString(1), exam.getStatus(), exam.getCheckinOpensAt(),
+                            exam.getCheckinClosesAt(), now);
                     counts.merge(stage, 1L, Long::sum);
                 });
         return counts;
     }
 
-    /** True when any lượt thi of the exam has been started (BR-E6). */
-    boolean anySessionStarted(UUID examId) {
-        Long n = jdbc.queryForObject("""
-                select count(*) from exam_sessions where viva_exam_id = :e
-                  and (status in ('IN_PROGRESS', 'INTERRUPTED', 'COMPLETED') or started_at is not null)""",
-                params(examId), Long.class);
+    boolean anyAttempt(UUID examId) {
+        Long n = jdbc.queryForObject("select count(*) from exam_attempts where viva_exam_id = :e", params(examId), Long.class);
         return n != null && n > 0;
     }
 
-    boolean anySessionInProgress(UUID examId) {
+    boolean anyAttemptRunning(UUID examId) {
         Long n = jdbc.queryForObject("""
-                select count(*) from exam_sessions where viva_exam_id = :e and status in ('IN_PROGRESS', 'INTERRUPTED')""",
+                select count(*) from exam_attempts where viva_exam_id = :e and status in ('IN_PROGRESS', 'INTERRUPTED')""",
                 params(examId), Long.class);
         return n != null && n > 0;
     }
 
     ExamDetail detail(VivaExam e) {
-        List<BlueprintItem> items = blueprintItems.findByVivaExamIdOrderBySortOrder(e.getId());
-        List<BlueprintItemView> blueprint = items.stream()
-                .map(b -> new BlueprintItemView(b.getId(), b.getTopicId(), b.getBloomLevel(), b.getQuestionCount(), b.getSortOrder()))
-                .toList();
-        List<UUID> selected = e.getQuestionPoolMode() == QuestionPoolMode.SELECTED ? selectedQuestionIds(e.getId()) : List.of();
-        QuestionPoolView pool = new QuestionPoolView(e.getQuestionPoolMode(), selected, pool(e, !items.isEmpty()).size());
+        ExamTemplate template = templates.findById(e.getTemplateId()).orElseThrow();
+        TemplateSummary summary = summary(template);
+        int duration = summary.totalDurationSec();
+        Instant lastEnd = e.getCheckinClosesAt().plusSeconds((long) duration + e.getMaxFrozenSec());
         return new ExamDetail(e.getId(), e.getCourseId(), e.getTitle(), e.getDescription(), e.getInstructions(),
-                e.getLocation(), e.getStatus(), e.getCreatedBy(), e.getExaminerId(), e.getWindowStart(), e.getWindowEnd(),
-                e.getLanguage(), e.getMainQuestionCount(), e.getMaxFollowupsPerQuestion(), e.getTimeLimitPerStudentSec(),
-                e.getAnswerTimeLimitSec(), e.getSilenceWarningSec(), e.getReconnectGraceSec(), e.getTopicIds(),
-                e.getBloomLevels(), e.getSelectionStrategy(), e.isShowQuestionText(), blueprint, pool,
-                studentCount(e.getId()), stageCounts(e), e.isResultsReleased(), e.getResultsReleasedAt(),
-                e.getRetakeOfVivaExamId(), e.getCancelReason(), e.getVersion() == null ? 0 : e.getVersion(),
-                e.getCreatedAt(), e.getUpdatedAt());
+                e.getLocation(), e.getStatus(), e.getCreatedBy(), e.getExaminerId(), summary, e.getCheckinOpensAt(),
+                e.getCheckinClosesAt(), duration, lastEnd, e.getReconnectGraceSec(), e.getMaxDisconnects(),
+                e.getMaxFrozenSec(), e.getReplaceMainAfterSec(), studentCount(e.getId()), stageCounts(e),
+                e.isResultsReleased(), e.getResultsReleasedAt(), e.getRetakeOfVivaExamId(), e.getCancelReason(),
+                version(e.getVersion()), e.getCreatedAt(), e.getUpdatedAt());
+    }
+
+    static int version(Integer v) {
+        return v == null ? 0 : v;
     }
 
     static MapSqlParameterSource params(UUID examId) {

@@ -27,8 +27,8 @@ public class GradeEvaluation {
     @Column(name = "evaluation_id", nullable = false, updatable = false)
     private UUID evaluationId;
 
-    @Column(name = "session_id", nullable = false, updatable = false, unique = true)
-    private UUID sessionId;
+    @Column(name = "attempt_id", nullable = false, updatable = false, unique = true)
+    private UUID attemptId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 30)

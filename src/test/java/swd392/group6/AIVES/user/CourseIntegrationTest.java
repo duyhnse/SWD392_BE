@@ -242,7 +242,7 @@ class CourseIntegrationTest {
         UUID id = createCourse(code());
         User lecturer = fx.user(Role.LECTURER, "lec" + unique());
         fx.assign(id, lecturer.getUserId());
-        fx.topic(id, lecturer.getUserId());
+        fx.chapter(id, lecturer.getUserId());
 
         mockMvc.perform(delete("/api/v1/admin/courses/" + id).header("Authorization", adminAuth))
                 .andExpect(status().isConflict())

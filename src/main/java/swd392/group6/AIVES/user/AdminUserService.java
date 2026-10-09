@@ -43,7 +43,7 @@ class AdminUserService {
     public UserDetail detail(UUID id) {
         User user = load(id);
         List<CourseRef> courses = null;
-        Long sessions = null;
+        Long attempts = null;
         if (user.getRole() == Role.LECTURER) {
             courses = jdbc.sql("""
                             select c.course_id, c.code, c.name, c.is_active
@@ -54,9 +54,9 @@ class AdminUserService {
                             rs.getBoolean(4)))
                     .list();
         } else if (user.getRole() == Role.STUDENT) {
-            sessions = jdbc.sql("select count(*) from exam_sessions where student_id = ?").param(id).query(Long.class).single();
+            attempts = jdbc.sql("select count(*) from exam_attempts where student_id = ?").param(id).query(Long.class).single();
         }
-        return new UserDetail(UserResponseDTO.fromEntity(user), courses, sessions);
+        return new UserDetail(UserResponseDTO.fromEntity(user), courses, attempts);
     }
 
     /** An admin cannot change their own role or deactivate themselves (409 CANNOT_CHANGE_SELF). */

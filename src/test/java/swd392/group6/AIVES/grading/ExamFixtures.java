@@ -1,6 +1,7 @@
 package swd392.group6.AIVES.grading;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import swd392.group6.AIVES.support.ExamRows;
 import swd392.group6.AIVES.support.TestUsers;
 import swd392.group6.AIVES.user.Role;
 import swd392.group6.AIVES.user.User;
@@ -27,7 +28,7 @@ public class ExamFixtures {
         this.users = users;
     }
 
-    public record CourseFx(UUID courseId, User lecturer, UUID topicId) {
+    public record CourseFx(UUID courseId, User lecturer, UUID chapterId) {
     }
 
     public record RubricFx(UUID rubricId, List<UUID> criterionIds) {
@@ -45,10 +46,12 @@ public class ExamFixtures {
         jdbc.update("insert into courses (course_id, code, name) values (?, ?, ?)", courseId, "C" + unique(), "Course");
         User lecturer = users.create(Role.LECTURER);
         assign(courseId, lecturer);
-        UUID topicId = UUID.randomUUID();
-        jdbc.update("insert into topics (topic_id, course_id, name, created_by) values (?, ?, ?, ?)",
-                topicId, courseId, "Topic " + unique(), lecturer.getUserId());
-        return new CourseFx(courseId, lecturer, topicId);
+        UUID chapterId = UUID.randomUUID();
+        jdbc.update("""
+                insert into chapters (chapter_id, course_id, chapter_no, title, created_by)
+                values (?, ?, (select coalesce(max(chapter_no), 0) + 1 from chapters where course_id = ?), ?, ?)""",
+                chapterId, courseId, courseId, "Chapter " + unique(), lecturer.getUserId());
+        return new CourseFx(courseId, lecturer, chapterId);
     }
 
     public void assign(UUID courseId, User lecturer) {
@@ -76,24 +79,17 @@ public class ExamFixtures {
     public UUID question(CourseFx course, UUID rubricId, String content) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                        insert into questions (question_id, course_id, topic_id, content, reference_answer, bloom_level, language,
+                        insert into questions (question_id, course_id, chapter_id, content, reference_answer, bloom_level, language,
                                                status, origin, rubric_id, owner_id)
                         values (?, ?, ?, ?, 'SECRET reference answer', 'UNDERSTAND', 'VI', 'PUBLISHED', 'MANUAL', ?, ?)""",
-                id, course.courseId(), course.topicId(), content, rubricId, course.lecturer().getUserId());
+                id, course.courseId(), course.chapterId(), content, rubricId, course.lecturer().getUserId());
         return id;
     }
 
     public UUID exam(CourseFx course, int mainQuestionCount) {
-        UUID id = UUID.randomUUID();
         Instant start = Instant.now().minus(2, ChronoUnit.HOURS);
-        jdbc.update("""
-                        insert into viva_exams (viva_exam_id, course_id, title, created_by, examiner_id, window_start, window_end,
-                                                language, main_question_count, max_followups_per_question,
-                                                time_limit_per_student_sec, status)
-                        values (?, ?, ?, ?, ?, ?, ?, 'VI', ?, 2, 600, 'OPEN')""",
-                id, course.courseId(), "Viva " + unique(), course.lecturer().getUserId(), course.lecturer().getUserId(),
-                Timestamp.from(start), Timestamp.from(start.plus(4, ChronoUnit.HOURS)), mainQuestionCount);
-        return id;
+        return ExamRows.exam(jdbc, course.courseId(), course.lecturer().getUserId(), mainQuestionCount, start,
+                start.plus(4, ChronoUnit.HOURS), "OPEN");
     }
 
     public User student(String fullName) {
@@ -106,34 +102,24 @@ public class ExamFixtures {
     }
 
     /**
-     * A lượt thi with one session question per entry of {@code questionIds}; {@code threadStatuses} are the
-     * session_questions statuses (DONE, SKIPPED, NOT_REACHED…). Session status COMPLETED unless overridden.
+     * A lượt thi (attempt) with one drawn question per entry of {@code questionIds}; {@code threadStatuses} are the
+     * attempt_questions statuses (DONE, SKIPPED, NOT_REACHED…). Status {@code NO_SHOW} = roster entry only: the
+     * student never checked in (D48), {@code attemptId} is then null.
      */
     public SessionFx session(UUID examId, CourseFx course, User student, String status, String cancelReason,
                              List<UUID> questionIds, List<String> threadStatuses) {
-        UUID sessionId = UUID.randomUUID();
-        Integer seq = jdbc.queryForObject("select coalesce(max(seq_no), 0) + 1 from viva_exam_students where viva_exam_id = ?",
-                Integer.class, examId);
-        jdbc.update("insert into viva_exam_students (viva_exam_id, student_id, seq_no) values (?, ?, ?)",
-                examId, student.getUserId(), seq);
+        if ("NO_SHOW".equals(status) || "NO_SHOW".equals(cancelReason)) {
+            ExamRows.roster(jdbc, examId, student.getUserId());
+            return new SessionFx(null, student, List.of());
+        }
         Instant started = Instant.now().minus(1, ChronoUnit.HOURS);
-        boolean began = "COMPLETED".equals(status) || "IN_PROGRESS".equals(status) || "INTERRUPTED".equals(status);
-        jdbc.update("""
-                        insert into exam_sessions (session_id, viva_exam_id, course_id, student_id, examiner_id, status, end_reason,
-                                                   started_at, ended_at, cancel_reason)
-                        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                sessionId, examId, course.courseId(), student.getUserId(), course.lecturer().getUserId(), status,
-                "COMPLETED".equals(status) ? "ALL_QUESTIONS_DONE" : null, began ? Timestamp.from(started) : null,
-                "COMPLETED".equals(status) ? Timestamp.from(started.plus(10, ChronoUnit.MINUTES)) : null, cancelReason);
+        UUID attemptId = ExamRows.attempt(jdbc, examId, student.getUserId(), status, started,
+                "COMPLETED".equals(status) ? started.plus(10, ChronoUnit.MINUTES) : null);
         List<UUID> sqIds = new ArrayList<>();
         for (int i = 0; i < questionIds.size(); i++) {
-            UUID sq = UUID.randomUUID();
-            jdbc.update("""
-                            insert into session_questions (session_question_id, session_id, question_id, order_no, status)
-                            values (?, ?, ?, ?, ?)""", sq, sessionId, questionIds.get(i), i + 1, threadStatuses.get(i));
-            sqIds.add(sq);
+            sqIds.add(ExamRows.attemptQuestion(jdbc, attemptId, questionIds.get(i), i + 1, threadStatuses.get(i)));
         }
-        return new SessionFx(sessionId, student, sqIds);
+        return new SessionFx(attemptId, student, sqIds);
     }
 
     public SessionFx completedSession(UUID examId, CourseFx course, User student, List<UUID> questionIds) {
@@ -142,7 +128,7 @@ public class ExamFixtures {
     }
 
     private int turnOrder(UUID sessionId) {
-        Integer n = jdbc.queryForObject("select coalesce(max(turn_order), 0) + 1 from exam_turns where session_id = ?",
+        Integer n = jdbc.queryForObject("select coalesce(max(turn_order), 0) + 1 from exam_turns where attempt_id = ?",
                 Integer.class, sessionId);
         return n == null ? 1 : n;
     }
@@ -152,7 +138,7 @@ public class ExamFixtures {
                      String status, String transcript, Integer durationSec, String answerAudioKey) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                        insert into exam_turns (turn_id, session_id, session_question_id, question_id, parent_turn_id, turn_type,
+                        insert into exam_turns (turn_id, attempt_id, attempt_question_id, question_id, parent_turn_id, turn_type,
                                                 turn_order, followup_index, question_text, question_audio_key, language, status,
                                                 asked_at, response_duration_sec, answer_audio_key, student_transcript,
                                                 ai_analysis, followup_decision)
@@ -175,7 +161,7 @@ public class ExamFixtures {
     }
 
     public void event(UUID sessionId, String type) {
-        jdbc.update("insert into session_events (event_id, session_id, type, payload) values (?, ?, ?, cast(? as jsonb))",
+        jdbc.update("insert into attempt_events (event_id, attempt_id, type, payload) values (?, ?, ?, cast(? as jsonb))",
                 UUID.randomUUID(), sessionId, type, "{\"note\":\"" + type + "\"}");
     }
 }

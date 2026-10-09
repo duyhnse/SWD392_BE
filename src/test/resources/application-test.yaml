@@ -8,3 +8,6 @@ application:
       secret-key: dGVzdC1vbmx5LXNlY3JldC1rZXktMzItYnl0ZXMtbG9uZyEh
   storage:
     provider: memory
+  ai-node:
+    callback-secret: test-callback-secret
+    callback-base-url: http://node1.test:8081

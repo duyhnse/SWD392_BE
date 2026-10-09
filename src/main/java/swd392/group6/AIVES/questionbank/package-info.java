@@ -1,5 +1,5 @@
 /**
- * Question bank (WF1): topics, course terms, materials + RAG, questions, rubrics. Owner: Nguyên.
+ * Question bank (WF1): chapters, course terms, materials + RAG, questions, rubrics. Owner: Nguyên.
  * <p>
  * Spec: SWD_Docs/requirements. Public API = types in this package; implementation goes in sub-packages
  * ({@code internal}, {@code web}). Other modules may only use this package's public types or its events.

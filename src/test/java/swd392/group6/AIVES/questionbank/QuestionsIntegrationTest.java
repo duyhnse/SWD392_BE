@@ -48,7 +48,7 @@ class QuestionsIntegrationTest {
     }
 
     private String updateBody(int version, String content, String extra) {
-        return "{\"version\":" + version + ",\"topicId\":\"" + bank.topicId() + "\",\"content\":\"" + content + "\","
+        return "{\"version\":" + version + ",\"chapterId\":\"" + bank.chapterId() + "\",\"content\":\"" + content + "\","
                 + "\"referenceAnswer\":\"- key point\",\"bloomLevel\":\"APPLY\",\"rubricId\":\"" + bank.rubricId() + "\""
                 + extra + "}";
     }
@@ -60,12 +60,13 @@ class QuestionsIntegrationTest {
     @Test
     void manualQuestionIsDraftOwnedByCaller_AC_Q1() throws Exception {
         fx.json(owner, post("/api/v1/courses/" + bank.courseId() + "/questions"),
-                        "{\"topicId\":\"" + bank.topicId() + "\",\"content\":\"Explain CQRS\"}")
+                        "{\"chapterId\":\"" + bank.chapterId() + "\",\"content\":\"Explain CQRS\"}")
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andExpect(jsonPath("$.origin").value("MANUAL"))
                 .andExpect(jsonPath("$.ownerId").value(owner.id().toString()))
-                .andExpect(jsonPath("$.topicName").value("Architecture"))
+                .andExpect(jsonPath("$.chapterTitle").value("Architecture"))
+                .andExpect(jsonPath("$.chapterNo").value(1))
                 .andExpect(jsonPath("$.language").value("VI"))
                 .andExpect(jsonPath("$.isLocked").value(false))
                 .andExpect(jsonPath("$.rubric").value(nullValue()))
@@ -77,32 +78,32 @@ class QuestionsIntegrationTest {
     void languageDefaultsToCourseLanguage_BR_Q9() throws Exception {
         UUID en = fx.course("EN");
         fx.assign(en, owner);
-        UUID topic = fx.topic(owner, en, "T");
-        fx.json(owner, post("/api/v1/courses/" + en + "/questions"), "{\"topicId\":\"" + topic + "\",\"content\":\"Q\"}")
+        UUID chapter = fx.chapter(owner, en, "T");
+        fx.json(owner, post("/api/v1/courses/" + en + "/questions"), "{\"chapterId\":\"" + chapter + "\",\"content\":\"Q\"}")
                 .andExpect(jsonPath("$.language").value("EN"));
         fx.json(owner, post("/api/v1/courses/" + en + "/questions"),
-                        "{\"topicId\":\"" + topic + "\",\"content\":\"Q\",\"language\":\"VI\"}")
+                        "{\"chapterId\":\"" + chapter + "\",\"content\":\"Q\",\"language\":\"VI\"}")
                 .andExpect(jsonPath("$.language").value("VI"));
     }
 
     @Test
-    void topicAndRubricMustBelongToTheCourse() throws Exception {
+    void chapterAndRubricMustBelongToTheCourse() throws Exception {
         Bank other = fx.bank(owner);
         fx.json(owner, post("/api/v1/courses/" + bank.courseId() + "/questions"),
-                        "{\"topicId\":\"" + other.topicId() + "\",\"content\":\"Q\"}")
+                        "{\"chapterId\":\"" + other.chapterId() + "\",\"content\":\"Q\"}")
                 .andExpect(status().isUnprocessableContent())
-                .andExpect(jsonPath("$.code").value("TOPIC_NOT_IN_COURSE"));
+                .andExpect(jsonPath("$.code").value("CHAPTER_NOT_IN_COURSE"));
         fx.json(owner, post("/api/v1/courses/" + bank.courseId() + "/questions"),
-                        completeQuestion(bank.topicId(), other.rubricId(), "Q"))
+                        completeQuestion(bank.chapterId(), other.rubricId(), "Q"))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("RUBRIC_NOT_IN_COURSE"));
-        fx.json(owner, post("/api/v1/courses/" + bank.courseId() + "/questions"), "{\"content\":\"no topic\"}")
+        fx.json(owner, post("/api/v1/courses/" + bank.courseId() + "/questions"), "{\"content\":\"no chapter\"}")
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     void getReturnsFullDtoWithRubricAndAiFields() throws Exception {
-        UUID id = fx.question(owner, bank.courseId(), completeQuestion(bank.topicId(), bank.rubricId(), "Explain DI"));
+        UUID id = fx.question(owner, bank.courseId(), completeQuestion(bank.chapterId(), bank.rubricId(), "Explain DI"));
         UUID material = UUID.randomUUID();
         jdbc.update("""
                         insert into course_materials (material_id, course_id, file_name, content_type, size_bytes, storage_key, uploaded_by)
@@ -129,11 +130,11 @@ class QuestionsIntegrationTest {
 
     @Test
     void listFiltersAndPaging() throws Exception {
-        UUID topic2 = fx.topic(owner, bank.courseId(), "Testing");
-        UUID a = fx.question(owner, bank.courseId(), completeQuestion(bank.topicId(), bank.rubricId(), "Explain microservices"));
-        UUID b = fx.question(owner, bank.courseId(), "{\"topicId\":\"" + topic2 + "\",\"content\":\"What is a mock?\","
+        UUID chapter2 = fx.chapter(owner, bank.courseId(), "Testing");
+        UUID a = fx.question(owner, bank.courseId(), completeQuestion(bank.chapterId(), bank.rubricId(), "Explain microservices"));
+        UUID b = fx.question(owner, bank.courseId(), "{\"chapterId\":\"" + chapter2 + "\",\"content\":\"What is a mock?\","
                 + "\"bloomLevel\":\"REMEMBER\"}");
-        UUID c = fx.question(owner, bank.courseId(), completeQuestion(topic2, bank.rubricId(), "Design a MICROSERVICE test"));
+        UUID c = fx.question(owner, bank.courseId(), completeQuestion(chapter2, bank.rubricId(), "Design a MICROSERVICE test"));
         fx.json(owner, post("/api/v1/questions/publish"), ids(List.of(a))).andExpect(status().isOk());
         jdbc.update("update questions set origin = 'IMPORTED' where question_id = ?", c);
         String base = "/api/v1/courses/" + bank.courseId() + "/questions";
@@ -142,9 +143,9 @@ class QuestionsIntegrationTest {
         fx.perform(owner, get(base).param("status", "PUBLISHED"))
                 .andExpect(jsonPath("$.items[*].id", contains(a.toString())))
                 .andExpect(jsonPath("$.items[0].rubricName").value("Default rubric"))
-                .andExpect(jsonPath("$.items[0].topicName").value("Architecture"));
+                .andExpect(jsonPath("$.items[0].chapterTitle").value("Architecture"));
         fx.perform(owner, get(base).param("status", "PUBLISHED", "DRAFT")).andExpect(jsonPath("$.total").value(3));
-        fx.perform(owner, get(base).param("topicId", topic2.toString()))
+        fx.perform(owner, get(base).param("chapterId", chapter2.toString()))
                 .andExpect(jsonPath("$.items[*].id", containsInAnyOrder(b.toString(), c.toString())));
         fx.perform(owner, get(base).param("bloomLevel", "REMEMBER"))
                 .andExpect(jsonPath("$.items[*].id", contains(b.toString())));
@@ -162,11 +163,11 @@ class QuestionsIntegrationTest {
 
     @Test
     void publishWithoutBloomRubricReferenceReturnsCodes_AC_C2_AC_Q2() throws Exception {
-        UUID bare = fx.question(owner, bank.courseId(), "{\"topicId\":\"" + bank.topicId() + "\",\"content\":\"   \"}");
+        UUID bare = fx.question(owner, bank.courseId(), "{\"chapterId\":\"" + bank.chapterId() + "\",\"content\":\"   \"}");
         UUID badRubric = fx.rubric(owner, bank.courseId(), "Ninety", 100);
         jdbc.update("update rubric_criteria set weight_percent = 90 where rubric_id = ?", badRubric);
-        UUID withBadRubric = fx.question(owner, bank.courseId(), completeQuestion(bank.topicId(), badRubric, "Q?"));
-        UUID good = fx.question(owner, bank.courseId(), completeQuestion(bank.topicId(), bank.rubricId(), "Good?"));
+        UUID withBadRubric = fx.question(owner, bank.courseId(), completeQuestion(bank.chapterId(), badRubric, "Q?"));
+        UUID good = fx.question(owner, bank.courseId(), completeQuestion(bank.chapterId(), bank.rubricId(), "Good?"));
         UUID missing = UUID.randomUUID();
 
         fx.json(owner, post("/api/v1/questions/publish"), ids(List.of(bare, withBadRubric, good, missing)))
@@ -193,7 +194,7 @@ class QuestionsIntegrationTest {
 
     @Test
     void ownerEditsWithOptimisticLocking_E7() throws Exception {
-        UUID id = fx.question(owner, bank.courseId(), completeQuestion(bank.topicId(), bank.rubricId(), "Old"));
+        UUID id = fx.question(owner, bank.courseId(), completeQuestion(bank.chapterId(), bank.rubricId(), "Old"));
         int v = version(id);
         fx.json(owner, put("/api/v1/questions/" + id), updateBody(v, "New wording", ",\"language\":\"EN\""))
                 .andExpect(status().isOk())
@@ -206,13 +207,13 @@ class QuestionsIntegrationTest {
         fx.json(owner, put("/api/v1/questions/" + id), updateBody(v, "Stale", ""))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("VERSION_CONFLICT"));
-        fx.json(owner, put("/api/v1/questions/" + id), "{\"topicId\":\"" + bank.topicId() + "\",\"content\":\"x\"}")
+        fx.json(owner, put("/api/v1/questions/" + id), "{\"chapterId\":\"" + bank.chapterId() + "\",\"content\":\"x\"}")
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     void nonOwnerCannotEditButCanRead_BR_Q6_AC_Q8() throws Exception {
-        UUID id = fx.question(owner, bank.courseId(), completeQuestion(bank.topicId(), bank.rubricId(), "Mine"));
+        UUID id = fx.question(owner, bank.courseId(), completeQuestion(bank.chapterId(), bank.rubricId(), "Mine"));
         Actor colleague = fx.lecturer();
         fx.assign(bank.courseId(), colleague);
         int v = version(id);
@@ -238,7 +239,7 @@ class QuestionsIntegrationTest {
     void editingPublishedQuestionRevalidates_BR_Q11() throws Exception {
         UUID id = fx.publishedQuestion(owner, bank, "Published one");
         int v = version(id);
-        String noReference = "{\"version\":" + v + ",\"topicId\":\"" + bank.topicId() + "\",\"content\":\"Changed\","
+        String noReference = "{\"version\":" + v + ",\"chapterId\":\"" + bank.chapterId() + "\",\"content\":\"Changed\","
                 + "\"bloomLevel\":\"APPLY\",\"rubricId\":\"" + bank.rubricId() + "\"}";
         fx.json(owner, put("/api/v1/questions/" + id), noReference)
                 .andExpect(status().isUnprocessableContent())
@@ -257,7 +258,7 @@ class QuestionsIntegrationTest {
 
     @Test
     void discardAndRestore_AC_Q9() throws Exception {
-        UUID id = fx.question(owner, bank.courseId(), completeQuestion(bank.topicId(), bank.rubricId(), "Throw away"));
+        UUID id = fx.question(owner, bank.courseId(), completeQuestion(bank.chapterId(), bank.rubricId(), "Throw away"));
         fx.perform(owner, post("/api/v1/questions/" + id + "/discard"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DISCARDED"))
@@ -297,22 +298,15 @@ class QuestionsIntegrationTest {
     }
 
     @Test
-    void unpublishRefusedWhileAssignedToUpcomingOrRunningSession() throws Exception {
-        UUID scheduled = fx.publishedQuestion(owner, bank, "Scheduled");
-        fx.assignToSession(bank.courseId(), scheduled, owner, "SCHEDULED");
-        fx.perform(owner, post("/api/v1/questions/" + scheduled + "/unpublish"))
+    void unpublishRefusedWhileInTheSelectedPoolOfAPublishedExam() throws Exception {
+        UUID selected = fx.publishedQuestion(owner, bank, "Selected");
+        fx.selectInPublishedExam(bank.courseId(), selected, owner);
+        fx.perform(owner, post("/api/v1/questions/" + selected + "/unpublish"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("QUESTION_IN_USE"));
 
-        UUID running = fx.publishedQuestion(owner, bank, "Running");
-        fx.assignToSession(bank.courseId(), running, owner, "IN_PROGRESS");
-        fx.perform(owner, post("/api/v1/questions/" + running + "/unpublish"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("QUESTION_IN_USE"));
-
-        UUID cancelled = fx.publishedQuestion(owner, bank, "Cancelled");
-        fx.assignToSession(bank.courseId(), cancelled, owner, "CANCELLED");
-        fx.perform(owner, post("/api/v1/questions/" + cancelled + "/unpublish")).andExpect(status().isOk());
+        UUID free = fx.publishedQuestion(owner, bank, "Free");
+        fx.perform(owner, post("/api/v1/questions/" + free + "/unpublish")).andExpect(status().isOk());
     }
 
     @Test
@@ -341,7 +335,7 @@ class QuestionsIntegrationTest {
         // the copied rubric is locked: switch to an unlocked duplicate and publish
         UUID newRubric = QuestionBankFixture.id(fx.json(owner, post("/api/v1/rubrics/" + bank.rubricId() + "/duplicate"),
                 "{\"name\":\"v2\"}"));
-        String body = "{\"version\":" + version(successor) + ",\"topicId\":\"" + bank.topicId() + "\",\"content\":\"Improved\","
+        String body = "{\"version\":" + version(successor) + ",\"chapterId\":\"" + bank.chapterId() + "\",\"content\":\"Improved\","
                 + "\"referenceAnswer\":\"- a\",\"bloomLevel\":\"ANALYZE\",\"rubricId\":\"" + newRubric + "\"}";
         fx.json(owner, put("/api/v1/questions/" + successor), body).andExpect(status().isOk());
         fx.json(owner, post("/api/v1/questions/publish"), ids(List.of(successor)))
@@ -361,7 +355,7 @@ class QuestionsIntegrationTest {
 
     @Test
     void deleteOnlyUnusedDrafts_AC_C11() throws Exception {
-        UUID draft = fx.question(owner, bank.courseId(), completeQuestion(bank.topicId(), bank.rubricId(), "Draft"));
+        UUID draft = fx.question(owner, bank.courseId(), completeQuestion(bank.chapterId(), bank.rubricId(), "Draft"));
         fx.perform(owner, delete("/api/v1/questions/" + draft)).andExpect(status().isNoContent());
         fx.perform(owner, get("/api/v1/questions/" + draft))
                 .andExpect(status().isNotFound())

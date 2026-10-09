@@ -1,5 +1,6 @@
 package swd392.group6.AIVES.exam;
 
+import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,9 +18,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static swd392.group6.AIVES.questionbank.BloomLevel.APPLY;
 import static swd392.group6.AIVES.questionbank.BloomLevel.UNDERSTAND;
 
-/** Exam lifecycle, scheduler, stages and result visibility (15 §2.1–§2.2, BR-E4/E5, AC-C6, AC-C7). */
+/** Buổi thi lifecycle: publish, check-in window, stages, results (15 §2.1–§2.2, D47, D48, AC-C6, AC-C7). */
 @IntegrationTest
 @Import(ExamTestConfiguration.class)
 class ExamLifecycleIntegrationTest extends ExamTestBase {
@@ -31,122 +33,144 @@ class ExamLifecycleIntegrationTest extends ExamTestBase {
         clock.set(T0);
     }
 
-    /** READY exam with window [T0+1h, T0+2h] and the given students. */
-    private UUID readyExam(Course c, User... students) throws Exception {
-        questions(c, c.topicA(), UNDERSTAND, 2 * students.length + 2);
+    /** Published exam with check-in [T0+1h, T0+2h], 2 questions per student, and the given students. */
+    private UUID publishedExam(Course c, User... students) throws Exception {
+        questions(c, c.chapterA(), UNDERSTAND, 6);
         UUID exam = createExam(c, 2);
         addStudents(c, exam, students);
-        generate(c, exam);
+        publish(c, exam);
         return exam;
     }
 
     @Test
-    void stageFollowsTheWindow_AC_C6() throws Exception {
+    void publishChecksStudentsAndThePoolPerRow_D48() throws Exception {
         Course c = course();
-        User s = data.student();
-        UUID exam = readyExam(c, s);
-        UUID session = data.sessionOf(exam, s);
+        questions(c, c.chapterA(), UNDERSTAND, 2);
+        questions(c, c.chapterB(), APPLY, 1);
+        UUID template = template(c, """
+                [{"chapterId":"%s","bloomLevel":"UNDERSTAND","count":2},{"chapterId":"%s","bloomLevel":"APPLY","count":2}]"""
+                .formatted(c.chapterA(), c.chapterB()), null);
+        UUID exam = createExam(c, template, T0.plusSeconds(3600), T0.plusSeconds(7200), null);
 
-        call(get("/api/v1/me/sessions"), token(s))
+        call(post("/api/v1/viva-exams/" + exam + "/publish"), c.token())
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("NO_STUDENTS"));
+        addStudents(c, exam, data.student());
+        call(get("/api/v1/viva-exams/" + exam + "/pool-check"), c.token())
+                .andExpect(jsonPath("$.sufficient").value(false))
+                .andExpect(jsonPath("$.shortages", hasSize(1)))
+                .andExpect(jsonPath("$.warnings[0].code").value("POOL_SMALL"));
+        call(post("/api/v1/viva-exams/" + exam + "/publish"), c.token())
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("POOL_TOO_SMALL"))
+                .andExpect(jsonPath("$.rows[0].rowIndex").value(1))
+                .andExpect(jsonPath("$.rows[0].required").value(2))
+                .andExpect(jsonPath("$.rows[0].available").value(1));
+
+        questions(c, c.chapterB(), APPLY, 1);
+        call(post("/api/v1/viva-exams/" + exam + "/publish"), c.token())
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items", hasSize(1)))
-                .andExpect(jsonPath("$.items[0].stage").value("UPCOMING"))
-                .andExpect(jsonPath("$.items[0].resultStatus").value("NONE"))
-                .andExpect(jsonPath("$.items[0].attemptsAllowed").value(1))
-                .andExpect(jsonPath("$.items[0].attemptsUsed").value(0))
-                .andExpect(jsonPath("$.items[0].mainQuestionCount").value(2))
-                .andExpect(jsonPath("$.items[0].timeLimitPerStudentSec").value(900))
-                .andExpect(jsonPath("$.items[0].courseCode").exists())
-                .andExpect(jsonPath("$.items[0].questions").doesNotExist());
+                .andExpect(jsonPath("$.exam.status").value("READY"))
+                .andExpect(jsonPath("$.exam.template.locked").value(true))
+                .andExpect(jsonPath("$.warnings[*].code", contains("POOL_SMALL", "POOL_SMALL")));
+        assertThat(jdbc.queryForObject("select count(*) from exam_attempts where viva_exam_id = ?", Integer.class, exam))
+                .as("no questions are drawn before check-in").isZero();
+        call(post("/api/v1/viva-exams/" + exam + "/unpublish"), c.token())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"));
+    }
 
-        clock.set(T0.plus(Duration.ofMinutes(90)));
-        assertThat(myStage(s, session)).isEqualTo("AVAILABLE");
+    @Test
+    void stageFollowsTheCheckInWindow_AC_C6() throws Exception {
+        Course c = course();
+        User student = data.student();
+        UUID exam = publishedExam(c, student);
+
+        assertThat(myStage(student, exam)).isEqualTo("UPCOMING");
+        clock.set(T0.plus(Duration.ofMinutes(61)));
+        assertThat(myStage(student, exam)).isEqualTo("AVAILABLE");
         assertThat(examStatus(exam)).isEqualTo("OPEN");
-
-        clock.set(T0.plus(Duration.ofHours(3)));
-        assertThat(myStage(s, session)).isEqualTo("MISSED");
+        clock.set(T0.plus(Duration.ofMinutes(121)));
+        assertThat(myStage(student, exam)).isEqualTo("MISSED");
         assertThat(examStatus(exam)).isEqualTo("CLOSED");
-        call(get("/api/v1/me/sessions?stage=MISSED"), token(s)).andExpect(jsonPath("$.total").value(1));
-        call(get("/api/v1/me/sessions?stage=UPCOMING"), token(s)).andExpect(jsonPath("$.total").value(0));
+        call(get("/api/v1/me/viva-exams/" + exam), token(student))
+                .andExpect(jsonPath("$.attemptId").doesNotExist())
+                .andExpect(jsonPath("$.attemptsUsed").value(0))
+                .andExpect(jsonPath("$.durationSec").value(240))
+                .andExpect(jsonPath("$.mainQuestionCount").value(2));
+    }
+
+    @Test
+    void draftExamsAreInvisibleToStudents() throws Exception {
+        Course c = course();
+        User student = data.student();
+        UUID exam = createExam(c, 1);
+        addStudents(c, exam, student);
+        call(get("/api/v1/me/viva-exams"), token(student)).andExpect(jsonPath("$.total").value(0));
+        call(get("/api/v1/me/viva-exams/" + exam), token(student)).andExpect(status().isNotFound());
     }
 
     @Test
     void schedulerOpensAndClosesOnTime() throws Exception {
         Course c = course();
-        User s = data.student();
-        UUID exam = readyExam(c, s);
-        ExamScheduler scheduler = new ExamScheduler(refresher);
-
-        clock.set(T0.plus(Duration.ofMinutes(61)));
-        scheduler.tick();
+        UUID exam = publishedExam(c, data.student());
+        clock.set(T0.plus(Duration.ofMinutes(60)));
+        refresher.refreshDue();
         assertThat(examStatus(exam)).isEqualTo("OPEN");
-
         clock.set(T0.plus(Duration.ofMinutes(121)));
-        scheduler.tick();
+        refresher.refreshDue();
         assertThat(examStatus(exam)).isEqualTo("CLOSED");
-        assertThat(jdbc.queryForMap("select status, cancel_reason from exam_sessions where viva_exam_id = ?", exam))
-                .containsEntry("status", "CANCELLED").containsEntry("cancel_reason", "NO_SHOW");
     }
 
     @Test
-    void openNowThenCloseTurnsScheduledIntoNoShows_AC_C7() throws Exception {
+    void openNowThenCloseEndsCheckInButNotRunningAttempts_AC_C7() throws Exception {
         Course c = course();
-        User absent = data.student();
-        User taking = data.student();
-        UUID exam = readyExam(c, absent, taking);
-
-        call(post("/api/v1/viva-exams/" + exam + "/close"), c.token())
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("EXAM_NOT_OPEN"));
+        User early = data.student();
+        User late = data.student();
+        UUID exam = publishedExam(c, early, late);
         call(post("/api/v1/viva-exams/" + exam + "/open"), c.token())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("OPEN"))
-                .andExpect(jsonPath("$.windowStart").value(T0.toString()));
-        assertThat(myStage(absent, data.sessionOf(exam, absent))).isEqualTo("AVAILABLE");
-        clock.advance(Duration.ofMinutes(5));
-        data.sessionState(data.sessionOf(exam, taking), "IN_PROGRESS", T0.plusSeconds(60), null);
+                .andExpect(jsonPath("$.checkinOpensAt").value(T0.toString()));
+        UUID attempt = checkedIn(early, exam);
+        call(post("/api/v1/viva-exams/" + exam + "/unpublish"), c.token())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ATTEMPT_EXISTS"));
+        call(post("/api/v1/viva-exams/" + exam + "/cancel"), c.token(), "{\"reason\":\"x\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ATTEMPT_IN_PROGRESS"));
 
+        clock.set(T0.plus(Duration.ofMinutes(5)));
         call(post("/api/v1/viva-exams/" + exam + "/close"), c.token())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CLOSED"))
-                .andExpect(jsonPath("$.stageCounts.MISSED").value(1))
-                .andExpect(jsonPath("$.stageCounts.IN_PROGRESS").value(1));
-        assertThat(myStage(absent, data.sessionOf(exam, absent))).isEqualTo("MISSED");
-        assertThat(myStage(taking, data.sessionOf(exam, taking))).isEqualTo("IN_PROGRESS");
-        clock.advance(Duration.ofSeconds(1));
-        call(get("/api/v1/courses/" + c.id() + "/viva-exams?when=past"), c.token())
-                .andExpect(jsonPath("$.items[*].id", contains(exam.toString())));
+                .andExpect(jsonPath("$.checkinClosesAt").value(clock.instant().toString()));
+        checkIn(late, exam).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CHECKIN_NOT_OPEN"));
+        assertThat(myStage(late, exam)).isEqualTo("MISSED");
+        assertThat(myStage(early, exam)).isEqualTo("IN_PROGRESS");
+        assertThat(jdbc.queryForObject("select status from exam_attempts where attempt_id = ?", String.class, attempt))
+                .isEqualTo("IN_PROGRESS");
+        call(get("/api/v1/viva-exams/" + exam), c.token())
+                .andExpect(jsonPath("$.stageCounts.IN_PROGRESS").value(1))
+                .andExpect(jsonPath("$.stageCounts.MISSED").value(1));
     }
 
     @Test
-    void cancelNeedsAReasonAndNobodyInProgress_AC_C7() throws Exception {
+    void cancelNeedsAReason_AC_C7() throws Exception {
         Course c = course();
-        User s = data.student();
-        User other = data.student();
-        UUID exam = readyExam(c, s, other);
-        String url = "/api/v1/viva-exams/" + exam + "/cancel";
-
-        call(post(url), c.token()).andExpect(status().isUnprocessableContent())
+        User student = data.student();
+        UUID exam = publishedExam(c, student);
+        call(post("/api/v1/viva-exams/" + exam + "/cancel"), c.token(), "{}")
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("REASON_REQUIRED"));
-        call(post(url), c.token(), "{\"reason\":\"  \"}").andExpect(status().isUnprocessableContent())
-                .andExpect(jsonPath("$.code").value("REASON_REQUIRED"));
-
-        UUID session = data.sessionOf(exam, other);
-        data.sessionState(session, "IN_PROGRESS", T0, null);
-        call(post(url), c.token(), "{\"reason\":\"Phòng thi mất điện\"}")
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("SESSION_IN_PROGRESS"));
-        data.sessionState(session, "COMPLETED", T0, T0.plusSeconds(600));
-
-        call(post(url), c.token(), "{\"reason\":\"Phòng thi mất điện\"}")
+        call(post("/api/v1/viva-exams/" + exam + "/cancel"), c.token(), "{\"reason\":\"Phòng máy hỏng\"}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"))
-                .andExpect(jsonPath("$.cancelReason").value("Phòng thi mất điện"));
-        assertThat(jdbc.queryForObject("select cancel_reason from exam_sessions where session_id = ?", String.class,
-                data.sessionOf(exam, s))).isEqualTo("EXAM_CANCELLED");
-        assertThat(myStage(s, data.sessionOf(exam, s))).isEqualTo("CANCELLED");
-        assertThat(myStage(other, session)).isEqualTo("COMPLETED");
-        call(post(url), c.token(), "{\"reason\":\"again\"}").andExpect(status().isConflict());
+                .andExpect(jsonPath("$.cancelReason").value("Phòng máy hỏng"));
+        assertThat(myStage(student, exam)).isEqualTo("CANCELLED");
+        call(post("/api/v1/viva-exams/" + exam + "/cancel"), c.token(), "{\"reason\":\"x\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EXAM_NOT_CANCELLABLE"));
     }
 
     @Test
@@ -155,42 +179,58 @@ class ExamLifecycleIntegrationTest extends ExamTestBase {
         User inProgress = data.student();
         User interrupted = data.student();
         User completed = data.student();
-        UUID exam = readyExam(c, inProgress, interrupted, completed);
+        User absent = data.student();
+        UUID exam = publishedExam(c, inProgress, interrupted, completed, absent);
         clock.set(T0.plus(Duration.ofMinutes(70)));
-        data.sessionState(data.sessionOf(exam, inProgress), "IN_PROGRESS", clock.instant(), null);
-        data.sessionState(data.sessionOf(exam, interrupted), "INTERRUPTED", clock.instant(), null);
-        UUID done = data.sessionOf(exam, completed);
-        data.sessionState(done, "COMPLETED", clock.instant(), clock.instant().plusSeconds(500));
+        checkedIn(inProgress, exam);
+        data.attemptState(checkedIn(interrupted, exam), "INTERRUPTED", null);
+        UUID done = checkedIn(completed, exam);
+        data.attemptState(done, "COMPLETED", clock.instant().plusSeconds(200));
 
-        assertThat(myStage(inProgress, data.sessionOf(exam, inProgress))).isEqualTo("IN_PROGRESS");
-        assertThat(myStage(interrupted, data.sessionOf(exam, interrupted))).isEqualTo("INTERRUPTED");
-        call(get("/api/v1/me/sessions/" + done), token(completed))
+        assertThat(myStage(inProgress, exam)).isEqualTo("IN_PROGRESS");
+        assertThat(myStage(interrupted, exam)).isEqualTo("INTERRUPTED");
+        assertThat(myStage(absent, exam)).isEqualTo("AVAILABLE");
+        call(get("/api/v1/me/viva-exams/" + exam), token(completed))
                 .andExpect(jsonPath("$.stage").value("COMPLETED"))
                 .andExpect(jsonPath("$.resultStatus").value("PENDING"))
                 .andExpect(jsonPath("$.attemptsUsed").value(1))
-                .andExpect(jsonPath("$.startedAt").exists())
-                .andExpect(jsonPath("$.endedAt").exists())
+                .andExpect(jsonPath("$.attemptId").value(done.toString()))
+                .andExpect(jsonPath("$.startedAt").value(clock.instant().toString()))
+                .andExpect(jsonPath("$.deadlineAt").value(clock.instant().plusSeconds(240).toString()))
                 .andExpect(jsonPath("$.evaluationId").doesNotExist());
 
         data.evaluation(done, "CONFIRMED");
-        call(get("/api/v1/me/sessions/" + done), token(completed)).andExpect(jsonPath("$.resultStatus").value("PENDING"));
+        call(get("/api/v1/me/viva-exams/" + exam), token(completed)).andExpect(jsonPath("$.resultStatus").value("PENDING"));
         call(post("/api/v1/viva-exams/" + exam + "/release-results"), c.token())
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.resultsReleased").value(true))
-                .andExpect(jsonPath("$.resultsReleasedAt").exists());
-        call(get("/api/v1/me/sessions/" + done), token(completed))
+                .andExpect(jsonPath("$.resultsReleased").value(true));
+        call(get("/api/v1/me/viva-exams/" + exam), token(completed))
                 .andExpect(jsonPath("$.resultStatus").value("RELEASED"))
                 .andExpect(jsonPath("$.evaluationId").exists());
-        call(get("/api/v1/viva-exams/" + exam + "/sessions"), c.token())
+        call(get("/api/v1/viva-exams/" + exam + "/attempts"), c.token())
                 .andExpect(jsonPath("$[2].evaluationStatus").value("CONFIRMED"))
-                .andExpect(jsonPath("$[*].stage", contains("IN_PROGRESS", "INTERRUPTED", "COMPLETED")));
+                .andExpect(jsonPath("$[*].stage", contains("IN_PROGRESS", "INTERRUPTED", "COMPLETED", "AVAILABLE")))
+                .andExpect(jsonPath("$[3].attemptId").doesNotExist());
+        call(get("/api/v1/me/viva-exams?stage=COMPLETED"), token(completed)).andExpect(jsonPath("$.total").value(1));
+    }
 
-        call(post("/api/v1/viva-exams/" + exam + "/unrelease-results"), c.token())
-                .andExpect(jsonPath("$.resultsReleased").value(false));
-        call(get("/api/v1/me/sessions/" + done), token(completed)).andExpect(jsonPath("$.resultStatus").value("PENDING"));
-
-        // Somebody else's lượt thi does not exist for this student.
-        call(get("/api/v1/me/sessions/" + done), token(inProgress)).andExpect(status().isNotFound());
-        call(get("/api/v1/me/sessions?stage=COMPLETED"), token(completed)).andExpect(jsonPath("$.total").value(1));
+    @Test
+    void retakeUsesTheSameTemplateForTheChosenStudents_AC_C5() throws Exception {
+        Course c = course();
+        User s1 = data.student();
+        User s2 = data.student();
+        User stranger = data.student();
+        UUID exam = publishedExam(c, s1, s2);
+        String body = json(call(post("/api/v1/viva-exams/" + exam + "/retake"), c.token(),
+                "{\"checkinOpensAt\":\"" + T0.plusSeconds(86400) + "\",\"checkinClosesAt\":\"" + T0.plusSeconds(90000)
+                        + "\",\"studentCodes\":\"" + s1.getStudentCode() + " " + stranger.getStudentCode() + "\"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.exam.status").value("DRAFT"))
+                .andExpect(jsonPath("$.exam.title").value("Viva – Thi lại"))
+                .andExpect(jsonPath("$.exam.retakeOfVivaExamId").value(exam.toString()))
+                .andExpect(jsonPath("$.students.added", hasSize(1)))
+                .andExpect(jsonPath("$.students.notInOriginal", contains(stranger.getStudentCode()))));
+        String templateOfOriginal = JsonPath.read(json(call(get("/api/v1/viva-exams/" + exam), c.token())), "$.template.id");
+        assertThat((String) JsonPath.read(body, "$.exam.template.id")).isEqualTo(templateOfOriginal);
     }
 }
