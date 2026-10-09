@@ -68,7 +68,7 @@ class GoogleLinkIntegrationTest {
 
     private ResultActions googleLogin(String idToken) throws Exception {
         return mockMvc.perform(post("/api/v1/auth/google").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"idToken\":\"" + idToken + "\"}"));
+                .content("{\"idToken\":\"" + idToken + "\",\"deviceId\":\"" + TestUsers.DEVICE + "\"}"));
     }
 
     private static String googleId() {
@@ -88,11 +88,13 @@ class GoogleLinkIntegrationTest {
                 .andExpect(jsonPath("$.googleLinked").value(true))
                 .andExpect(jsonPath("$.googleEmail").value("me@gmail.com"));
 
-        googleLogin(gid + "|me@gmail.com|true").andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").isNotEmpty())
-                .andExpect(jsonPath("$.user.username").value(user.getUsername()));
+        String googleJwt = com.jayway.jsonpath.JsonPath.read(googleLogin(gid + "|me@gmail.com|true").andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.username").value(user.getUsername()))
+                .andReturn().getResponse().getContentAsString(), "$.token");
+        // One session per account (D38): the Google sign-in replaced the password session.
+        mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + jwt)).andExpect(status().isUnauthorized());
 
-        mockMvc.perform(delete("/api/v1/users/me/google").header("Authorization", "Bearer " + jwt))
+        mockMvc.perform(delete("/api/v1/users/me/google").header("Authorization", "Bearer " + googleJwt))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.googleLinked").value(false));
         googleLogin(gid + "|me@gmail.com|true").andExpect(status().isUnauthorized());
     }

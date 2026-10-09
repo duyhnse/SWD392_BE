@@ -56,6 +56,9 @@ springdoc:
 application:
   # Used to build links in emails (password reset)
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  dev:
+    # Development only: lets anyone create LECTURER/STUDENT accounts from the forgot-password page (14 §3.7, D39)
+    self-registration-enabled: ${DEV_SELF_REGISTRATION:false}
   google:
     # Firebase project whose ID tokens are accepted for Google linking / sign-in (14 §3.5, D36)
     firebase-project-id: ${FIREBASE_PROJECT_ID:aives-55658}

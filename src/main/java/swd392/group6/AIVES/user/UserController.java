@@ -67,8 +67,11 @@ public class UserController {
 
     @PutMapping("/me/password")
     public ResponseEntity<AuthResponseDTO> changePassword(@AuthenticationPrincipal User currentUser,
-                                                          @Valid @RequestBody ChangePasswordRequest request) {
-        return ResponseEntity.ok(userService.changePassword(currentUser.getUserId(), request));
+                                                          @Valid @RequestBody ChangePasswordRequest request,
+                                                          jakarta.servlet.http.HttpServletRequest http) {
+        Object sessionId = http.getAttribute(swd392.group6.AIVES.security.AuthAttributes.SESSION_ID);
+        return ResponseEntity.ok(userService.changePassword(currentUser.getUserId(), request,
+                sessionId == null ? null : sessionId.toString()));
     }
 
     /** A user can read their own profile; only an ADMIN can read anybody else's. */

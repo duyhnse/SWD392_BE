@@ -59,8 +59,8 @@ class GoogleAccountService {
         return google;
     }
 
-    @Transactional(readOnly = true)
-    public AuthResponseDTO login(String idToken) {
+    @Transactional // writes the login session (D38)
+    public AuthResponseDTO login(String idToken, LoginContext ctx) {
         GoogleIdentityVerifier.GoogleIdentity google = verifier.verify(idToken);
         User user = userRepository.findByGoogleSubject(google.subject())
                 .orElseThrow(() -> ApiException.unauthorized("GOOGLE_NOT_LINKED",
@@ -68,6 +68,6 @@ class GoogleAccountService {
         if (!user.isActive()) {
             throw ApiException.unauthorized("INVALID_CREDENTIALS", "Invalid username or password");
         }
-        return userService.issueToken(user);
+        return userService.issueToken(user, ctx);
     }
 }

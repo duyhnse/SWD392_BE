@@ -35,6 +35,7 @@ class PasswordResetService {
     private final PasswordEncoder passwordEncoder;
     private final ResetRateLimiter rateLimiter;
     private final MailPort mailPort;
+    private final SessionService sessionService;
     private final Clock clock;
 
     @Value("${application.frontend-url}")
@@ -79,6 +80,7 @@ class PasswordResetService {
 
         user.setHashedPassword(passwordEncoder.encode(request.newPassword()));
         user.setPasswordChangedAt(now);
+        sessionService.closeAll(user.getUserId(), "PASSWORD_CHANGED");
         tokenRepository.invalidateAllForUser(user.getUserId(), now);
     }
 

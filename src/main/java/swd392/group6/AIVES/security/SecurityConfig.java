@@ -74,8 +74,14 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((request, response, e) ->
-                                writeError(response, 401, "UNAUTHORIZED", "Authentication required"))
+                        .authenticationEntryPoint((request, response, e) -> {
+                            if ("SESSION_REVOKED".equals(request.getAttribute(AuthAttributes.ERROR_CODE))) {
+                                writeError(response, 401, "SESSION_REVOKED",
+                                        "This session has ended: the account was signed in on another device or signed out");
+                            } else {
+                                writeError(response, 401, "UNAUTHORIZED", "Authentication required");
+                            }
+                        })
                         .accessDeniedHandler((request, response, e) ->
                                 writeError(response, 403, "FORBIDDEN", "You do not have permission to perform this action"))
                 )

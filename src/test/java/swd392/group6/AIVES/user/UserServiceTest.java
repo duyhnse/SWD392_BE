@@ -34,9 +34,13 @@ class UserServiceTest {
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private JwtService jwtService;
     @Mock private AuthenticationManager authenticationManager;
+    @Mock private SessionService sessionService;
+    @Mock private AvatarService avatarService;
     @Spy private Clock clock = Clock.fixed(Instant.parse("2026-10-08T03:00:00Z"), ZoneOffset.UTC);
 
     @InjectMocks private UserService userService;
+
+    private static final LoginContext CTX = new LoginContext("dev-1", "JUnit", "127.0.0.1", false);
 
     private static User user() {
         return User.builder().userId(UUID.randomUUID()).username("vinhdq").fullName("Vinh").email("vinh@fpt.edu.vn")
@@ -49,8 +53,9 @@ class UserServiceTest {
         when(authenticationManager.authenticate(argThat(a -> "vinhdq".equals(a.getPrincipal()))))
                 .thenReturn(new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()));
         when(jwtService.generateToken(eq("vinhdq"), anyMap())).thenReturn("jwt-token");
+        when(sessionService.open(eq(user), any())).thenReturn(UUID.randomUUID());
 
-        AuthResponseDTO response = userService.login(LoginRequestDTO.builder().username(" VinhDQ ").password("pw").build());
+        AuthResponseDTO response = userService.login(LoginRequestDTO.builder().username(" VinhDQ ").password("pw").build(), CTX);
 
         assertEquals("jwt-token", response.getToken());
         assertEquals("vinhdq", response.getUser().getUsername());
@@ -61,7 +66,7 @@ class UserServiceTest {
         when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("bad"));
 
         ApiException ex = assertThrows(ApiException.class,
-                () -> userService.login(LoginRequestDTO.builder().username("a").password("pw").build()));
+                () -> userService.login(LoginRequestDTO.builder().username("a").password("pw").build(), CTX));
 
         assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatus());
         assertEquals("INVALID_CREDENTIALS", ex.getCode());
@@ -76,7 +81,10 @@ class UserServiceTest {
         when(passwordEncoder.encode("NewPassword1")).thenReturn("new-hash");
         when(jwtService.generateToken(eq("vinhdq"), anyMap())).thenReturn("fresh");
 
-        AuthResponseDTO response = userService.changePassword(user.getUserId(), new ChangePasswordRequest("old", "NewPassword1"));
+        when(sessionService.find(null)).thenReturn(java.util.Optional.empty());
+        when(sessionService.open(eq(user), any())).thenReturn(UUID.randomUUID());
+
+        AuthResponseDTO response = userService.changePassword(user.getUserId(), new ChangePasswordRequest("old", "NewPassword1"), null);
 
         assertEquals("new-hash", user.getHashedPassword());
         assertEquals(Instant.parse("2026-10-08T03:00:00Z"), user.getPasswordChangedAt());

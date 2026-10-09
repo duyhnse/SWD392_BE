@@ -28,6 +28,7 @@ class AdminUserService {
     private final UserRepository userRepository;
     private final JdbcClient jdbc;
     private final AvatarService avatarService;
+    private final SessionService sessionService;
 
     @Transactional(readOnly = true)
     public PageResponse<UserResponseDTO> list(String q, Role role, Boolean active, int page, int size) {
@@ -86,6 +87,9 @@ class AdminUserService {
         }
         if (request.active() != null) {
             user.setActive(request.active());
+            if (!request.active()) {
+                sessionService.closeAll(user.getUserId(), "DEACTIVATED");
+            }
         }
         if (request.role() != null && request.role() != user.getRole()) {
             if (user.getRole() == Role.LECTURER) {

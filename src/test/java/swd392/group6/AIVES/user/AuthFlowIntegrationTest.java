@@ -25,7 +25,7 @@ class AuthFlowIntegrationTest {
     @Autowired private UserRepository userRepository;
 
     private static String loginBody(String username, String password) {
-        return "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}";
+        return "{\"username\":\"" + username + "\",\"password\":\"" + password + "\",\"deviceId\":\"" + TestUsers.DEVICE + "\"}";
     }
 
     @Test

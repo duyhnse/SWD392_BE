@@ -28,9 +28,10 @@ public class UserService {
     private final AuthenticationManager authenticationManager;
     private final Clock clock;
     private final AvatarService avatarService;
+    private final SessionService sessionService;
 
-    @Transactional(readOnly = true)
-    public AuthResponseDTO login(LoginRequestDTO request) {
+    @Transactional // writes the login session (D38)
+    public AuthResponseDTO login(LoginRequestDTO request, LoginContext ctx) {
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(
@@ -39,7 +40,8 @@ public class UserService {
             // Same answer for unknown username, wrong password and inactive account (AC-A1).
             throw ApiException.unauthorized("INVALID_CREDENTIALS", "Invalid username or password");
         }
-        return toAuthResponse((User) authentication.getPrincipal());
+        User user = (User) authentication.getPrincipal();
+        return toAuthResponse(user, sessionService.open(user, ctx));
     }
 
     @Transactional(readOnly = true)
@@ -51,7 +53,7 @@ public class UserService {
 
     /** Other devices are logged out (D24); the caller gets a fresh token so it stays signed in. */
     @Transactional
-    public AuthResponseDTO changePassword(UUID userId, ChangePasswordRequest request) {
+    public AuthResponseDTO changePassword(UUID userId, ChangePasswordRequest request, String currentSessionId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> ApiException.notFound("USER_NOT_FOUND", "User not found"));
         if (!passwordEncoder.matches(request.currentPassword(), user.getHashedPassword())) {
@@ -62,7 +64,12 @@ public class UserService {
         }
         user.setHashedPassword(passwordEncoder.encode(request.newPassword()));
         user.setPasswordChangedAt(clock.instant());
-        return toAuthResponse(user);
+        // Every other device is signed out; this one continues in a fresh session on the same device (D24, D38).
+        LoginContext here = sessionService.find(currentSessionId)
+                .map(s -> new LoginContext(s.getDeviceId(), s.getUserAgent(), s.getIpAddress(), true))
+                .orElse(new LoginContext(null, null, null, true));
+        sessionService.closeAll(userId, "PASSWORD_CHANGED");
+        return toAuthResponse(user, sessionService.open(user, here));
     }
 
     /** Self-service profile edit: only the UI language; name, email and code come from the university (15 §5.1). */
@@ -97,21 +104,22 @@ public class UserService {
     }
 
     /** Token for an already authenticated user (e.g. Google sign-in). */
-    AuthResponseDTO issueToken(User user) {
-        return toAuthResponse(user);
+    AuthResponseDTO issueToken(User user, LoginContext ctx) {
+        return toAuthResponse(user, sessionService.open(user, ctx));
     }
 
-    private AuthResponseDTO toAuthResponse(User user) {
+    private AuthResponseDTO toAuthResponse(User user, UUID sessionId) {
         return AuthResponseDTO.builder()
-                .token(jwtService.generateToken(user.getUsername(), tokenClaims(user)))
+                .token(jwtService.generateToken(user.getUsername(), tokenClaims(user, sessionId)))
                 .tokenType("Bearer")
                 .expiresIn(jwtService.getExpirationTime())
                 .user(UserResponseDTO.fromEntity(user))
                 .build();
     }
 
-    private static Map<String, Object> tokenClaims(User user) {
+    private static Map<String, Object> tokenClaims(User user, UUID sessionId) {
         Map<String, Object> claims = new LinkedHashMap<>();
+        claims.put("sid", sessionId.toString());
         claims.put("userId", user.getUserId().toString());
         claims.put("role", user.getRole().name());
         claims.put("roleId", user.getRoleId());
