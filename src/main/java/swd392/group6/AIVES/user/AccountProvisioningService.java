@@ -72,8 +72,9 @@ class AccountProvisioningService implements UserApi {
         String username = PasswordRules.normalize(raw.username());
         String email = PasswordRules.normalize(raw.email());
         String fullName = raw.fullName() == null ? "" : raw.fullName().trim();
-        String code = raw.studentCode() == null || raw.studentCode().isBlank() ? null : raw.studentCode().trim().toUpperCase();
         Role role = raw.role() == null ? Role.STUDENT : raw.role();
+        // Only students have a student code (D40); it is ignored for other roles.
+        String code = role == Role.STUDENT ? PasswordRules.normalizeStudentCode(raw.studentCode()) : null;
 
         if (username == null || !PasswordRules.USERNAME.matcher(username).matches()) {
             return error("INVALID_USERNAME", "username", "Username must be 3-50 characters: a-z, 0-9, dot, dash, underscore");
@@ -102,8 +103,14 @@ class AccountProvisioningService implements UserApi {
         if (!seenEmails.add(email) || userRepository.existsByEmail(email)) {
             return error("EMAIL_ALREADY_REGISTERED", "email", "Email is already used by another account");
         }
-        if (code != null && (code.length() > 20 || !seenCodes.add(code) || userRepository.existsByStudentCode(code))) {
-            return error("STUDENT_CODE_ALREADY_EXISTS", "student_code", "Student code is invalid or already used");
+        if (role == Role.STUDENT && code == null) {
+            return error("STUDENT_CODE_REQUIRED", "student_code", "A student code (MSSV) is required for students");
+        }
+        if (code != null && !PasswordRules.STUDENT_CODE.matcher(code).matches()) {
+            return error("INVALID_STUDENT_CODE", "student_code", "Student code: 2-20 letters or digits, e.g. SE180180");
+        }
+        if (code != null && (!seenCodes.add(code) || userRepository.existsByStudentCode(code))) {
+            return error("STUDENT_CODE_ALREADY_EXISTS", "student_code", "Student code is already used");
         }
 
         User user = userRepository.save(User.builder()

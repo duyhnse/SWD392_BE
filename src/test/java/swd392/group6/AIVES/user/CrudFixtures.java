@@ -33,6 +33,7 @@ final class CrudFixtures {
                 .fullName("Fixture " + role)
                 .email(username + "@example.com")
                 .roleId(role.getId())
+                .studentCode(role == Role.STUDENT ? "C" + unique().toUpperCase() : null) // MSSV required (D40)
                 .hashedPassword(passwordEncoder.encode(TestUsers.PASSWORD))
                 .build());
     }

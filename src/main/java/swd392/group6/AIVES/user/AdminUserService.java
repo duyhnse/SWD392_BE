@@ -79,7 +79,10 @@ class AdminUserService {
             user.setEmail(email);
         }
         if (request.studentCode() != null) {
-            String code = request.studentCode().isBlank() ? null : request.studentCode().trim().toUpperCase();
+            String code = PasswordRules.normalizeStudentCode(request.studentCode());
+            if (code != null && !PasswordRules.STUDENT_CODE.matcher(code).matches()) {
+                throw ApiException.unprocessable("INVALID_STUDENT_CODE", "Student code: 2-20 letters or digits, e.g. SE180180");
+            }
             if (code != null && !code.equals(user.getStudentCode()) && userRepository.existsByStudentCode(code)) {
                 throw ApiException.conflict("STUDENT_CODE_ALREADY_EXISTS", "Student code is already used");
             }
@@ -97,6 +100,9 @@ class AdminUserService {
                 jdbc.sql("delete from course_lecturers where lecturer_id = ?").param(id).update();
             }
             user.setRoleId(request.role().getId());
+        }
+        if (user.getRole() == Role.STUDENT && user.getStudentCode() == null) {
+            throw ApiException.unprocessable("STUDENT_CODE_REQUIRED", "A student code (MSSV) is required for students");
         }
         return UserResponseDTO.fromEntity(userRepository.saveAndFlush(user));
     }

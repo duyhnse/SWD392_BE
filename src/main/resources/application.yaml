@@ -48,6 +48,10 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    mail:
+      # Mail is optional (MAIL_MODE=log by default); an unreachable SMTP server must not mark the app DOWN.
+      enabled: false
 
 springdoc:
   swagger-ui:

@@ -36,6 +36,7 @@ public class TestUsers {
                 .fullName("Test " + role)
                 .email(username + "@example.com")
                 .roleId(role.getId())
+                .studentCode(role == Role.STUDENT ? "T" + username.substring(1).toUpperCase() : null)
                 .hashedPassword(passwordEncoder.encode(PASSWORD))
                 .build());
     }

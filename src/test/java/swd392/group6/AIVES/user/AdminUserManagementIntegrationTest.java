@@ -126,7 +126,7 @@ class AdminUserManagementIntegrationTest {
         fx.assign(course, lecturer.getUserId());
 
         mockMvc.perform(patch("/api/v1/admin/users/" + lecturer.getUserId()).header("Authorization", adminAuth)
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"role\":\"STUDENT\",\"fullName\":\"Renamed\"}"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"role\":\"STUDENT\",\"fullName\":\"Renamed\",\"studentCode\":\"SE" + unique().substring(0, 6).toUpperCase() + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.role").value("STUDENT"))
                 .andExpect(jsonPath("$.fullName").value("Renamed"));

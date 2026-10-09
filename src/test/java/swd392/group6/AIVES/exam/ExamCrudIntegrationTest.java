@@ -224,9 +224,9 @@ class ExamCrudIntegrationTest extends ExamTestBase {
         User existing = data.student();
         String fresh = "n" + UUID.randomUUID().toString().substring(0, 8);
         String csv = "username,full_name,email,student_code\n"
-                + existing.getUsername() + "," + existing.getFullName() + "," + existing.getEmail() + ",\n"
-                + fresh + ",Nguyễn Mới," + fresh + "@fpt.edu.vn,\n"
-                + "bad,No Email,not-an-email,\n";
+                + existing.getUsername() + "," + existing.getFullName() + "," + existing.getEmail() + "," + existing.getStudentCode() + "\n"
+                + fresh + ",Nguyễn Mới," + fresh + "@fpt.edu.vn,SE" + fresh.substring(1).toUpperCase() + "\n"
+                + "bad,No Email,not-an-email,SEBAD1\n";
 
         call(multipart("/api/v1/viva-exams/" + exam + "/students/import")
                 .file(new MockMultipartFile("file", "class.csv", "text/csv", csv.getBytes(StandardCharsets.UTF_8))), c.token())

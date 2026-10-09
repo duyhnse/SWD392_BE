@@ -56,7 +56,7 @@ class DevRegistrationController {
             @NotBlank(message = "Username is required") @Size(max = 50) String username,
             @NotBlank(message = "Full name is required") @Size(max = 100) String fullName,
             @NotBlank(message = "Email is required") @Email(message = "Email format is invalid") @Size(max = 100) String email,
-            @Size(max = 20) String studentCode,
+            @Size(max = 20) String studentCode, // required for STUDENT (checked by provisioning, D40)
             @NotNull(message = "Role is required") Role role,
             @NotBlank(message = "Password is required")
             @Size(min = PasswordRules.MIN_PASSWORD, max = PasswordRules.MAX_PASSWORD,
