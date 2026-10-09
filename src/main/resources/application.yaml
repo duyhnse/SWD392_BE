@@ -56,6 +56,9 @@ springdoc:
 application:
   # Used to build links in emails (password reset)
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  google:
+    # Firebase project whose ID tokens are accepted for Google linking / sign-in (14 §3.5, D36)
+    firebase-project-id: ${FIREBASE_PROJECT_ID:aives-55658}
   mail:
     # log = write emails to the log (default); smtp = send through spring.mail.*
     mode: ${MAIL_MODE:log}

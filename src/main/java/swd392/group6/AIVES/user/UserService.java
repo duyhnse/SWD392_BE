@@ -91,6 +91,11 @@ public class UserService {
                 .orElseThrow(() -> ApiException.notFound("USER_NOT_FOUND", "User not found"));
     }
 
+    /** Token for an already authenticated user (e.g. Google sign-in). */
+    AuthResponseDTO issueToken(User user) {
+        return toAuthResponse(user);
+    }
+
     private AuthResponseDTO toAuthResponse(User user) {
         return AuthResponseDTO.builder()
                 .token(jwtService.generateToken(user.getUsername(), tokenClaims(user)))

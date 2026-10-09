@@ -17,10 +17,17 @@ public class AuthController {
 
     private final UserService userService;
     private final PasswordResetService passwordResetService;
+    private final GoogleAccountService googleAccountService;
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponseDTO> login(@Valid @RequestBody LoginRequestDTO request) {
         return ResponseEntity.ok(userService.login(request));
+    }
+
+    /** Sign in with a Google account that was linked beforehand; never creates accounts (14 §3.5). */
+    @PostMapping("/google")
+    public ResponseEntity<AuthResponseDTO> loginWithGoogle(@Valid @RequestBody GoogleTokenRequest request) {
+        return ResponseEntity.ok(googleAccountService.login(request.idToken()));
     }
 
     /** Always 202 with no body, whether or not the account exists (BR-A1). */

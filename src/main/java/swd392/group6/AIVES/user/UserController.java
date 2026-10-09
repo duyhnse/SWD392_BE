@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -25,6 +26,7 @@ import java.util.UUID;
 public class UserController {
 
     private final UserService userService;
+    private final GoogleAccountService googleAccountService;
     private final AvatarService avatarService;
 
     /** Profile of the currently authenticated user. */
@@ -51,7 +53,13 @@ public class UserController {
         return ResponseEntity.noContent().build();
     }
 
-    /** Unlink the Google account (D34). Linking arrives with the OAuth flow (P1). */
+    /** Link the Google account proven by a Firebase ID token (14 §3.5). */
+    @PostMapping("/me/google")
+    public UserResponseDTO linkGoogle(@AuthenticationPrincipal User currentUser, @Valid @RequestBody GoogleTokenRequest request) {
+        return googleAccountService.link(currentUser.getUserId(), request.idToken());
+    }
+
+    /** Unlink the Google account (D34). */
     @DeleteMapping("/me/google")
     public UserResponseDTO unlinkGoogle(@AuthenticationPrincipal User currentUser) {
         return userService.unlinkGoogle(currentUser.getUserId());
