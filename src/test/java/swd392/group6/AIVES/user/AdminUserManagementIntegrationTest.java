@@ -240,7 +240,7 @@ class AdminUserManagementIntegrationTest {
     void adminSetsAndRemovesSomeonesAvatar() throws Exception {
         User student = fx.user(Role.STUDENT, "ava" + unique());
         mockMvc.perform(multipart("/api/v1/admin/users/" + student.getUserId() + "/avatar")
-                        .file(new MockMultipartFile("file", "a.png", "image/png", CrudFixtures.png(100)))
+                        .file(new MockMultipartFile("file", "a.png", "image/png", CrudFixtures.png(100, 100)))
                         .with(r -> { r.setMethod("PUT"); return r; })
                         .header("Authorization", adminAuth))
                 .andExpect(status().isOk())

@@ -9,7 +9,8 @@ interface GoogleIdentityVerifier {
     /**
      * @param subject stable Google account id ("sub" of the Google identity, not the Firebase uid)
      * @param email   email of the Google account, lowercase
+     * @param pictureUrl Google profile photo URL ("picture" claim), may be null
      */
-    record GoogleIdentity(String subject, String email, boolean emailVerified) {
+    record GoogleIdentity(String subject, String email, boolean emailVerified, String pictureUrl) {
     }
 }

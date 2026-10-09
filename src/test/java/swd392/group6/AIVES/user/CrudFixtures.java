@@ -73,18 +73,49 @@ final class CrudFixtures {
         return session;
     }
 
-    static byte[] png(int size) {
+    /** Bytes that only look like a PNG (magic number + zeros) — for size checks that happen before decoding. */
+    static byte[] fakePng(int size) {
         byte[] data = new byte[size];
         byte[] magic = {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
         System.arraycopy(magic, 0, data, 0, magic.length);
         return data;
     }
 
-    static byte[] jpeg() {
-        return new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0, 0x10, 'J', 'F', 'I', 'F', 0};
+    /** A real image of the given size, painted in three vertical bands: red | green | blue. */
+    static byte[] image(String format, int width, int height) {
+        java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        for (int x = 0; x < width; x++) {
+            int rgb = x < width / 4 ? 0xFF0000 : x >= width - width / 4 ? 0x0000FF : 0x00FF00;
+            for (int y = 0; y < height; y++) {
+                img.setRGB(x, y, rgb);
+            }
+        }
+        try {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(img, format, out);
+            return out.toByteArray();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    static byte[] png(int width, int height) {
+        return image("png", width, height);
     }
 
     static byte[] webp() {
-        return new byte[]{'R', 'I', 'F', 'F', 0x24, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' '};
+        try (java.io.InputStream in = CrudFixtures.class.getResourceAsStream("/avatars/sample.webp")) {
+            return in.readAllBytes();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    static java.awt.image.BufferedImage decode(byte[] data) {
+        try {
+            return javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(data));
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }

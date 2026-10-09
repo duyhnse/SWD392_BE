@@ -107,6 +107,11 @@ public class User implements UserDetails, TokenRevocation {
     @Column(name = "avatar_updated_at")
     private Instant avatarUpdatedAt;
 
+    /** Where the picture came from (D37); null when there is no picture. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "avatar_source", length = 20)
+    private AvatarSource avatarSource;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

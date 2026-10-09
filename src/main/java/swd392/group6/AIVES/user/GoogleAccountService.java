@@ -19,10 +19,23 @@ class GoogleAccountService {
     private final GoogleIdentityVerifier verifier;
     private final UserRepository userRepository;
     private final UserService userService;
+    private final AvatarService avatarService;
+    private final GoogleAvatarFetcher avatarFetcher;
     private final Clock clock;
 
-    @Transactional
+    /**
+     * Links the account, then — outside the linking transaction, because it is a network call — adopts the Google
+     * profile photo if the account has no picture yet (D37).
+     */
     public UserResponseDTO link(UUID userId, String idToken) {
+        GoogleIdentityVerifier.GoogleIdentity google = linkAccount(userId, idToken);
+        if (google.pictureUrl() != null && userRepository.findById(userId).map(User::getAvatarKey).isEmpty()) {
+            avatarFetcher.fetch(google.pictureUrl()).ifPresent(photo -> avatarService.adoptGoogleIfMissing(userId, photo));
+        }
+        return userService.currentProfile(userId);
+    }
+
+    private GoogleIdentityVerifier.GoogleIdentity linkAccount(UUID userId, String idToken) {
         GoogleIdentityVerifier.GoogleIdentity google = verifier.verify(idToken);
         if (!google.emailVerified()) {
             throw ApiException.unprocessable("GOOGLE_EMAIL_NOT_VERIFIED", "This Google account's email is not verified");
@@ -37,7 +50,13 @@ class GoogleAccountService {
         user.setGoogleSubject(google.subject());
         user.setGoogleEmail(google.email());
         user.setGoogleLinkedAt(clock.instant());
-        return UserResponseDTO.fromEntity(userRepository.saveAndFlush(user));
+        try {
+            userRepository.saveAndFlush(user);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            // Two accounts linking the same Google account at the same moment: the unique index decides.
+            throw ApiException.conflict("GOOGLE_ALREADY_LINKED", "This Google account is linked to another AIVES account");
+        }
+        return google;
     }
 
     @Transactional(readOnly = true)

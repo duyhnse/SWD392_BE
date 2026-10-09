@@ -27,6 +27,7 @@ public class UserService {
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
     private final Clock clock;
+    private final AvatarService avatarService;
 
     @Transactional(readOnly = true)
     public AuthResponseDTO login(LoginRequestDTO request) {
@@ -77,6 +78,7 @@ public class UserService {
     /** Unlink Google (D34): clears subject, email and link time. Idempotent. */
     @Transactional
     public UserResponseDTO unlinkGoogle(UUID userId) {
+        avatarService.removeIfFromGoogle(userId); // D37: a picture adopted from Google leaves with it
         User user = load(userId);
         user.setGoogleSubject(null);
         user.setGoogleEmail(null);

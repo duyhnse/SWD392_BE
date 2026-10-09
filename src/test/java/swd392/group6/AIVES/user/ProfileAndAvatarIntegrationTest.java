@@ -80,59 +80,78 @@ class ProfileAndAvatarIntegrationTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    // --- avatars ------------------------------------------------------------------------------------
+    // --- avatars (D33, D37: every picture becomes a centre-cropped square JPEG ≤ 512 px) -----------------
 
     @Test
-    void uploadedAvatarIsServedPubliclyWithCacheHeader_AC_C10() throws Exception {
-        byte[] png = CrudFixtures.png(512);
-        mockMvc.perform(putAvatar(png, "application/octet-stream").header("Authorization", auth))
+    void uploadedAvatarIsCroppedResizedAndServedPublicly_AC_C10() throws Exception {
+        mockMvc.perform(putAvatar(CrudFixtures.png(1200, 600), "application/octet-stream").header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.avatarUrl").value(startsWith("/api/v1/avatars/" + me.getUserId() + "?v=")));
 
         // No Authorization header: avatars are public (D33).
-        mockMvc.perform(get("/api/v1/avatars/" + me.getUserId()))
+        byte[] served = mockMvc.perform(get("/api/v1/avatars/" + me.getUserId()))
                 .andExpect(status().isOk())
-                .andExpect(content().contentType("image/png"))
+                .andExpect(content().contentType("image/jpeg"))
                 .andExpect(header().string("Cache-Control", "max-age=86400, public"))
-                .andExpect(content().bytes(png));
+                .andReturn().getResponse().getContentAsByteArray();
+        java.awt.image.BufferedImage img = CrudFixtures.decode(served);
+        assertThat(img.getWidth()).isEqualTo(512);
+        assertThat(img.getHeight()).isEqualTo(512);
+        // 1200x600 red|green|blue bands: the centred 600x600 square is all green, so are its corners.
+        assertGreen(img.getRGB(5, 5));
+        assertGreen(img.getRGB(506, 506));
 
         mockMvc.perform(get("/api/v1/users/me").header("Authorization", auth))
+                .andExpect(jsonPath("$.avatarSource").value("UPLOAD"))
                 .andExpect(jsonPath("$.avatarUrl").value(startsWith("/api/v1/avatars/" + me.getUserId() + "?v=")));
         String key = userRepository.findById(me.getUserId()).orElseThrow().getAvatarKey();
-        assertThat(key).startsWith("avatars/" + me.getUserId() + "/").endsWith(".png");
+        assertThat(key).startsWith("avatars/" + me.getUserId() + "/").endsWith(".jpg");
     }
 
     @Test
-    void jpegAndWebpAreAcceptedAndReplacingDeletesTheOldObject() throws Exception {
-        mockMvc.perform(putAvatar(CrudFixtures.jpeg(), "image/jpeg").header("Authorization", auth))
+    void smallPicturesAreNotUpscaled() throws Exception {
+        mockMvc.perform(putAvatar(CrudFixtures.png(120, 80), "image/png").header("Authorization", auth))
+                .andExpect(status().isOk());
+        java.awt.image.BufferedImage img = CrudFixtures.decode(
+                mockMvc.perform(get("/api/v1/avatars/" + me.getUserId())).andReturn().getResponse().getContentAsByteArray());
+        assertThat(img.getWidth()).isEqualTo(80);
+        assertThat(img.getHeight()).isEqualTo(80);
+    }
+
+    @Test
+    void jpegWebpGifAndBmpAreAcceptedAndReplacingDeletesTheOldObject() throws Exception {
+        mockMvc.perform(putAvatar(CrudFixtures.image("jpg", 300, 300), "image/jpeg").header("Authorization", auth))
                 .andExpect(status().isOk());
         String first = userRepository.findById(me.getUserId()).orElseThrow().getAvatarKey();
-        assertThat(first).endsWith(".jpg");
         assertThat(storage.exists(first)).isTrue();
 
         mockMvc.perform(putAvatar(CrudFixtures.webp(), "image/webp").header("Authorization", auth))
                 .andExpect(status().isOk());
         String second = userRepository.findById(me.getUserId()).orElseThrow().getAvatarKey();
-        assertThat(second).endsWith(".webp").isNotEqualTo(first);
+        assertThat(second).endsWith(".jpg").isNotEqualTo(first);
         assertThat(storage.exists(first)).isFalse();
-        mockMvc.perform(get("/api/v1/avatars/" + me.getUserId()))
-                .andExpect(content().contentType("image/webp"));
+
+        mockMvc.perform(putAvatar(CrudFixtures.image("gif", 64, 64), "image/gif").header("Authorization", auth))
+                .andExpect(status().isOk());
+        mockMvc.perform(putAvatar(CrudFixtures.image("bmp", 64, 64), "image/bmp").header("Authorization", auth))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/avatars/" + me.getUserId())).andExpect(content().contentType("image/jpeg"));
     }
 
     @Test
-    void avatarOver2MbIsRejected_AC_C10() throws Exception {
-        mockMvc.perform(putAvatar(CrudFixtures.png(2 * 1024 * 1024 + 1), "image/png").header("Authorization", auth))
+    void oversizedFilesAndHugeDimensionsAreRejected_AC_C10() throws Exception {
+        mockMvc.perform(putAvatar(CrudFixtures.fakePng(10 * 1024 * 1024 + 1), "image/png").header("Authorization", auth))
                 .andExpect(status().isPayloadTooLarge())
                 .andExpect(jsonPath("$.code").value("AVATAR_TOO_LARGE"));
-        // Exactly 2 MB is still fine.
-        mockMvc.perform(putAvatar(CrudFixtures.png(2 * 1024 * 1024), "image/png").header("Authorization", auth))
-                .andExpect(status().isOk());
+        // A tiny file that claims 8001 px is refused before its pixels are decoded (decompression bomb).
+        mockMvc.perform(putAvatar(CrudFixtures.png(8001, 1), "image/png").header("Authorization", auth))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("AVATAR_DIMENSIONS"));
     }
 
     @Test
     void nonImageIsRejectedEvenWithImageContentType_AC_C10() throws Exception {
-        byte[] gif = "GIF89a....".getBytes();
-        mockMvc.perform(putAvatar(gif, "image/png").header("Authorization", auth))
+        mockMvc.perform(putAvatar("GIF89a....".getBytes(), "image/png").header("Authorization", auth))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.code").value("AVATAR_UNSUPPORTED_TYPE"));
         mockMvc.perform(putAvatar("%PDF-1.7".getBytes(), "application/pdf").header("Authorization", auth))
@@ -146,7 +165,7 @@ class ProfileAndAvatarIntegrationTest {
 
     @Test
     void deletingAvatarMakesPublicFetch404() throws Exception {
-        mockMvc.perform(putAvatar(CrudFixtures.png(64), "image/png").header("Authorization", auth))
+        mockMvc.perform(putAvatar(CrudFixtures.png(64, 64), "image/png").header("Authorization", auth))
                 .andExpect(status().isOk());
         String key = userRepository.findById(me.getUserId()).orElseThrow().getAvatarKey();
 
@@ -157,7 +176,15 @@ class ProfileAndAvatarIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("AVATAR_NOT_FOUND"));
         mockMvc.perform(get("/api/v1/users/me").header("Authorization", auth))
-                .andExpect(jsonPath("$.avatarUrl").doesNotExist());
+                .andExpect(jsonPath("$.avatarUrl").doesNotExist())
+                .andExpect(jsonPath("$.avatarSource").doesNotExist());
+    }
+
+    private static void assertGreen(int rgb) {
+        int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+        assertThat(g).as("green channel").isGreaterThan(200);
+        assertThat(r).as("red channel").isLessThan(60);
+        assertThat(b).as("blue channel").isLessThan(60);
     }
 
     @Test
@@ -165,7 +192,7 @@ class ProfileAndAvatarIntegrationTest {
         mockMvc.perform(get("/api/v1/avatars/" + java.util.UUID.randomUUID()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("AVATAR_NOT_FOUND"));
-        mockMvc.perform(putAvatar(CrudFixtures.png(64), "image/png")).andExpect(status().isUnauthorized());
+        mockMvc.perform(putAvatar(CrudFixtures.png(64, 64), "image/png")).andExpect(status().isUnauthorized());
         mockMvc.perform(delete("/api/v1/users/me/avatar")).andExpect(status().isUnauthorized());
     }
 

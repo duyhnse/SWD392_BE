@@ -67,7 +67,8 @@ class FirebaseGoogleIdentityVerifier implements GoogleIdentityVerifier {
         String email = jwt.getClaimAsString("email");
         Boolean verified = jwt.getClaimAsBoolean("email_verified");
         return new GoogleIdentity(String.valueOf(googleIds.getFirst()),
-                email == null ? null : email.toLowerCase(Locale.ROOT), Boolean.TRUE.equals(verified));
+                email == null ? null : email.toLowerCase(Locale.ROOT), Boolean.TRUE.equals(verified),
+                jwt.getClaimAsString("picture"));
     }
 
     private static ApiException invalid() {
