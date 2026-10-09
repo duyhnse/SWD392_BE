@@ -118,7 +118,7 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
         MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
         form.add("audio", filePart(r.audio(), r.contentType(), "answer"));
         form.add("context", jsonPart(Map.of("language", r.language().name(),
-                "hotwords", r.hotwordPrompt() == null ? "" : r.hotwordPrompt())));
+                "prompt", r.hotwordPrompt() == null ? "" : r.hotwordPrompt())));
         JsonNode body = call(() -> http.post().uri("/v1/stt").contentType(MediaType.MULTIPART_FORM_DATA)
                 .body(form).retrieve().body(JsonNode.class));
         return new Transcript(body.path("text").asString(""), body.path("model").asString(null),
