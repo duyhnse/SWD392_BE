@@ -93,6 +93,25 @@ public class User implements UserDetails, TokenRevocation {
     @Column(name = "google_subject", unique = true)
     private String googleSubject;
 
+    /** Email of the linked Google account (D34). */
+    @Column(name = "google_email", length = 150)
+    private String googleEmail;
+
+    @Column(name = "google_linked_at")
+    private Instant googleLinkedAt;
+
+    /** StoragePort key of the profile picture, e.g. avatars/{userId}/{random}.png (D33). */
+    @Column(name = "avatar_key", length = 500)
+    private String avatarKey;
+
+    @Column(name = "avatar_updated_at")
+    private Instant avatarUpdatedAt;
+
+    /** Where the picture came from (D37); null when there is no picture. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "avatar_source", length = 20)
+    private AvatarSource avatarSource;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

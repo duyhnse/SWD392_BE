@@ -48,6 +48,10 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    mail:
+      # Mail is optional (MAIL_MODE=log by default); an unreachable SMTP server must not mark the app DOWN.
+      enabled: false
 
 springdoc:
   swagger-ui:
@@ -56,6 +60,12 @@ springdoc:
 application:
   # Used to build links in emails (password reset)
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  dev:
+    # Development only: lets anyone create LECTURER/STUDENT accounts from the forgot-password page (14 §3.7, D39)
+    self-registration-enabled: ${DEV_SELF_REGISTRATION:false}
+  google:
+    # Firebase project whose ID tokens are accepted for Google linking / sign-in (14 §3.5, D36)
+    firebase-project-id: ${FIREBASE_PROJECT_ID:aives-55658}
   mail:
     # log = write emails to the log (default); smtp = send through spring.mail.*
     mode: ${MAIL_MODE:log}

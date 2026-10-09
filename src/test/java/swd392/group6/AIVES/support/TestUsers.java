@@ -18,6 +18,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 public class TestUsers {
 
     public static final String PASSWORD = "S3curePassw0rd";
+    /** All test logins come from one "browser", so re-logging in is never asked to sign out another device (D38). */
+    public static final String DEVICE = "test-device";
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -34,13 +36,14 @@ public class TestUsers {
                 .fullName("Test " + role)
                 .email(username + "@example.com")
                 .roleId(role.getId())
+                .studentCode(role == Role.STUDENT ? "T" + username.substring(1).toUpperCase() : null)
                 .hashedPassword(passwordEncoder.encode(PASSWORD))
                 .build());
     }
 
     public static String login(MockMvc mockMvc, String username, String password) throws Exception {
         String json = mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}"))
+                        .content("{\"username\":\"" + username + "\",\"password\":\"" + password + "\",\"deviceId\":\"" + DEVICE + "\"}"))
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(json, "$.token");
     }

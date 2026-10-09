@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -26,6 +27,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserDetailsService userDetailsService;
+    private final ObjectProvider<SessionValidator> sessionValidator;
 
     @Override
     protected void doFilterInternal(
@@ -47,7 +49,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             userEmail = jwtService.extractUsername(jwt);
             if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                 UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
-                if (userDetails.isEnabled() && jwtService.isTokenValid(jwt, userDetails)) {
+                String sessionId = jwtService.extractSessionId(jwt);
+                SessionValidator sessions = sessionValidator.getIfAvailable();
+                boolean sessionOpen = sessions == null || (sessionId != null && sessions.isSessionOpen(sessionId, userDetails));
+                if (!sessionOpen) {
+                    // Signed in elsewhere, logged out, or password changed: tell the client why (D38).
+                    request.setAttribute(AuthAttributes.ERROR_CODE, "SESSION_REVOKED");
+                } else if (userDetails.isEnabled() && jwtService.isTokenValid(jwt, userDetails)) {
+                    request.setAttribute(AuthAttributes.SESSION_ID, sessionId);
                     UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                             userDetails,
                             null,
