@@ -54,6 +54,24 @@ class CourseIntegrationTest {
         return UUID.fromString(JsonPath.read(json, "$.courseId"));
     }
 
+    @Test
+    void archivingIsRefusedWhileAnExamIsRunning_D54() throws Exception {
+        UUID course = createCourse(code());
+        User lecturer = fx.user(Role.LECTURER, "lec" + unique());
+        User student = fx.user(Role.STUDENT, "stu" + unique());
+        UUID attempt = fx.examSession(course, lecturer.getUserId(), student.getUserId());
+        mockMvc.perform(patch("/api/v1/admin/courses/" + course).header("Authorization", adminAuth)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"active\":false}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COURSE_HAS_ACTIVE_EXAMS"));
+        jdbc.update("update exam_attempts set status = 'COMPLETED', ended_at = now() where attempt_id = ?", attempt);
+        jdbc.update("update viva_exams set status = 'CLOSED' where course_id = ?", course);
+        mockMvc.perform(patch("/api/v1/admin/courses/" + course).header("Authorization", adminAuth)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"active\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value(false));
+    }
+
     // --- create / update ----------------------------------------------------------------------------
 
     @Test
@@ -242,7 +260,7 @@ class CourseIntegrationTest {
         UUID id = createCourse(code());
         User lecturer = fx.user(Role.LECTURER, "lec" + unique());
         fx.assign(id, lecturer.getUserId());
-        fx.chapter(id, lecturer.getUserId());
+        fx.topic(id, lecturer.getUserId());
 
         mockMvc.perform(delete("/api/v1/admin/courses/" + id).header("Authorization", adminAuth))
                 .andExpect(status().isConflict())

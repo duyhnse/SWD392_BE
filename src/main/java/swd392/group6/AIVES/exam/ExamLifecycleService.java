@@ -9,7 +9,6 @@ import swd392.group6.AIVES.exam.ExamDtos.AddStudentsReport;
 import swd392.group6.AIVES.exam.ExamDtos.AttemptRow;
 import swd392.group6.AIVES.exam.ExamDtos.ExamDetail;
 import swd392.group6.AIVES.exam.ExamDtos.PoolCheck;
-import swd392.group6.AIVES.exam.ExamDtos.PublishResult;
 import swd392.group6.AIVES.exam.ExamDtos.RetakeRequest;
 import swd392.group6.AIVES.exam.ExamDtos.RetakeResult;
 import swd392.group6.AIVES.user.CourseAccessApi;
@@ -55,12 +54,12 @@ class ExamLifecycleService {
         if (rows.isEmpty()) {
             throw ApiException.unprocessable("TEMPLATE_ITEMS_REQUIRED", "The exam template has no rows yet");
         }
-        QuestionSelector.Coverage c = QuestionSelector.coverage(queries.candidates(t), ExamQueries.rows(rows));
-        return new PoolCheck(c.shortages().isEmpty(), c.shortages(), c.warnings());
+        List<QuestionSelector.RowShortage> shortages = QuestionSelector.shortages(queries.candidates(t), ExamQueries.rows(rows));
+        return new PoolCheck(shortages.isEmpty(), shortages);
     }
 
     /** DRAFT → READY: students can see it and check in once the window opens; the template gets locked (D49). */
-    PublishResult publish(UUID examId, User user) {
+    ExamDetail publish(UUID examId, User user) {
         refresher.refreshDue();
         VivaExam exam = access.write(examId, user);
         if (exam.getStatus() != ExamStatus.DRAFT) {
@@ -81,7 +80,7 @@ class ExamLifecycleService {
         templateService.lock(template);
         // A window that already started opens at once (same rule as ExamStatusRefresher).
         exam.setStatus(clock.instant().isBefore(exam.getCheckinOpensAt()) ? ExamStatus.READY : ExamStatus.OPEN);
-        return new PublishResult(save(exam), check.warnings());
+        return save(exam);
     }
 
     /** READY → DRAFT while nobody checked in. The template stays locked (duplicate it to change it). */

@@ -81,8 +81,8 @@ class QuestionBankFixture {
         return JsonPath.read(body(result), path);
     }
 
-    UUID chapter(Actor lecturer, UUID courseId, String name) throws Exception {
-        return id(json(lecturer, post("/api/v1/courses/" + courseId + "/chapters"), "{\"title\":\"" + name + "\"}")
+    UUID topic(Actor lecturer, UUID courseId, String name) throws Exception {
+        return id(json(lecturer, post("/api/v1/courses/" + courseId + "/topics"), "{\"name\":\"" + name + "\"}")
                 .andExpect(status().isCreated()));
     }
 
@@ -109,25 +109,25 @@ class QuestionBankFixture {
                 .andExpect(status().isCreated()));
     }
 
-    static String completeQuestion(UUID chapterId, UUID rubricId, String content) {
-        return "{\"chapterId\":\"" + chapterId + "\",\"content\":\"" + content + "\",\"referenceAnswer\":\"- point A\","
+    static String completeQuestion(UUID topicId, UUID rubricId, String content) {
+        return "{\"topicId\":\"" + topicId + "\",\"content\":\"" + content + "\",\"referenceAnswer\":\"- point A\","
                 + "\"bloomLevel\":\"UNDERSTAND\",\"rubricId\":\"" + rubricId + "\"}";
     }
 
-    /** A fresh course + chapter + valid rubric with the lecturer assigned. */
-    record Bank(UUID courseId, UUID chapterId, UUID rubricId) {
+    /** A fresh course + topic + valid rubric with the lecturer assigned. */
+    record Bank(UUID courseId, UUID topicId, UUID rubricId) {
     }
 
     Bank bank(Actor lecturer) throws Exception {
         UUID courseId = course("VI");
         assign(courseId, lecturer);
-        UUID chapterId = chapter(lecturer, courseId, "Architecture");
+        UUID topicId = topic(lecturer, courseId, "Architecture");
         UUID rubricId = rubric(lecturer, courseId, "Default rubric", 60, 40);
-        return new Bank(courseId, chapterId, rubricId);
+        return new Bank(courseId, topicId, rubricId);
     }
 
     UUID publishedQuestion(Actor lecturer, Bank bank, String content) throws Exception {
-        UUID id = question(lecturer, bank.courseId(), completeQuestion(bank.chapterId(), bank.rubricId(), content));
+        UUID id = question(lecturer, bank.courseId(), completeQuestion(bank.topicId(), bank.rubricId(), content));
         json(lecturer, post("/api/v1/questions/publish"), "{\"questionIds\":[\"" + id + "\"]}")
                 .andExpect(status().isOk());
         return id;

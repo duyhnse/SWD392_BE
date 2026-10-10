@@ -42,7 +42,7 @@ final class ExamDtos {
     }
 
     /** {@code secondsPerQuestion} null = default for the Bloom level ({@code exam.seconds.*} settings). */
-    record TemplateItemRequest(UUID chapterId, BloomLevel bloomLevel, @NotNull @Min(1) @Max(10) Integer count,
+    record TemplateItemRequest(UUID topicId, BloomLevel bloomLevel, @NotNull @Min(1) @Max(10) Integer count,
                                Integer secondsPerQuestion, UUID rubricId) {
     }
 
@@ -59,7 +59,7 @@ final class ExamDtos {
     }
 
     /** {@code available} = PUBLISHED questions of the pool that match the row right now. */
-    record TemplateItemView(UUID id, UUID chapterId, Integer chapterNo, String chapterTitle, BloomLevel bloomLevel,
+    record TemplateItemView(UUID id, UUID topicId, String topicName, BloomLevel bloomLevel,
                             int count, int secondsPerQuestion, UUID rubricId, int sortOrder, int available) {
     }
 
@@ -127,12 +127,8 @@ final class ExamDtos {
                       Instant createdAt, Instant updatedAt) {
     }
 
-    /** Result of publish / pool check: per template row, whether the pool can serve every student. */
-    record PoolCheck(boolean sufficient, List<QuestionSelector.RowShortage> shortages,
-                     List<QuestionSelector.Warning> warnings) {
-    }
-
-    record PublishResult(ExamDetail exam, List<QuestionSelector.Warning> warnings) {
+    /** Pool check: rows the pool cannot serve (publish and check-in refuse with POOL_TOO_SMALL). */
+    record PoolCheck(boolean sufficient, List<QuestionSelector.RowShortage> shortages) {
     }
 
     record StudentView(UUID studentId, String username, String fullName, String studentCode, int seqNo,
@@ -170,8 +166,8 @@ final class ExamDtos {
     }
 
     /** A drawn question with its snapshot (D49) — lecturers only. */
-    record AttemptQuestionView(UUID attemptQuestionId, UUID questionId, int orderNo, String status, Integer chapterNo,
-                               String chapterTitle, BloomLevel bloomLevel, String content, String referenceAnswer,
+    record AttemptQuestionView(UUID attemptQuestionId, UUID questionId, int orderNo, String status, String topicName,
+                               BloomLevel bloomLevel, String content, String referenceAnswer,
                                int timeBudgetSec, int timeUsedSec, String rubricName, Instant startedAt,
                                Instant endedAt, UUID replacesAttemptQuestionId, String voidReason) {
     }

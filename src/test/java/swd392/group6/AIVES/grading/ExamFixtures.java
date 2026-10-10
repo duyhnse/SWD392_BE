@@ -28,7 +28,7 @@ public class ExamFixtures {
         this.users = users;
     }
 
-    public record CourseFx(UUID courseId, User lecturer, UUID chapterId) {
+    public record CourseFx(UUID courseId, User lecturer, UUID topicId) {
     }
 
     public record RubricFx(UUID rubricId, List<UUID> criterionIds) {
@@ -46,12 +46,10 @@ public class ExamFixtures {
         jdbc.update("insert into courses (course_id, code, name) values (?, ?, ?)", courseId, "C" + unique(), "Course");
         User lecturer = users.create(Role.LECTURER);
         assign(courseId, lecturer);
-        UUID chapterId = UUID.randomUUID();
-        jdbc.update("""
-                insert into chapters (chapter_id, course_id, chapter_no, title, created_by)
-                values (?, ?, (select coalesce(max(chapter_no), 0) + 1 from chapters where course_id = ?), ?, ?)""",
-                chapterId, courseId, courseId, "Chapter " + unique(), lecturer.getUserId());
-        return new CourseFx(courseId, lecturer, chapterId);
+        UUID topicId = UUID.randomUUID();
+        jdbc.update("insert into topics (topic_id, course_id, name, created_by) values (?, ?, ?, ?)",
+                topicId, courseId, "Topic " + unique(), lecturer.getUserId());
+        return new CourseFx(courseId, lecturer, topicId);
     }
 
     public void assign(UUID courseId, User lecturer) {
@@ -79,10 +77,10 @@ public class ExamFixtures {
     public UUID question(CourseFx course, UUID rubricId, String content) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                        insert into questions (question_id, course_id, chapter_id, content, reference_answer, bloom_level, language,
+                        insert into questions (question_id, course_id, topic_id, content, reference_answer, bloom_level, language,
                                                status, origin, rubric_id, owner_id)
                         values (?, ?, ?, ?, 'SECRET reference answer', 'UNDERSTAND', 'VI', 'PUBLISHED', 'MANUAL', ?, ?)""",
-                id, course.courseId(), course.chapterId(), content, rubricId, course.lecturer().getUserId());
+                id, course.courseId(), course.topicId(), content, rubricId, course.lecturer().getUserId());
         return id;
     }
 

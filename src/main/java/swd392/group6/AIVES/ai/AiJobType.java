@@ -8,6 +8,6 @@ public enum AiJobType {
     SUMMARIZE_EVALUATION,
     /** Parse, chunk and embed one course material (WF1 RAG). */
     INDEX_MATERIAL,
-    /** P-GEN: draft questions for one chapter from retrieved chunks (WF1 RAG). */
+    /** P-GEN: draft questions for one topic from retrieved chunks (WF1 RAG). */
     GENERATE_QUESTIONS
 }

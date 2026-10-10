@@ -29,7 +29,6 @@ import swd392.group6.AIVES.exam.ExamDtos.ExamDetail;
 import swd392.group6.AIVES.exam.ExamDtos.ExamSummary;
 import swd392.group6.AIVES.exam.ExamDtos.ImportReport;
 import swd392.group6.AIVES.exam.ExamDtos.PoolCheck;
-import swd392.group6.AIVES.exam.ExamDtos.PublishResult;
 import swd392.group6.AIVES.exam.ExamDtos.RetakeRequest;
 import swd392.group6.AIVES.exam.ExamDtos.RetakeResult;
 import swd392.group6.AIVES.exam.ExamDtos.StudentView;
@@ -118,7 +117,7 @@ class VivaExamController {
     }
 
     @PostMapping("/viva-exams/{id}/publish")
-    PublishResult publish(@PathVariable UUID id, @AuthenticationPrincipal User user) {
+    ExamDetail publish(@PathVariable UUID id, @AuthenticationPrincipal User user) {
         return lifecycle.publish(id, user);
     }
 

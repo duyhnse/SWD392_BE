@@ -34,19 +34,19 @@ abstract class ExamTestBase {
 
     private final Map<UUID, String> tokens = new HashMap<>();
 
-    /** A course with one assigned lecturer, two chapters and a rubric. */
-    record Course(UUID id, User lecturer, String token, UUID chapterA, UUID chapterB, UUID rubric) {
+    /** A course with one assigned lecturer, two topics and a rubric. */
+    record Course(UUID id, User lecturer, String token, UUID topicA, UUID topicB, UUID rubric) {
     }
 
     Course course() throws Exception {
         User lecturer = data.lecturer();
         UUID id = data.course(lecturer);
-        return new Course(id, lecturer, token(lecturer), data.chapter(id, lecturer), data.chapter(id, lecturer),
+        return new Course(id, lecturer, token(lecturer), data.topic(id, lecturer), data.topic(id, lecturer),
                 data.rubric(id, lecturer));
     }
 
-    List<UUID> questions(Course c, UUID chapter, BloomLevel bloom, int n) {
-        return java.util.stream.IntStream.range(0, n).mapToObj(i -> data.question(c.id(), chapter, bloom, c.rubric(), c.lecturer()))
+    List<UUID> questions(Course c, UUID topic, BloomLevel bloom, int n) {
+        return java.util.stream.IntStream.range(0, n).mapToObj(i -> data.question(c.id(), topic, bloom, c.rubric(), c.lecturer()))
                 .toList();
     }
 
@@ -71,7 +71,7 @@ abstract class ExamTestBase {
         return call(request, token, null);
     }
 
-    /** A đề thi with the given rows JSON ({@code [{"chapterId":…,"bloomLevel":…,"count":…}]}) and extra fields. */
+    /** A đề thi with the given rows JSON ({@code [{"topicId":…,"bloomLevel":…,"count":…}]}) and extra fields. */
     UUID template(Course c, String itemsJson, String extra) throws Exception {
         String json = "{\"title\":\"Đề\",\"items\":" + itemsJson + (extra == null ? "" : "," + extra) + "}";
         String body = call(post("/api/v1/courses/" + c.id() + "/exam-templates"), c.token(), json)
@@ -79,7 +79,7 @@ abstract class ExamTestBase {
         return UUID.fromString(JsonPath.read(body, "$.id"));
     }
 
-    /** One "any chapter, any Bloom" row of {@code n} questions × 120 s. */
+    /** One "any topic, any Bloom" row of {@code n} questions × 120 s. */
     UUID template(Course c, int n) throws Exception {
         return template(c, "[{\"count\":" + n + ",\"secondsPerQuestion\":120}]", null);
     }

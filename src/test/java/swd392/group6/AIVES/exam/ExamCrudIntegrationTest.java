@@ -187,10 +187,10 @@ class ExamCrudIntegrationTest extends ExamTestBase {
     @Test
     void publishedExamFreezesEverythingButTextsAndTheClosingTime() throws Exception {
         Course c = course();
-        questions(c, c.chapterA(), UNDERSTAND, 4);
+        questions(c, c.topicA(), UNDERSTAND, 4);
         UUID exam = createExam(c, 2);
         addStudents(c, exam, data.student());
-        int version = JsonPath.read(publish(c, exam), "$.exam.version");
+        int version = JsonPath.read(publish(c, exam), "$.version");
 
         call(patch("/api/v1/viva-exams/" + exam), c.token(), "{\"version\":" + version + ",\"maxDisconnects\":1}")
                 .andExpect(status().isConflict())

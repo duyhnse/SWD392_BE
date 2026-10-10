@@ -9,7 +9,7 @@ import swd392.group6.AIVES.exam.ExamDtos.TemplateDetail;
 import swd392.group6.AIVES.exam.ExamDtos.TemplateItemView;
 import swd392.group6.AIVES.exam.ExamDtos.TemplateSummary;
 import swd392.group6.AIVES.questionbank.QuestionBankApi;
-import swd392.group6.AIVES.questionbank.QuestionBankApi.ChapterInfo;
+import swd392.group6.AIVES.questionbank.QuestionBankApi.TopicInfo;
 import swd392.group6.AIVES.questionbank.QuestionBankApi.PublishedQuestion;
 
 import java.sql.Timestamp;
@@ -48,11 +48,11 @@ class ExamQueries {
 
     List<QuestionSelector.Candidate> candidates(ExamTemplate t) {
         return pool(t).stream()
-                .map(q -> new QuestionSelector.Candidate(q.questionId(), q.chapterId(), q.bloomLevel())).toList();
+                .map(q -> new QuestionSelector.Candidate(q.questionId(), q.topicId(), q.bloomLevel())).toList();
     }
 
     static List<QuestionSelector.Row> rows(List<ExamTemplateItem> items) {
-        return items.stream().map(i -> new QuestionSelector.Row(i.getChapterId(), i.getBloomLevel(), i.getQuestionCount()))
+        return items.stream().map(i -> new QuestionSelector.Row(i.getTopicId(), i.getBloomLevel(), i.getQuestionCount()))
                 .toList();
     }
 
@@ -80,16 +80,16 @@ class ExamQueries {
 
     TemplateDetail templateDetail(ExamTemplate t) {
         List<ExamTemplateItem> rows = items.findByTemplateIdOrderBySortOrder(t.getId());
-        Map<UUID, ChapterInfo> chapters = questionBank.chapters(t.getCourseId());
+        Map<UUID, TopicInfo> topics = questionBank.topics(t.getCourseId());
         List<QuestionSelector.Candidate> pool = candidates(t);
         List<TemplateItemView> views = rows.stream().map(i -> {
-            QuestionSelector.Row row = new QuestionSelector.Row(i.getChapterId(), i.getBloomLevel(), i.getQuestionCount());
-            ChapterInfo chapter = i.getChapterId() == null ? null : chapters.get(i.getChapterId());
-            return new TemplateItemView(i.getId(), i.getChapterId(), chapter == null ? null : chapter.chapterNo(),
-                    chapter == null ? null : chapter.title(), i.getBloomLevel(), i.getQuestionCount(),
+            QuestionSelector.Row row = new QuestionSelector.Row(i.getTopicId(), i.getBloomLevel(), i.getQuestionCount());
+            TopicInfo topic = i.getTopicId() == null ? null : topics.get(i.getTopicId());
+            return new TemplateItemView(i.getId(), i.getTopicId(), topic == null ? null : topic.name(),
+                    i.getBloomLevel(), i.getQuestionCount(),
                     i.getSecondsPerQuestion(), i.getRubricId(), i.getSortOrder(), (int) pool.stream().filter(row::matches).count());
         }).toList();
-        boolean sufficient = !rows.isEmpty() && QuestionSelector.coverage(pool, rows(rows)).shortages().isEmpty();
+        boolean sufficient = !rows.isEmpty() && QuestionSelector.shortages(pool, rows(rows)).isEmpty();
         List<UUID> selected = t.getQuestionPoolMode() == QuestionPoolMode.SELECTED ? selectedQuestionIds(t.getId()) : List.of();
         return new TemplateDetail(t.getId(), t.getCourseId(), t.getTitle(), t.getDescription(), t.getLanguage(),
                 t.getMaxFollowupsPerQuestion(), t.getMaxAnswerSec(), t.getSilenceWarningSec(), t.isShowQuestionText(),

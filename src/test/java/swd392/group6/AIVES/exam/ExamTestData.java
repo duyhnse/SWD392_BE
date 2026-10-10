@@ -51,12 +51,10 @@ class ExamTestData {
         return id;
     }
 
-    UUID chapter(UUID courseId, User creator) {
+    UUID topic(UUID courseId, User creator) {
         UUID id = UUID.randomUUID();
-        jdbc.update("""
-                insert into chapters (chapter_id, course_id, chapter_no, title, created_by)
-                values (?, ?, (select coalesce(max(chapter_no), 0) + 1 from chapters where course_id = ?), ?, ?)""",
-                id, courseId, courseId, "Chapter " + id.toString().substring(0, 6), creator.getUserId());
+        jdbc.update("insert into topics (topic_id, course_id, name, created_by) values (?, ?, ?, ?)",
+                id, courseId, "Topic " + id.toString().substring(0, 6), creator.getUserId());
         return id;
     }
 
@@ -70,17 +68,17 @@ class ExamTestData {
         return id;
     }
 
-    UUID question(UUID courseId, UUID chapterId, BloomLevel bloom, UUID rubricId, User owner) {
-        return question(courseId, chapterId, bloom, rubricId, owner, "PUBLISHED");
+    UUID question(UUID courseId, UUID topicId, BloomLevel bloom, UUID rubricId, User owner) {
+        return question(courseId, topicId, bloom, rubricId, owner, "PUBLISHED");
     }
 
-    UUID question(UUID courseId, UUID chapterId, BloomLevel bloom, UUID rubricId, User owner, String status) {
+    UUID question(UUID courseId, UUID topicId, BloomLevel bloom, UUID rubricId, User owner, String status) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                insert into questions (question_id, course_id, chapter_id, content, reference_answer, bloom_level, language,
+                insert into questions (question_id, course_id, topic_id, content, reference_answer, bloom_level, language,
                                        status, origin, rubric_id, owner_id)
                 values (?, ?, ?, ?, 'Reference', ?, 'VI', ?, 'MANUAL', ?, ?)""",
-                id, courseId, chapterId, "Question " + bloom + " " + id.toString().substring(0, 6), bloom.name(), status,
+                id, courseId, topicId, "Question " + bloom + " " + id.toString().substring(0, 6), bloom.name(), status,
                 rubricId, owner.getUserId());
         return id;
     }

@@ -30,8 +30,8 @@ INSERT INTO course_lecturers (course_id, lecturer_id) VALUES
   ('10000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000012')
 ON CONFLICT DO NOTHING;
 
--- Chương + course terms (STT hotwords) --------------------------------------------
-INSERT INTO chapters (chapter_id, course_id, title, chapter_no, created_by) VALUES
+-- Topics + course terms (STT hotwords) -------------------------------------------
+INSERT INTO topics (topic_id, course_id, name, sort_order, created_by) VALUES
   ('20000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'Architectural styles', 1, '00000000-0000-4000-8000-000000000011'),
   ('20000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000001', 'Design principles', 2, '00000000-0000-4000-8000-000000000011'),
   ('20000000-0000-4000-8000-000000000003', '10000000-0000-4000-8000-000000000001', 'Quality attributes', 3, '00000000-0000-4000-8000-000000000011'),
@@ -59,7 +59,7 @@ INSERT INTO rubric_criteria (criterion_id, rubric_id, name, description, max_sco
 ON CONFLICT DO NOTHING;
 
 -- Questions: 6 PUBLISHED + 2 DRAFT (owner lecturer1) ------------------------------
-INSERT INTO questions (question_id, course_id, chapter_id, content, reference_answer, bloom_level, language, status, origin,
+INSERT INTO questions (question_id, course_id, topic_id, content, reference_answer, bloom_level, language, status, origin,
                        rubric_id, owner_id, published_by, published_at) VALUES
   ('40000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001',
    'Kiến trúc Modular Monolith là gì?',
@@ -112,7 +112,7 @@ INSERT INTO questions (question_id, course_id, chapter_id, content, reference_an
    '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000011', now())
 ON CONFLICT DO NOTHING;
 
-INSERT INTO questions (question_id, course_id, chapter_id, content, reference_answer, bloom_level, language, status, origin, owner_id) VALUES
+INSERT INTO questions (question_id, course_id, topic_id, content, reference_answer, bloom_level, language, status, origin, owner_id) VALUES
   ('40000000-0000-4000-8000-000000000007', '10000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000003',
    'Availability là gì và đo bằng cách nào?', NULL, 'REMEMBER', 'VI', 'DRAFT', 'MANUAL', '00000000-0000-4000-8000-000000000011'),
   ('40000000-0000-4000-8000-000000000008', '10000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001',
@@ -120,13 +120,13 @@ INSERT INTO questions (question_id, course_id, chapter_id, content, reference_an
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================
--- Đề thi (exam templates, D45): rows chương × Bloom × số câu × thời gian/câu.
+-- Đề thi (exam templates, D45): rows topic × Bloom × số câu × thời gian/câu.
 -- Ids reuse the buổi thi ids, exactly as migration V6 converted the old exams.
 -- ============================================================================
 INSERT INTO exam_templates (exam_template_id, course_id, title, description, language, max_followups_per_question,
                             pass_score, is_locked, created_by) VALUES
   ('50000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'Đề vấn đáp giữa kỳ SWD392',
-   'Chương 1–2 + một câu phân tích bất kỳ chương nào.', 'VI', 2, 5.00, true, '00000000-0000-4000-8000-000000000011'),
+   'Architectural styles, Design principles + một câu phân tích bất kỳ topic nào.', 'VI', 2, 5.00, true, '00000000-0000-4000-8000-000000000011'),
   ('50000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000001', 'Đề vấn đáp cuối kỳ SWD392',
    'Nguyên lý thiết kế, áp dụng, kiến trúc.', 'VI', 2, 5.00, true, '00000000-0000-4000-8000-000000000011'),
   ('50000000-0000-4000-8000-000000000003', '10000000-0000-4000-8000-000000000001', 'Đề vấn đáp giữa kỳ SWD392 – Đợt 1',
@@ -135,7 +135,7 @@ ON CONFLICT (exam_template_id) DO UPDATE SET title = EXCLUDED.title, description
   pass_score = EXCLUDED.pass_score;
 
 -- Rows only for a template that has none (a migrated database already has its rows).
-INSERT INTO exam_template_items (template_item_id, exam_template_id, chapter_id, bloom_level, question_count, seconds_per_question, sort_order)
+INSERT INTO exam_template_items (template_item_id, exam_template_id, topic_id, bloom_level, question_count, seconds_per_question, sort_order)
 SELECT v.* FROM (VALUES
   ('53000000-0000-4000-8000-000000000011'::uuid, '50000000-0000-4000-8000-000000000001'::uuid, '20000000-0000-4000-8000-000000000001'::uuid, 'REMEMBER', 1, 120, 1),
   ('53000000-0000-4000-8000-000000000012'::uuid, '50000000-0000-4000-8000-000000000001'::uuid, '20000000-0000-4000-8000-000000000002'::uuid, 'UNDERSTAND', 1, 180, 2),
@@ -144,7 +144,7 @@ SELECT v.* FROM (VALUES
   ('53000000-0000-4000-8000-000000000022'::uuid, '50000000-0000-4000-8000-000000000002'::uuid, NULL::uuid, 'APPLY', 1, 240, 2),
   ('53000000-0000-4000-8000-000000000023'::uuid, '50000000-0000-4000-8000-000000000002'::uuid, '20000000-0000-4000-8000-000000000001'::uuid, NULL, 1, 240, 3),
   ('53000000-0000-4000-8000-000000000031'::uuid, '50000000-0000-4000-8000-000000000003'::uuid, NULL::uuid, NULL, 3, 200, 1)
-) AS v(template_item_id, exam_template_id, chapter_id, bloom_level, question_count, seconds_per_question, sort_order)
+) AS v(template_item_id, exam_template_id, topic_id, bloom_level, question_count, seconds_per_question, sort_order)
 WHERE NOT EXISTS (SELECT 1 FROM exam_template_items i WHERE i.exam_template_id = v.exam_template_id)
 ON CONFLICT DO NOTHING;
 
@@ -216,10 +216,10 @@ INSERT INTO exam_attempts (attempt_id, viva_exam_id, course_id, student_id, exam
 ON CONFLICT DO NOTHING;
 
 -- Drawn questions with their snapshot (D49): wording, key points and rubric as they were at check-in.
-INSERT INTO attempt_questions (attempt_question_id, attempt_id, question_id, order_no, status, chapter_id, chapter_no,
-                               chapter_title, bloom_level, language, content, reference_answer, question_version,
+INSERT INTO attempt_questions (attempt_question_id, attempt_id, question_id, order_no, status, topic_id,
+                               topic_name, bloom_level, language, content, reference_answer, question_version,
                                rubric_snapshot, time_budget_sec, time_used_sec)
-SELECT v.aq, v.a, q.question_id, v.o, 'DONE', c.chapter_id, c.chapter_no, c.title, q.bloom_level, q.language, q.content,
+SELECT v.aq, v.a, q.question_id, v.o, 'DONE', c.topic_id, c.name, q.bloom_level, q.language, q.content,
        q.reference_answer, q.version,
        jsonb_build_object('rubricId', r.rubric_id, 'name', r.name, 'criteria', (
          SELECT jsonb_agg(jsonb_build_object('criterionId', rc.criterion_id, 'name', rc.name, 'description', rc.description,
@@ -236,7 +236,7 @@ FROM (VALUES
   ('52000000-0000-4000-8000-000000003230'::uuid, '51000000-0000-4000-8000-000000000320'::uuid, '40000000-0000-4000-8000-000000000006'::uuid, 3, 130)
 ) AS v(aq, a, q, o, used)
 JOIN questions q ON q.question_id = v.q
-JOIN chapters c ON c.chapter_id = q.chapter_id
+JOIN topics c ON c.topic_id = q.topic_id
 JOIN rubrics r ON r.rubric_id = q.rubric_id
 ON CONFLICT DO NOTHING;
 UPDATE questions SET is_locked = true WHERE question_id IN (
@@ -247,8 +247,8 @@ UPDATE rubrics SET is_locked = true WHERE rubric_id IN (
   '30000000-0000-4000-8000-000000000001', '30000000-0000-4000-8000-000000000002') AND NOT is_locked;
 
 INSERT INTO attempt_events (event_id, attempt_id, type, actor_id, payload, created_at) VALUES
-  ('59000000-0000-4000-8000-000000003101', '51000000-0000-4000-8000-000000000310', 'CHECKED_IN', '00000000-0000-4000-8000-000000000021', '{"selectionSeed": 310, "warnings": []}', date_trunc('hour', now()) - interval '10 days' + interval '1 hours'),
-  ('59000000-0000-4000-8000-000000003201', '51000000-0000-4000-8000-000000000320', 'CHECKED_IN', '00000000-0000-4000-8000-000000000031', '{"selectionSeed": 320, "warnings": []}', date_trunc('hour', now()) - interval '10 days' + interval '2 hours'),
+  ('59000000-0000-4000-8000-000000003101', '51000000-0000-4000-8000-000000000310', 'CHECKED_IN', '00000000-0000-4000-8000-000000000021', '{"selectionSeed": 310}', date_trunc('hour', now()) - interval '10 days' + interval '1 hours'),
+  ('59000000-0000-4000-8000-000000003201', '51000000-0000-4000-8000-000000000320', 'CHECKED_IN', '00000000-0000-4000-8000-000000000031', '{"selectionSeed": 320}', date_trunc('hour', now()) - interval '10 days' + interval '2 hours'),
   ('59000000-0000-4000-8000-000000003202', '51000000-0000-4000-8000-000000000320', 'DISCONNECTED', NULL, '{"lastSeenAt": "turn 2"}', date_trunc('hour', now()) - interval '10 days' + interval '2 hours 3 minutes'),
   ('59000000-0000-4000-8000-000000003203', '51000000-0000-4000-8000-000000000320', 'RECONNECTED', NULL, '{"offlineSec": 25, "action": "RE_ASKED"}', date_trunc('hour', now()) - interval '10 days' + interval '2 hours 3 minutes 25 seconds')
 ON CONFLICT DO NOTHING;

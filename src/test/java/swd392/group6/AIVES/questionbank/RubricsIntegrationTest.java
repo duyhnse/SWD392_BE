@@ -162,8 +162,8 @@ class RubricsIntegrationTest {
                 .andExpect(jsonPath("$.code").value("RUBRIC_NOT_FOUND"));
 
         UUID used = fx.rubric(lecturer, courseId, "Used", 100);
-        UUID chapter = fx.chapter(lecturer, courseId, "T");
-        fx.question(lecturer, courseId, completeQuestion(chapter, used, "Explain DI"));
+        UUID topic = fx.topic(lecturer, courseId, "T");
+        fx.question(lecturer, courseId, completeQuestion(topic, used, "Explain DI"));
         fx.perform(lecturer, delete("/api/v1/rubrics/" + used))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("RUBRIC_IN_USE"));

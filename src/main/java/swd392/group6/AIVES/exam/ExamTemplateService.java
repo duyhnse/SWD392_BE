@@ -159,7 +159,7 @@ class ExamTemplateService {
         t.setUpdatedAt(now);
         templates.saveAndFlush(t);
         items.saveAllAndFlush(items.findByTemplateIdOrderBySortOrder(source.getId()).stream()
-                .map(i -> new ExamTemplateItem(UUID.randomUUID(), t.getId(), i.getChapterId(), i.getBloomLevel(),
+                .map(i -> new ExamTemplateItem(UUID.randomUUID(), t.getId(), i.getTopicId(), i.getBloomLevel(),
                         i.getQuestionCount(), i.getSecondsPerQuestion(), i.getRubricId(), i.getSortOrder()))
                 .toList());
         jdbc.update("""
@@ -215,8 +215,8 @@ class ExamTemplateService {
         int duration = 0;
         int order = 0;
         for (TemplateItemRequest row : rows) {
-            if (row.chapterId() != null && !questionBank.chapterBelongsToCourse(row.chapterId(), t.getCourseId())) {
-                throw ApiException.unprocessable("CHAPTER_NOT_IN_COURSE", "Chapter " + row.chapterId() + " is not a chapter of this course");
+            if (row.topicId() != null && !questionBank.topicBelongsToCourse(row.topicId(), t.getCourseId())) {
+                throw ApiException.unprocessable("TOPIC_NOT_IN_COURSE", "Topic " + row.topicId() + " is not a topic of this course");
             }
             if (row.rubricId() != null && !questionBank.rubricUsableInCourse(row.rubricId(), t.getCourseId())) {
                 throw rubricInvalid(row.rubricId());
@@ -227,7 +227,7 @@ class ExamTemplateService {
             }
             total += row.count();
             duration += row.count() * seconds;
-            result.add(new ExamTemplateItem(UUID.randomUUID(), t.getId(), row.chapterId(), row.bloomLevel(), row.count(),
+            result.add(new ExamTemplateItem(UUID.randomUUID(), t.getId(), row.topicId(), row.bloomLevel(), row.count(),
                     seconds, row.rubricId(), order++));
         }
         if (total > MAX_QUESTIONS) {

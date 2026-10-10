@@ -35,7 +35,7 @@ class ExamLifecycleIntegrationTest extends ExamTestBase {
 
     /** Published exam with check-in [T0+1h, T0+2h], 2 questions per student, and the given students. */
     private UUID publishedExam(Course c, User... students) throws Exception {
-        questions(c, c.chapterA(), UNDERSTAND, 6);
+        questions(c, c.topicA(), UNDERSTAND, 6);
         UUID exam = createExam(c, 2);
         addStudents(c, exam, students);
         publish(c, exam);
@@ -45,11 +45,11 @@ class ExamLifecycleIntegrationTest extends ExamTestBase {
     @Test
     void publishChecksStudentsAndThePoolPerRow_D48() throws Exception {
         Course c = course();
-        questions(c, c.chapterA(), UNDERSTAND, 2);
-        questions(c, c.chapterB(), APPLY, 1);
+        questions(c, c.topicA(), UNDERSTAND, 2);
+        questions(c, c.topicB(), APPLY, 1);
         UUID template = template(c, """
-                [{"chapterId":"%s","bloomLevel":"UNDERSTAND","count":2},{"chapterId":"%s","bloomLevel":"APPLY","count":2}]"""
-                .formatted(c.chapterA(), c.chapterB()), null);
+                [{"topicId":"%s","bloomLevel":"UNDERSTAND","count":2},{"topicId":"%s","bloomLevel":"APPLY","count":2}]"""
+                .formatted(c.topicA(), c.topicB()), null);
         UUID exam = createExam(c, template, T0.plusSeconds(3600), T0.plusSeconds(7200), null);
 
         call(post("/api/v1/viva-exams/" + exam + "/publish"), c.token())
@@ -58,8 +58,7 @@ class ExamLifecycleIntegrationTest extends ExamTestBase {
         addStudents(c, exam, data.student());
         call(get("/api/v1/viva-exams/" + exam + "/pool-check"), c.token())
                 .andExpect(jsonPath("$.sufficient").value(false))
-                .andExpect(jsonPath("$.shortages", hasSize(1)))
-                .andExpect(jsonPath("$.warnings[0].code").value("POOL_SMALL"));
+                .andExpect(jsonPath("$.shortages", hasSize(1)));
         call(post("/api/v1/viva-exams/" + exam + "/publish"), c.token())
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("POOL_TOO_SMALL"))
@@ -67,12 +66,11 @@ class ExamLifecycleIntegrationTest extends ExamTestBase {
                 .andExpect(jsonPath("$.rows[0].required").value(2))
                 .andExpect(jsonPath("$.rows[0].available").value(1));
 
-        questions(c, c.chapterB(), APPLY, 1);
+        questions(c, c.topicB(), APPLY, 1);
         call(post("/api/v1/viva-exams/" + exam + "/publish"), c.token())
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.exam.status").value("READY"))
-                .andExpect(jsonPath("$.exam.template.locked").value(true))
-                .andExpect(jsonPath("$.warnings[*].code", contains("POOL_SMALL", "POOL_SMALL")));
+                .andExpect(jsonPath("$.status").value("READY"))
+                .andExpect(jsonPath("$.template.locked").value(true));
         assertThat(jdbc.queryForObject("select count(*) from exam_attempts where viva_exam_id = ?", Integer.class, exam))
                 .as("no questions are drawn before check-in").isZero();
         call(post("/api/v1/viva-exams/" + exam + "/unpublish"), c.token())

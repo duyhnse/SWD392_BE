@@ -29,15 +29,15 @@ class JdbcQuestionBankApi implements QuestionBankApi {
     private final NamedParameterJdbcTemplate jdbc;
 
     @Override
-    public List<PublishedQuestion> findPublished(UUID courseId, Collection<UUID> chapterIds, Collection<BloomLevel> bloomLevels,
+    public List<PublishedQuestion> findPublished(UUID courseId, Collection<UUID> topicIds, Collection<BloomLevel> bloomLevels,
                                                  Collection<UUID> restrictToIds) {
         StringBuilder sql = new StringBuilder("""
-                select question_id, course_id, chapter_id, bloom_level, language, content
+                select question_id, course_id, topic_id, bloom_level, language, content
                 from questions where course_id = :courseId and status = 'PUBLISHED'""");
         MapSqlParameterSource p = new MapSqlParameterSource("courseId", courseId);
-        if (chapterIds != null && !chapterIds.isEmpty()) {
-            sql.append(" and chapter_id in (:chapterIds)");
-            p.addValue("chapterIds", chapterIds);
+        if (topicIds != null && !topicIds.isEmpty()) {
+            sql.append(" and topic_id in (:topicIds)");
+            p.addValue("topicIds", topicIds);
         }
         if (bloomLevels != null && !bloomLevels.isEmpty()) {
             sql.append(" and bloom_level in (:blooms)");
@@ -50,18 +50,18 @@ class JdbcQuestionBankApi implements QuestionBankApi {
         sql.append(" order by question_id");
         return jdbc.query(sql.toString(), p, (rs, i) -> new PublishedQuestion(
                 rs.getObject("question_id", UUID.class), rs.getObject("course_id", UUID.class),
-                rs.getObject("chapter_id", UUID.class), BloomLevel.valueOf(rs.getString("bloom_level")),
+                rs.getObject("topic_id", UUID.class), BloomLevel.valueOf(rs.getString("bloom_level")),
                 Language.valueOf(rs.getString("language")), rs.getString("content")));
     }
 
     @Override
     public Optional<QuestionInfo> getQuestion(UUID questionId) {
         return jdbc.query("""
-                        select question_id, course_id, chapter_id, content, reference_answer, bloom_level, language, status,
+                        select question_id, course_id, topic_id, content, reference_answer, bloom_level, language, status,
                                rubric_id, is_locked from questions where question_id = :id""",
                 new MapSqlParameterSource("id", questionId),
                 (rs, i) -> new QuestionInfo(rs.getObject("question_id", UUID.class), rs.getObject("course_id", UUID.class),
-                        rs.getObject("chapter_id", UUID.class), rs.getString("content"), rs.getString("reference_answer"),
+                        rs.getObject("topic_id", UUID.class), rs.getString("content"), rs.getString("reference_answer"),
                         rs.getString("bloom_level") == null ? null : BloomLevel.valueOf(rs.getString("bloom_level")),
                         Language.valueOf(rs.getString("language")), rs.getString("status"),
                         rs.getObject("rubric_id", UUID.class), rs.getBoolean("is_locked")))
@@ -91,12 +91,12 @@ class JdbcQuestionBankApi implements QuestionBankApi {
     }
 
     @Override
-    public Map<UUID, ChapterInfo> chapters(UUID courseId) {
-        Map<UUID, ChapterInfo> result = new LinkedHashMap<>();
-        jdbc.query("select chapter_id, chapter_no, title from chapters where course_id = :c order by chapter_no",
+    public Map<UUID, TopicInfo> topics(UUID courseId) {
+        Map<UUID, TopicInfo> result = new LinkedHashMap<>();
+        jdbc.query("select topic_id, name, sort_order from topics where course_id = :c order by sort_order, name",
                 new MapSqlParameterSource("c", courseId), rs -> {
                     UUID id = rs.getObject(1, UUID.class);
-                    result.put(id, new ChapterInfo(id, rs.getInt(2), rs.getString(3)));
+                    result.put(id, new TopicInfo(id, rs.getString(2), rs.getInt(3)));
                 });
         return result;
     }
@@ -106,22 +106,22 @@ class JdbcQuestionBankApi implements QuestionBankApi {
         if (questionIds.isEmpty()) {
             return Map.of();
         }
-        record Row(UUID id, UUID chapterId, int chapterNo, String chapterTitle, String content, String reference,
+        record Row(UUID id, UUID topicId, String topicName, String content, String reference,
                    BloomLevel bloom, Language language, int version, UUID rubricId) {
         }
         List<Row> rows = jdbc.query("""
-                        select q.question_id, q.chapter_id, c.chapter_no, c.title, q.content, q.reference_answer,
+                        select q.question_id, q.topic_id, c.name, q.content, q.reference_answer,
                                q.bloom_level, q.language, q.version, q.rubric_id
-                        from questions q join chapters c on c.chapter_id = q.chapter_id
+                        from questions q join topics c on c.topic_id = q.topic_id
                         where q.question_id in (:ids)""", new MapSqlParameterSource("ids", questionIds),
-                (rs, i) -> new Row(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getInt(3), rs.getString(4),
-                        rs.getString(5), rs.getString(6),
-                        rs.getString(7) == null ? null : BloomLevel.valueOf(rs.getString(7)),
-                        Language.valueOf(rs.getString(8)), rs.getInt(9), rs.getObject(10, UUID.class)));
+                (rs, i) -> new Row(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3),
+                        rs.getString(4), rs.getString(5),
+                        rs.getString(6) == null ? null : BloomLevel.valueOf(rs.getString(6)),
+                        Language.valueOf(rs.getString(7)), rs.getInt(8), rs.getObject(9, UUID.class)));
         Map<UUID, RubricSnapshot> rubrics = rubrics(rows.stream().map(Row::rubricId).filter(Objects::nonNull).toList());
         Map<UUID, QuestionSnapshot> result = new HashMap<>();
         for (Row r : rows) {
-            result.put(r.id(), new QuestionSnapshot(r.id(), r.chapterId(), r.chapterNo(), r.chapterTitle(), r.content(),
+            result.put(r.id(), new QuestionSnapshot(r.id(), r.topicId(), r.topicName(), r.content(),
                     r.reference(), r.bloom(), r.language(), r.version(), r.rubricId() == null ? null : rubrics.get(r.rubricId())));
         }
         return result;
@@ -165,9 +165,9 @@ class JdbcQuestionBankApi implements QuestionBankApi {
     }
 
     @Override
-    public boolean chapterBelongsToCourse(UUID chapterId, UUID courseId) {
-        Integer n = jdbc.queryForObject("select count(*) from chapters where chapter_id = :t and course_id = :c",
-                new MapSqlParameterSource("t", chapterId).addValue("c", courseId), Integer.class);
+    public boolean topicBelongsToCourse(UUID topicId, UUID courseId) {
+        Integer n = jdbc.queryForObject("select count(*) from topics where topic_id = :t and course_id = :c",
+                new MapSqlParameterSource("t", topicId).addValue("c", courseId), Integer.class);
         return n != null && n > 0;
     }
 }

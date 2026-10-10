@@ -101,6 +101,9 @@ class AdminUserService {
             }
             user.setRoleId(request.role().getId());
         }
+        if (user.getRole() != Role.STUDENT) {
+            user.setStudentCode(null); // MSSV belongs to students only (DB check, D40)
+        }
         if (user.getRole() == Role.STUDENT && user.getStudentCode() == null) {
             throw ApiException.unprocessable("STUDENT_CODE_REQUIRED", "A student code (MSSV) is required for students");
         }

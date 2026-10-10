@@ -21,7 +21,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -55,7 +54,7 @@ class CheckInService {
     MyExam checkIn(UUID examId, CheckInRequest request, User student) {
         refresher.refreshDue();
         MapSqlParameterSource p = ExamQueries.params(examId).addValue("s", student.getUserId());
-        // Serialises check-ins of one buổi thi, so "the previous examinee" and usage counts are consistent.
+        // Serialises check-ins of one buổi thi so the usage counts that spread the questions are consistent.
         List<UUID> locked = jdbc.queryForList("select viva_exam_id from viva_exams where viva_exam_id = :e for update", p, UUID.class);
         Boolean onRoster = jdbc.queryForObject(
                 "select exists(select 1 from viva_exam_students where viva_exam_id = :e and student_id = :s)", p, Boolean.class);
@@ -83,8 +82,7 @@ class CheckInService {
         ExamTemplate template = templates.findById(exam.getTemplateId()).orElseThrow();
         List<ExamTemplateItem> rows = items.findByTemplateIdOrderBySortOrder(template.getId());
         long seed = SEEDS.nextLong();
-        QuestionSelector.Draw draw = QuestionSelector.draw(queries.candidates(template), ExamQueries.rows(rows),
-                student.getUserId(), previouslyReceived(exam, student.getUserId()), previousExaminee(examId),
+        QuestionSelector.Draw draw = QuestionSelector.draw(queries.candidates(template), ExamQueries.rows(rows), Set.of(),
                 usage(examId), seed);
         if (draw.failed()) {
             throw new PoolTooSmallException(draw.shortages());
@@ -106,7 +104,7 @@ class CheckInService {
             duration += row.getSecondsPerQuestion();
             questionRows.add(new MapSqlParameterSource("id", UUID.randomUUID()).addValue("a", attemptId)
                     .addValue("q", q.questionId()).addValue("o", orderNo++).addValue("item", row.getId())
-                    .addValue("ch", q.chapterId()).addValue("chNo", q.chapterNo()).addValue("chTitle", q.chapterTitle())
+                    .addValue("topic", q.topicId()).addValue("topicName", q.topicName())
                     .addValue("bloom", q.bloomLevel() == null ? null : q.bloomLevel().name())
                     .addValue("lang", q.language().name()).addValue("content", q.content())
                     .addValue("ref", q.referenceAnswer()).addValue("ver", q.version())
@@ -123,13 +121,12 @@ class CheckInService {
                         .addValue("seed", seed).addValue("client", request.clientInfo()));
         jdbc.batchUpdate("""
                 insert into attempt_questions (attempt_question_id, attempt_id, question_id, order_no, status, template_item_id,
-                                               chapter_id, chapter_no, chapter_title, bloom_level, language, content,
+                                               topic_id, topic_name, bloom_level, language, content,
                                                reference_answer, question_version, rubric_snapshot, time_budget_sec)
-                values (:id, :a, :q, :o, 'PENDING', :item, :ch, :chNo, :chTitle, :bloom, :lang, :content, :ref, :ver,
+                values (:id, :a, :q, :o, 'PENDING', :item, :topic, :topicName, :bloom, :lang, :content, :ref, :ver,
                         cast(:rubric as jsonb), :budget)""", questionRows.toArray(MapSqlParameterSource[]::new));
         questionBank.lockForExam(questionIds, rubricIds);
-        events.publishEvent(new AttemptStartedEvent(attemptId, examId, student.getUserId(), now, seed,
-                draw.warnings().stream().map(QuestionSelector.Warning::code).toList()));
+        events.publishEvent(new AttemptStartedEvent(attemptId, examId, student.getUserId(), now, seed));
         return myExams.get(student, examId);
     }
 
@@ -143,35 +140,6 @@ class CheckInService {
             throw ApiException.unprocessable("RUBRIC_MISSING", "Question " + q.questionId() + " has no usable rubric");
         }
         return rubric;
-    }
-
-    /** Questions this student received in the buổi thi this one retakes (and the ones before it), D30. */
-    private Set<UUID> previouslyReceived(VivaExam exam, UUID studentId) {
-        List<UUID> ancestors = new ArrayList<>();
-        Set<UUID> seen = new LinkedHashSet<>();
-        UUID current = exam.getRetakeOfVivaExamId();
-        while (current != null && seen.add(current)) {
-            ancestors.add(current);
-            List<UUID> parent = jdbc.queryForList("select retake_of_viva_exam_id from viva_exams where viva_exam_id = :e",
-                    ExamQueries.params(current), UUID.class);
-            current = parent.isEmpty() ? null : parent.getFirst();
-        }
-        if (ancestors.isEmpty()) {
-            return Set.of();
-        }
-        return new HashSet<>(jdbc.queryForList("""
-                        select q.question_id from exam_attempts a join attempt_questions q on q.attempt_id = a.attempt_id
-                        where a.viva_exam_id in (:ids) and a.student_id = :s""",
-                new MapSqlParameterSource("ids", ancestors).addValue("s", studentId), UUID.class));
-    }
-
-    /** Questions of the attempt that checked in last — "consecutive examinees" of the brief. */
-    private Set<UUID> previousExaminee(UUID examId) {
-        return new HashSet<>(jdbc.queryForList("""
-                        select q.question_id from attempt_questions q where q.attempt_id = (
-                          select a.attempt_id from exam_attempts a where a.viva_exam_id = :e
-                          order by a.started_at desc, a.attempt_id limit 1)""",
-                ExamQueries.params(examId), UUID.class));
     }
 
     private Map<UUID, Integer> usage(UUID examId) {

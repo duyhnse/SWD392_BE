@@ -15,7 +15,7 @@ public final class ExamRows {
     private ExamRows() {
     }
 
-    /** A template with one "any chapter, any Bloom" row of {@code questions} × {@code secondsPerQuestion}. */
+    /** A template with one "any topic, any Bloom" row of {@code questions} × {@code secondsPerQuestion}. */
     public static UUID template(JdbcTemplate jdbc, UUID courseId, UUID createdBy, int questions, int secondsPerQuestion) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
@@ -68,10 +68,10 @@ public final class ExamRows {
     public static UUID attemptQuestion(JdbcTemplate jdbc, UUID attemptId, UUID questionId, int orderNo, String status) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                        insert into attempt_questions (attempt_question_id, attempt_id, question_id, order_no, status, chapter_id,
-                                                       chapter_no, chapter_title, bloom_level, language, content,
+                        insert into attempt_questions (attempt_question_id, attempt_id, question_id, order_no, status, topic_id,
+                                                       topic_name, bloom_level, language, content,
                                                        reference_answer, question_version, rubric_snapshot, time_budget_sec)
-                        select ?, ?, q.question_id, ?, ?, c.chapter_id, c.chapter_no, c.title, q.bloom_level, q.language,
+                        select ?, ?, q.question_id, ?, ?, c.topic_id, c.name, q.bloom_level, q.language,
                                q.content, q.reference_answer, q.version,
                                coalesce((select jsonb_build_object('rubricId', r.rubric_id, 'name', r.name, 'criteria',
                                           coalesce((select jsonb_agg(jsonb_build_object('criterionId', rc.criterion_id,
@@ -81,7 +81,7 @@ public final class ExamRows {
                                                     from rubric_criteria rc where rc.rubric_id = r.rubric_id), '[]'::jsonb))
                                          from rubrics r where r.rubric_id = q.rubric_id), '{"criteria": []}'::jsonb),
                                180
-                        from questions q join chapters c on c.chapter_id = q.chapter_id where q.question_id = ?""",
+                        from questions q join topics c on c.topic_id = q.topic_id where q.question_id = ?""",
                 id, attemptId, orderNo, status, questionId);
         return id;
     }

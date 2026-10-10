@@ -49,7 +49,7 @@ public class QuestionService {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final QuestionRepository questions;
-    private final ChapterRepository chapters;
+    private final TopicRepository topics;
     private final RubricRepository rubrics;
     private final QuestionSourceRepository sources;
     private final CourseMaterialRepository materials;
@@ -68,8 +68,8 @@ public class QuestionService {
             if (notEmpty(filter.status())) {
                 p.add(root.get("status").in(filter.status()));
             }
-            if (notEmpty(filter.chapterId())) {
-                p.add(root.get("chapterId").in(filter.chapterId()));
+            if (notEmpty(filter.topicId())) {
+                p.add(root.get("topicId").in(filter.topicId()));
             }
             if (notEmpty(filter.bloomLevel())) {
                 p.add(root.get("bloomLevel").in(filter.bloomLevel()));
@@ -86,14 +86,13 @@ public class QuestionService {
         };
         Page<Question> result = questions.findAll(spec, PageRequest.of(Math.max(page, 0), Math.clamp(size, 1, 100),
                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.asc("id"))));
-        Map<UUID, Chapter> courseChapters = chapters.findByCourseIdOrderByChapterNoAsc(courseId).stream()
-                .collect(Collectors.toMap(Chapter::getId, c -> c));
+        Map<UUID, Topic> courseTopics = topics.findByCourseIdOrderBySortOrderAscNameAsc(courseId).stream()
+                .collect(Collectors.toMap(Topic::getId, c -> c));
         Map<UUID, String> rubricNames = rubrics.findAllById(result.getContent().stream().map(Question::getRubricId)
                         .filter(Objects::nonNull).collect(Collectors.toSet())).stream()
                 .collect(Collectors.toMap(Rubric::getId, Rubric::getName));
-        return PageResponse.of(result, q -> new QuestionSummaryDto(q.getId(), q.getCourseId(), q.getChapterId(),
-                chapterNo(courseChapters.get(q.getChapterId())), chapterTitle(courseChapters.get(q.getChapterId())),
-                q.getContent(), q.getBloomLevel(), q.getLanguage(), q.getStatus(),
+        return PageResponse.of(result, q -> new QuestionSummaryDto(q.getId(), q.getCourseId(), q.getTopicId(),
+                topicName(courseTopics.get(q.getTopicId())), q.getContent(), q.getBloomLevel(), q.getLanguage(), q.getStatus(),
                 q.getOrigin(), q.getRubricId(), q.getRubricId() == null ? null : rubricNames.get(q.getRubricId()),
                 q.isLocked(), q.getOwnerId(), q.getVersion(), q.getCreatedAt(), q.getUpdatedAt(), q.getPublishedAt()));
     }
@@ -110,14 +109,14 @@ public class QuestionService {
     /** AC-Q1: manual question → DRAFT, MANUAL, owner = caller; language defaults to the course language (BR-Q9). */
     public QuestionDto create(UUID courseId, CreateQuestionRequest request, User user) {
         access.writeCourse(courseId, user);
-        requireChapterOfCourse(request.chapterId(), courseId);
+        requireTopicOfCourse(request.topicId(), courseId);
         requireRubricOfCourse(request.rubricId(), courseId);
         Instant now = Instant.now(clock);
         Question q = new Question();
         q.setCourseId(courseId);
-        q.setChapterId(request.chapterId());
+        q.setTopicId(request.topicId());
         q.setContent(request.content().strip());
-        q.setReferenceAnswer(ChapterService.blankToNull(request.referenceAnswer()));
+        q.setReferenceAnswer(TopicService.blankToNull(request.referenceAnswer()));
         q.setBloomLevel(request.bloomLevel());
         q.setLanguage(request.language() != null ? request.language() : courseLanguage(courseId));
         q.setRubricId(request.rubricId());
@@ -141,11 +140,11 @@ public class QuestionService {
         if (!request.version().equals(q.getVersion())) {
             throw versionConflict();
         }
-        requireChapterOfCourse(request.chapterId(), q.getCourseId());
+        requireTopicOfCourse(request.topicId(), q.getCourseId());
         requireRubricOfCourse(request.rubricId(), q.getCourseId());
-        q.setChapterId(request.chapterId());
+        q.setTopicId(request.topicId());
         q.setContent(request.content().strip());
-        q.setReferenceAnswer(ChapterService.blankToNull(request.referenceAnswer()));
+        q.setReferenceAnswer(TopicService.blankToNull(request.referenceAnswer()));
         q.setBloomLevel(request.bloomLevel());
         if (request.language() != null) {
             q.setLanguage(request.language());
@@ -223,7 +222,7 @@ public class QuestionService {
         Instant now = Instant.now(clock);
         Question copy = new Question();
         copy.setCourseId(source.getCourseId());
-        copy.setChapterId(source.getChapterId());
+        copy.setTopicId(source.getTopicId());
         copy.setContent(source.getContent());
         copy.setReferenceAnswer(source.getReferenceAnswer());
         copy.setBloomLevel(source.getBloomLevel());
@@ -363,9 +362,9 @@ public class QuestionService {
         }
     }
 
-    private void requireChapterOfCourse(UUID chapterId, UUID courseId) {
-        if (chapters.findById(chapterId).filter(t -> t.getCourseId().equals(courseId)).isEmpty()) {
-            throw ApiException.unprocessable("CHAPTER_NOT_IN_COURSE", "The chapter does not belong to this course");
+    private void requireTopicOfCourse(UUID topicId, UUID courseId) {
+        if (topics.findById(topicId).filter(t -> t.getCourseId().equals(courseId)).isEmpty()) {
+            throw ApiException.unprocessable("TOPIC_NOT_IN_COURSE", "The topic does not belong to this course");
         }
     }
 
@@ -401,7 +400,7 @@ public class QuestionService {
     // ---------------------------------------------------------------- mapping
 
     private QuestionDto toDto(Question q) {
-        Chapter chapter = chapters.findById(q.getChapterId()).orElse(null);
+        Topic topic = topics.findById(q.getTopicId()).orElse(null);
         QuestionRubricDto rubric = q.getRubricId() == null ? null : rubrics.findById(q.getRubricId())
                 .map(r -> new QuestionRubricDto(r.getId(), r.getName(), r.isLocked(), r.totalWeight(),
                         RubricService.criteria(r)))
@@ -417,19 +416,14 @@ public class QuestionService {
             ai = new AiDto(q.getAiOriginalContent(), q.getAiOriginalReferenceAnswer(), q.getAiSuggestedBloom(),
                     suggestedRubric(q.getId()), q.getGenerationRequestId());
         }
-        return new QuestionDto(q.getId(), q.getCourseId(), q.getChapterId(), chapterNo(chapter), chapterTitle(chapter),
-                q.getContent(),
+        return new QuestionDto(q.getId(), q.getCourseId(), q.getTopicId(), topicName(topic), q.getContent(),
                 q.getReferenceAnswer(), q.getBloomLevel(), q.getLanguage(), q.getStatus(), q.getOrigin(), rubric, ai,
                 sourceDtos, q.isLocked(), q.getOwnerId(), q.getSupersedesQuestionId(), q.getVersion(), q.getCreatedAt(),
                 q.getUpdatedAt(), q.getPublishedBy(), q.getPublishedAt(), q.getDiscardedAt());
     }
 
-    private static Integer chapterNo(Chapter chapter) {
-        return chapter == null ? null : chapter.getChapterNo();
-    }
-
-    private static String chapterTitle(Chapter chapter) {
-        return chapter == null ? null : chapter.getTitle();
+    private static String topicName(Topic topic) {
+        return topic == null ? null : topic.getName();
     }
 
     private JsonNode suggestedRubric(UUID questionId) {

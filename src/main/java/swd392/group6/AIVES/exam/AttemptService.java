@@ -35,13 +35,13 @@ class AttemptService {
             throw notFound();
         }
         List<AttemptQuestionView> questions = jdbc.query("""
-                        select attempt_question_id, question_id, order_no, status, chapter_no, chapter_title, bloom_level,
+                        select attempt_question_id, question_id, order_no, status, topic_name, bloom_level,
                                content, reference_answer, time_budget_sec, time_used_sec, rubric_snapshot->>'name' as rubric_name,
                                started_at, ended_at, replaces_attempt_question_id, void_reason
                         from attempt_questions where attempt_id = :a order by order_no, status = 'VOIDED' desc""", p,
                 (rs, i) -> new AttemptQuestionView(rs.getObject("attempt_question_id", UUID.class),
                         rs.getObject("question_id", UUID.class), rs.getInt("order_no"), rs.getString("status"),
-                        (Integer) rs.getObject("chapter_no"), rs.getString("chapter_title"),
+                        rs.getString("topic_name"),
                         rs.getString("bloom_level") == null ? null : BloomLevel.valueOf(rs.getString("bloom_level")),
                         rs.getString("content"), rs.getString("reference_answer"), rs.getInt("time_budget_sec"),
                         rs.getInt("time_used_sec"), rs.getString("rubric_name"),

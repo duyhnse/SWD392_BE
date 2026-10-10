@@ -27,7 +27,7 @@ class AttemptEventLog {
                         insert into attempt_events (event_id, attempt_id, turn_id, type, actor_id, payload, created_at)
                         values (?, ?, null, 'CHECKED_IN', ?, cast(? as jsonb), ?)""",
                 UUID.randomUUID(), e.attemptId(), e.studentId(),
-                JSON.writeValueAsString(Map.of("selectionSeed", e.selectionSeed(), "warnings", e.warnings())),
+                JSON.writeValueAsString(Map.of("selectionSeed", e.selectionSeed())),
                 Timestamp.from(e.startedAt()));
     }
 }

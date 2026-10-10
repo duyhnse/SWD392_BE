@@ -1,6 +1,7 @@
 package swd392.group6.AIVES.questionbank.web;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -15,47 +16,57 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.CreateChapterRequest;
+import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.CreateTopicRequest;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.TermsDto;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.ChapterDto;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.UpdateChapterRequest;
-import swd392.group6.AIVES.questionbank.internal.ChapterService;
+import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.TopicDto;
+import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.UpdateTopicRequest;
+import swd392.group6.AIVES.questionbank.internal.TopicService;
 import swd392.group6.AIVES.user.User;
 
 import java.util.List;
 import java.util.UUID;
 
-/** Chapters and course terms (15 §5.2). ADMIN read-only, assigned lecturers read/write. */
+/** Topics and course terms (15 §5.2). ADMIN read-only, assigned lecturers read/write. */
 @RestController
 @RequestMapping("/api/v1")
 @PreAuthorize("hasAnyRole('ADMIN', 'LECTURER')")
 @RequiredArgsConstructor
-class ChapterController {
+class TopicController {
 
-    private final ChapterService service;
+    private final TopicService service;
 
-    @GetMapping("/courses/{courseId}/chapters")
-    public List<ChapterDto> list(@PathVariable UUID courseId, @AuthenticationPrincipal User user) {
+    @GetMapping("/courses/{courseId}/topics")
+    public List<TopicDto> list(@PathVariable UUID courseId, @AuthenticationPrincipal User user) {
         return service.list(courseId, user);
     }
 
-    @PostMapping("/courses/{courseId}/chapters")
+    @PostMapping("/courses/{courseId}/topics")
     @ResponseStatus(HttpStatus.CREATED)
-    public ChapterDto create(@PathVariable UUID courseId, @Valid @RequestBody CreateChapterRequest request,
+    public TopicDto create(@PathVariable UUID courseId, @Valid @RequestBody CreateTopicRequest request,
                            @AuthenticationPrincipal User user) {
         return service.create(courseId, request, user);
     }
 
-    @PatchMapping("/chapters/{id}")
-    public ChapterDto update(@PathVariable UUID id, @Valid @RequestBody UpdateChapterRequest request,
+    @PatchMapping("/topics/{id}")
+    public TopicDto update(@PathVariable UUID id, @Valid @RequestBody UpdateTopicRequest request,
                            @AuthenticationPrincipal User user) {
         return service.update(id, request, user);
     }
 
-    @DeleteMapping("/chapters/{id}")
+    @DeleteMapping("/topics/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id, @AuthenticationPrincipal User user) {
         service.delete(id, user);
+    }
+
+    /** Moves all questions to another topic of the course (merge / retire a topic), D54. */
+    @PostMapping("/topics/{id}/move-questions")
+    public TopicService.MoveResult moveQuestions(@PathVariable UUID id, @Valid @RequestBody MoveQuestionsRequest request,
+                                                 @AuthenticationPrincipal User user) {
+        return service.moveQuestions(id, request.targetTopicId(), user);
+    }
+
+    record MoveQuestionsRequest(@NotNull UUID targetTopicId) {
     }
 
     @GetMapping("/courses/{courseId}/terms")

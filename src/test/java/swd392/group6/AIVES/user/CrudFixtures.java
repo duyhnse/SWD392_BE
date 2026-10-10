@@ -53,12 +53,10 @@ final class CrudFixtures {
         jdbc.update("insert into course_lecturers (course_id, lecturer_id) values (?, ?)", courseId, lecturerId);
     }
 
-    UUID chapter(UUID courseId, UUID createdBy) {
+    UUID topic(UUID courseId, UUID createdBy) {
         UUID id = UUID.randomUUID();
-        jdbc.update("""
-                insert into chapters (chapter_id, course_id, chapter_no, title, created_by)
-                values (?, ?, (select coalesce(max(chapter_no), 0) + 1 from chapters where course_id = ?), ?, ?)""",
-                id, courseId, courseId, "Chapter " + unique(), createdBy);
+        jdbc.update("insert into topics (topic_id, course_id, name, created_by) values (?, ?, ?, ?)",
+                id, courseId, "Topic " + unique(), createdBy);
         return id;
     }
 

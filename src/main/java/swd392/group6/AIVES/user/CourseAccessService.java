@@ -48,6 +48,10 @@ class CourseAccessService implements CourseAccessApi {
             throw ApiException.forbidden("ADMIN_READ_ONLY", "Administrators can read but not change course content");
         }
         requireRead(courseId, user);
+        Boolean active = jdbc.queryForObject("select is_active from courses where course_id = ?", Boolean.class, courseId);
+        if (!Boolean.TRUE.equals(active)) {
+            throw ApiException.conflict("COURSE_ARCHIVED", "The course is archived (inactive): its content is read-only");
+        }
     }
 
     @Override

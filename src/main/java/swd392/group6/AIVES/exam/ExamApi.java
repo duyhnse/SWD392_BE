@@ -38,8 +38,8 @@ public interface ExamApi {
      * @param rubricSnapshotJson {@code {rubricId, name, criteria:[{criterionId, name, description, maxScore,
      *                           weightPercent, sortOrder}]}} as stored at check-in
      */
-    record AttemptQuestionInfo(UUID attemptQuestionId, UUID questionId, int orderNo, String status, Integer chapterNo,
-                               String chapterTitle, String bloomLevel, String language, String content,
+    record AttemptQuestionInfo(UUID attemptQuestionId, UUID questionId, int orderNo, String status, String topicName,
+                               String bloomLevel, String language, String content,
                                String referenceAnswer, String rubricSnapshotJson, int timeBudgetSec, int timeUsedSec,
                                String voidReason) {
     }

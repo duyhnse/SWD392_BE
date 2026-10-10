@@ -21,17 +21,16 @@ public final class QuestionBankDtos {
     private QuestionBankDtos() {
     }
 
-    // ---- Chapters & terms ----
+    // ---- Topics & terms ----
 
-    /** {@code chapterNo} null = next free number. */
-    public record CreateChapterRequest(Integer chapterNo, @NotBlank @Size(max = 150) String title, String description) {
+    public record CreateTopicRequest(@NotBlank @Size(max = 150) String name, String description, Integer sortOrder) {
     }
 
-    public record UpdateChapterRequest(Integer chapterNo, @Size(max = 150) String title, String description) {
+    public record UpdateTopicRequest(@Size(max = 150) String name, String description, Integer sortOrder) {
     }
 
-    public record ChapterDto(UUID id, UUID courseId, int chapterNo, String title, String description,
-                             long questionCount, UUID createdBy, Instant createdAt, Instant updatedAt) {
+    public record TopicDto(UUID id, UUID courseId, String name, String description, int sortOrder,
+                           long questionCount, UUID createdBy, Instant createdAt) {
     }
 
     public record TermsDto(@NotNull List<String> terms) {
@@ -61,12 +60,12 @@ public final class QuestionBankDtos {
 
     // ---- Questions ----
 
-    public record CreateQuestionRequest(@NotNull UUID chapterId, @NotNull @Size(max = 4000) String content,
+    public record CreateQuestionRequest(@NotNull UUID topicId, @NotNull @Size(max = 4000) String content,
                                         @Size(max = 4000) String referenceAnswer, BloomLevel bloomLevel,
                                         Language language, UUID rubricId) {
     }
 
-    public record UpdateQuestionRequest(@NotNull Integer version, @NotNull UUID chapterId,
+    public record UpdateQuestionRequest(@NotNull Integer version, @NotNull UUID topicId,
                                         @NotNull @Size(max = 4000) String content,
                                         @Size(max = 4000) String referenceAnswer, BloomLevel bloomLevel,
                                         Language language, UUID rubricId) {
@@ -93,22 +92,22 @@ public final class QuestionBankDtos {
                             String excerpt) {
     }
 
-    public record QuestionDto(UUID id, UUID courseId, UUID chapterId, Integer chapterNo, String chapterTitle,
-                              String content, String referenceAnswer, BloomLevel bloomLevel, Language language,
+    public record QuestionDto(UUID id, UUID courseId, UUID topicId, String topicName, String content,
+                              String referenceAnswer, BloomLevel bloomLevel, Language language,
                               QuestionStatus status, QuestionOrigin origin, QuestionRubricDto rubric, AiDto ai,
                               List<SourceDto> sources, @JsonProperty("isLocked") boolean isLocked, UUID ownerId,
                               UUID supersedesQuestionId, Integer version, Instant createdAt, Instant updatedAt,
                               UUID publishedBy, Instant publishedAt, Instant discardedAt) {
     }
 
-    public record QuestionSummaryDto(UUID id, UUID courseId, UUID chapterId, Integer chapterNo,
-                                     String chapterTitle, String content, BloomLevel bloomLevel, Language language, QuestionStatus status,
+    public record QuestionSummaryDto(UUID id, UUID courseId, UUID topicId, String topicName,
+                                     String content, BloomLevel bloomLevel, Language language, QuestionStatus status,
                                      QuestionOrigin origin, UUID rubricId, String rubricName,
                                      @JsonProperty("isLocked") boolean isLocked, UUID ownerId, Integer version,
                                      Instant createdAt, Instant updatedAt, Instant publishedAt) {
     }
 
-    public record QuestionFilter(List<QuestionStatus> status, List<UUID> chapterId, List<BloomLevel> bloomLevel,
+    public record QuestionFilter(List<QuestionStatus> status, List<UUID> topicId, List<BloomLevel> bloomLevel,
                                  List<QuestionOrigin> origin, String q) {
     }
 

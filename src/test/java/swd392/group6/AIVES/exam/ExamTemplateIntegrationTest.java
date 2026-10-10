@@ -31,13 +31,13 @@ class ExamTemplateIntegrationTest extends ExamTestBase {
     @Test
     void rowsGiveTheQuestionCountAndTheDuration_D46() throws Exception {
         Course c = course();
-        questions(c, c.chapterA(), UNDERSTAND, 3);
-        questions(c, c.chapterB(), APPLY, 1);
+        questions(c, c.topicA(), UNDERSTAND, 3);
+        questions(c, c.topicB(), APPLY, 1);
         String body = json(call(post("/api/v1/courses/" + c.id() + "/exam-templates"), c.token(), """
                 {"title":"Giữa kỳ","passScore":5,"maxFollowupsPerQuestion":3,"items":[
-                  {"chapterId":"%s","bloomLevel":"UNDERSTAND","count":2},
-                  {"chapterId":"%s","bloomLevel":"APPLY","count":1,"secondsPerQuestion":400}]}"""
-                .formatted(c.chapterA(), c.chapterB()))
+                  {"topicId":"%s","bloomLevel":"UNDERSTAND","count":2},
+                  {"topicId":"%s","bloomLevel":"APPLY","count":1,"secondsPerQuestion":400}]}"""
+                .formatted(c.topicA(), c.topicB()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.language").value("VI"))
                 .andExpect(jsonPath("$.passScore").value(5.0))
@@ -45,7 +45,7 @@ class ExamTemplateIntegrationTest extends ExamTestBase {
                 .andExpect(jsonPath("$.items", hasSize(2)))
                 // UNDERSTAND defaults to the exam.seconds.UNDERSTAND setting (180 s)
                 .andExpect(jsonPath("$.items[0].secondsPerQuestion").value(180))
-                .andExpect(jsonPath("$.items[0].chapterNo").value(1))
+                .andExpect(jsonPath("$.items[0].topicName").exists())
                 .andExpect(jsonPath("$.items[0].available").value(3))
                 .andExpect(jsonPath("$.items[1].available").value(1))
                 .andExpect(jsonPath("$.mainQuestionCount").value(3))
@@ -55,7 +55,7 @@ class ExamTemplateIntegrationTest extends ExamTestBase {
         String id = JsonPath.read(body, "$.id");
 
         call(put("/api/v1/exam-templates/" + id + "/items"), c.token(),
-                "{\"items\":[{\"chapterId\":\"" + c.chapterB() + "\",\"bloomLevel\":\"APPLY\",\"count\":2}]}")
+                "{\"items\":[{\"topicId\":\"" + c.topicB() + "\",\"bloomLevel\":\"APPLY\",\"count\":2}]}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].secondsPerQuestion").value(240))
                 .andExpect(jsonPath("$.poolSufficient").value(false));
@@ -71,8 +71,8 @@ class ExamTemplateIntegrationTest extends ExamTestBase {
         Course other = course();
         UUID id = template(c, 1);
         String url = "/api/v1/exam-templates/" + id + "/items";
-        call(put(url), c.token(), "{\"items\":[{\"chapterId\":\"" + other.chapterA() + "\",\"count\":1}]}")
-                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("CHAPTER_NOT_IN_COURSE"));
+        call(put(url), c.token(), "{\"items\":[{\"topicId\":\"" + other.topicA() + "\",\"count\":1}]}")
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("TOPIC_NOT_IN_COURSE"));
         call(put(url), c.token(), "{\"items\":[{\"count\":6},{\"count\":5}]}")
                 .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("INVALID_QUESTION_COUNT"));
         call(put(url), c.token(), "{\"items\":[{\"count\":1,\"secondsPerQuestion\":10}]}")
@@ -87,8 +87,8 @@ class ExamTemplateIntegrationTest extends ExamTestBase {
     @Test
     void selectedPoolOnlyTakesPublishedQuestionsOfTheCourse() throws Exception {
         Course c = course();
-        UUID published = questions(c, c.chapterA(), UNDERSTAND, 1).getFirst();
-        UUID draft = data.question(c.id(), c.chapterA(), UNDERSTAND, c.rubric(), c.lecturer(), "DRAFT");
+        UUID published = questions(c, c.topicA(), UNDERSTAND, 1).getFirst();
+        UUID draft = data.question(c.id(), c.topicA(), UNDERSTAND, c.rubric(), c.lecturer(), "DRAFT");
         UUID id = template(c, 1);
         String url = "/api/v1/exam-templates/" + id + "/question-pool";
         call(put(url), c.token(), "{\"mode\":\"SELECTED\",\"questionIds\":[\"" + published + "\",\"" + draft + "\"]}")
@@ -107,7 +107,7 @@ class ExamTemplateIntegrationTest extends ExamTestBase {
     @Test
     void publishedExamLocksItsTemplate_duplicateToChange_D49() throws Exception {
         Course c = course();
-        questions(c, c.chapterA(), UNDERSTAND, 3);
+        questions(c, c.topicA(), UNDERSTAND, 3);
         UUID template = template(c, 2);
         UUID exam = createExam(c, template, T0.plusSeconds(3600), T0.plusSeconds(7200), null);
         addStudents(c, exam, data.student());

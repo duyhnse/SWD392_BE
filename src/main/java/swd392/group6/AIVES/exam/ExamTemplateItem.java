@@ -28,9 +28,9 @@ class ExamTemplateItem {
     @Column(name = "exam_template_id", nullable = false, updatable = false)
     private UUID templateId;
 
-    /** null = any chapter of the course. */
-    @Column(name = "chapter_id")
-    private UUID chapterId;
+    /** null = any topic of the course. */
+    @Column(name = "topic_id")
+    private UUID topicId;
 
     /** null = any Bloom level. */
     @Enumerated(EnumType.STRING)

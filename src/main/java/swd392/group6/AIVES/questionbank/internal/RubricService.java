@@ -66,7 +66,7 @@ public class RubricService {
         Rubric rubric = new Rubric();
         rubric.setCourseId(courseId);
         rubric.setName(name);
-        rubric.setDescription(ChapterService.blankToNull(request.description()));
+        rubric.setDescription(TopicService.blankToNull(request.description()));
         rubric.setCreatedBy(user.getUserId());
         rubric.setCreatedAt(now);
         rubric.setUpdatedAt(now);
@@ -83,7 +83,7 @@ public class RubricService {
         String name = request.name().trim();
         requireFreeName(rubric.getCourseId(), name, rubric.getId());
         rubric.setName(name);
-        rubric.setDescription(ChapterService.blankToNull(request.description()));
+        rubric.setDescription(TopicService.blankToNull(request.description()));
         rubric.setUpdatedAt(Instant.now(clock));
         rubric.getCriteria().clear();
         rubrics.flush();

@@ -1,6 +1,6 @@
 -- ============================================================================
--- Exam model v2 — SWD_Docs/requirements/12_DECISIONS_AND_FIXES.md D41–D52, 15 §2–§4, 16 (AI node).
---   * topics            → chapters (numbered, lecturer CRUD)                       D42
+-- Exam model v2 — SWD_Docs/requirements/12_DECISIONS_AND_FIXES.md D41–D53, 15 §2–§4, 16 (AI node).
+--   * users: normalisation CHECKs (username/email lowercase, student code uppercase)  D42
 --   * exam_templates    (đề thi: rows chương × Bloom × số câu × thời gian/câu)      D45, D46
 --   * viva_exams        (buổi thi) = template + check-in window + roster + rules   D47, D51
 --   * exam_sessions     → exam_attempts, created at check-in; questions drawn then  D48, D50
@@ -8,27 +8,15 @@
 --   * attempt_recordings (video/audio chunks), ai_jobs (AI node async jobs)        D50, D41
 -- ============================================================================
 
--- ---------------------------------------------------------------------------- chapters (D42)
-ALTER TABLE "topics" RENAME TO "chapters";
-ALTER TABLE "chapters" RENAME COLUMN "topic_id" TO "chapter_id";
-ALTER TABLE "chapters" RENAME COLUMN "name" TO "title";
-ALTER TABLE "chapters" ADD COLUMN "chapter_no" int;
-ALTER TABLE "chapters" ADD COLUMN "updated_at" timestamptz NOT NULL DEFAULT (now());
-UPDATE "chapters" c SET "chapter_no" = r.n
-FROM (SELECT "chapter_id", row_number() OVER (PARTITION BY "course_id" ORDER BY "sort_order", "created_at", "chapter_id") AS n
-      FROM "chapters") r
-WHERE r."chapter_id" = c."chapter_id";
-ALTER TABLE "chapters" ALTER COLUMN "chapter_no" SET NOT NULL;
-ALTER TABLE "chapters" ADD CONSTRAINT "ck_chapters_no" CHECK ("chapter_no" BETWEEN 1 AND 99);
-ALTER TABLE "chapters" DROP COLUMN "sort_order";
-ALTER INDEX "topics_pkey" RENAME TO "chapters_pkey";
-ALTER INDEX "topics_course_id_name_idx" RENAME TO "ux_chapters_course_title";
-CREATE UNIQUE INDEX "ux_chapters_course_no" ON "chapters" ("course_id", "chapter_no");
-
-ALTER TABLE "questions" RENAME COLUMN "topic_id" TO "chapter_id";
-ALTER INDEX "questions_course_id_topic_id_bloom_level_idx" RENAME TO "ix_questions_course_chapter_bloom";
-ALTER TABLE "ai_generation_requests" RENAME COLUMN "topic_id" TO "chapter_id";
-COMMENT ON COLUMN "questions"."chapter_id" IS 'Every question belongs to exactly one chapter, chosen by the lecturer — never by AI (D42)';
+-- ---------------------------------------------------------------------------- integrity (D42)
+-- Usernames / emails are stored lowercase and student codes uppercase by the application; enforce it so the
+-- unique indexes are also case-insensitive in practice (no "AnhNV" next to "anhnv").
+ALTER TABLE "users"
+  ADD CONSTRAINT "ck_users_normalised" CHECK (
+    "username" = lower("username") AND "email" = lower("email")
+    AND ("student_code" IS NULL OR "student_code" = upper("student_code")));
+ALTER TABLE "users" ADD CONSTRAINT "ck_users_student_code_only_students" CHECK ("role_id" = 3 OR "student_code" IS NULL);
+COMMENT ON COLUMN "questions"."topic_id" IS 'Every question belongs to exactly one topic of its course, chosen by the lecturer — never by AI';
 COMMENT ON COLUMN "questions"."is_locked" IS 'Drawn into an attempt (BR-Q8, D49); change only via successor';
 
 -- ---------------------------------------------------------------------------- exam templates (D45, D46)
@@ -60,7 +48,7 @@ COMMENT ON COLUMN "exam_templates"."is_locked" IS 'true once a buổi thi using 
 CREATE TABLE "exam_template_items" (
   "template_item_id" uuid PRIMARY KEY,
   "exam_template_id" uuid NOT NULL REFERENCES "exam_templates" ("exam_template_id") ON DELETE CASCADE,
-  "chapter_id" uuid REFERENCES "chapters" ("chapter_id"),
+  "topic_id" uuid REFERENCES "topics" ("topic_id"),
   "bloom_level" varchar(30) CHECK ("bloom_level" IN ('REMEMBER', 'UNDERSTAND', 'APPLY', 'ANALYZE')),
   "question_count" int NOT NULL CHECK ("question_count" BETWEEN 1 AND 10),
   "seconds_per_question" int NOT NULL CHECK ("seconds_per_question" BETWEEN 30 AND 1800),
@@ -88,7 +76,7 @@ SELECT e."viva_exam_id", e."course_id", left('Đề — ' || e."title", 200), NU
        e."show_question_text", e."question_pool_mode", e."status" <> 'DRAFT', e."created_by", e."created_at", e."updated_at"
 FROM "viva_exams" e;
 
-INSERT INTO "exam_template_items" ("template_item_id", "exam_template_id", "chapter_id", "bloom_level",
+INSERT INTO "exam_template_items" ("template_item_id", "exam_template_id", "topic_id", "bloom_level",
                                    "question_count", "seconds_per_question", "sort_order")
 SELECT b."blueprint_item_id", b."viva_exam_id", b."topic_id", b."bloom_level", b."question_count",
        greatest(30, least(1800, e."time_limit_per_student_sec" / e."main_question_count")), b."sort_order"
@@ -195,9 +183,8 @@ ALTER INDEX "session_questions_session_id_question_id_idx" RENAME TO "ux_attempt
 ALTER TABLE "attempt_questions" DROP CONSTRAINT "session_questions_status_check";
 ALTER TABLE "attempt_questions"
   ADD COLUMN "template_item_id" uuid REFERENCES "exam_template_items" ("template_item_id") ON DELETE SET NULL,
-  ADD COLUMN "chapter_id" uuid REFERENCES "chapters" ("chapter_id"),
-  ADD COLUMN "chapter_no" int,
-  ADD COLUMN "chapter_title" varchar(150),
+  ADD COLUMN "topic_id" uuid REFERENCES "topics" ("topic_id"),
+  ADD COLUMN "topic_name" varchar(150),
   ADD COLUMN "bloom_level" varchar(30) CHECK ("bloom_level" IN ('REMEMBER', 'UNDERSTAND', 'APPLY', 'ANALYZE')),
   ADD COLUMN "language" varchar(30) CHECK ("language" IN ('VI', 'EN')),
   ADD COLUMN "content" text,
@@ -212,7 +199,7 @@ ALTER TABLE "attempt_questions"
   ADD COLUMN "void_reason" varchar(30);
 
 UPDATE "attempt_questions" aq SET
-  "chapter_id" = q."chapter_id", "chapter_no" = c."chapter_no", "chapter_title" = c."title",
+  "topic_id" = q."topic_id", "topic_name" = c."name",
   "bloom_level" = q."bloom_level", "language" = q."language", "content" = q."content",
   "reference_answer" = q."reference_answer", "question_version" = q."version",
   "rubric_snapshot" = coalesce((
@@ -228,13 +215,12 @@ UPDATE "attempt_questions" aq SET
      JOIN "exam_attempts" a ON a."attempt_id" = aq."attempt_id"
      JOIN "viva_exams" e ON e."viva_exam_id" = a."viva_exam_id"
      WHERE i."exam_template_id" = e."exam_template_id"), 180)))
-FROM "questions" q JOIN "chapters" c ON c."chapter_id" = q."chapter_id"
+FROM "questions" q JOIN "topics" c ON c."topic_id" = q."topic_id"
 WHERE q."question_id" = aq."question_id";
 
 ALTER TABLE "attempt_questions"
-  ALTER COLUMN "chapter_id" SET NOT NULL,
-  ALTER COLUMN "chapter_no" SET NOT NULL,
-  ALTER COLUMN "chapter_title" SET NOT NULL,
+  ALTER COLUMN "topic_id" SET NOT NULL,
+  ALTER COLUMN "topic_name" SET NOT NULL,
   ALTER COLUMN "language" SET NOT NULL,
   ALTER COLUMN "content" SET NOT NULL,
   ALTER COLUMN "rubric_snapshot" SET NOT NULL,
