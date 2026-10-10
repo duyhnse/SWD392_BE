@@ -128,9 +128,9 @@ public class QuestionService {
         return toDto(questions.saveAndFlush(q));
     }
 
-    /** Owner edit with optimistic locking (E6, E7, BR-Q6, BR-Q11). */
+    /** Edit by any lecturer of the course (D55) with optimistic locking (E6, E7, BR-Q6, BR-Q11). */
     public QuestionDto update(UUID questionId, UpdateQuestionRequest request, User user) {
-        Question q = loadOwned(questionId, user);
+        Question q = loadWritable(questionId, user);
         if (q.getStatus() != QuestionStatus.DRAFT && q.getStatus() != QuestionStatus.PUBLISHED) {
             throw invalidState(q, "edited");
         }
@@ -160,10 +160,18 @@ public class QuestionService {
         return toDto(flush(q));
     }
 
+    /** DRAFT, or an unlocked PUBLISHED question that no published/open buổi thi picks by hand, → DISCARDED. */
     public QuestionDto discard(UUID questionId, User user) {
-        Question q = loadOwned(questionId, user);
-        if (q.getStatus() != QuestionStatus.DRAFT) {
-            throw invalidState(q, "discarded (only drafts can be discarded; unpublish first)");
+        Question q = loadWritable(questionId, user);
+        if (q.getStatus() == QuestionStatus.PUBLISHED) {
+            if (q.isLocked()) {
+                throw locked();
+            }
+            requireNotInSelectedPool(questionId);
+            q.setPublishedAt(null);
+            q.setPublishedBy(null);
+        } else if (q.getStatus() != QuestionStatus.DRAFT) {
+            throw invalidState(q, "discarded (only drafts and published questions can be discarded)");
         }
         q.setStatus(QuestionStatus.DISCARDED);
         q.setDiscardedAt(Instant.now(clock));
@@ -172,7 +180,7 @@ public class QuestionService {
     }
 
     public QuestionDto restore(UUID questionId, User user) {
-        Question q = loadOwned(questionId, user);
+        Question q = loadWritable(questionId, user);
         if (q.getStatus() != QuestionStatus.DISCARDED) {
             throw invalidState(q, "restored (only discarded questions can be restored)");
         }
@@ -184,24 +192,14 @@ public class QuestionService {
 
     /** PUBLISHED → DRAFT when unlocked and not in the selected pool of a published or open buổi thi. */
     public QuestionDto unpublish(UUID questionId, User user) {
-        Question q = loadOwned(questionId, user);
+        Question q = loadWritable(questionId, user);
         if (q.getStatus() != QuestionStatus.PUBLISHED) {
             throw invalidState(q, "unpublished (it is not published)");
         }
         if (q.isLocked()) {
             throw locked();
         }
-        Boolean inUse = jdbc.queryForObject("""
-                select exists(select 1 from exam_template_questions tq
-                              join exam_templates t on t.exam_template_id = tq.exam_template_id
-                              join viva_exams e on e.exam_template_id = t.exam_template_id
-                              where tq.question_id = ? and t.question_pool_mode = 'SELECTED'
-                                and e.status in ('READY', 'OPEN'))""",
-                Boolean.class, questionId);
-        if (Boolean.TRUE.equals(inUse)) {
-            throw ApiException.conflict("QUESTION_IN_USE",
-                    "The question is in the selected pool of a published or open exam");
-        }
+        requireNotInSelectedPool(questionId);
         q.setStatus(QuestionStatus.DRAFT);
         q.setPublishedAt(null);
         q.setPublishedBy(null);
@@ -211,7 +209,7 @@ public class QuestionService {
 
     /** New DRAFT copy of a locked PUBLISHED question; publishing it retires the predecessor (BR-Q8). */
     public QuestionDto successor(UUID questionId, User user) {
-        Question source = loadOwned(questionId, user);
+        Question source = loadWritable(questionId, user);
         if (source.getStatus() != QuestionStatus.PUBLISHED || !source.isLocked()) {
             throw ApiException.conflict("QUESTION_NOT_LOCKED",
                     "Only a locked, published question needs a successor; edit this question directly");
@@ -264,12 +262,12 @@ public class QuestionService {
         Instant now = Instant.now(clock);
         for (UUID id : new LinkedHashSet<>(questionIds)) {
             Question q = questions.findById(id).orElse(null);
-            if (q == null || !access.canRead(q.getCourseId(), user)) {
+            if (q == null || !access.canWrite(q.getCourseId(), user)) {
                 failed.add(new PublishFailure(id, List.of(NOT_FOUND)));
                 continue;
             }
-            if (!q.getOwnerId().equals(user.getUserId())) {
-                failed.add(new PublishFailure(id, List.of("NOT_QUESTION_OWNER")));
+            if (!courseActive(q.getCourseId())) {
+                failed.add(new PublishFailure(id, List.of("COURSE_ARCHIVED")));
                 continue;
             }
             if (q.getStatus() != QuestionStatus.DRAFT) {
@@ -301,7 +299,7 @@ public class QuestionService {
 
     /** Hard delete of a never-used DRAFT (15 §5.2); everything else must be discarded instead. */
     public void delete(UUID questionId, User user) {
-        Question q = loadOwned(questionId, user);
+        Question q = loadWritable(questionId, user);
         Boolean used = jdbc.queryForObject("""
                 select exists(select 1 from attempt_questions where question_id = ?)
                     or exists(select 1 from exam_template_questions where question_id = ?)
@@ -341,12 +339,27 @@ public class QuestionService {
         return errors;
     }
 
-    private Question loadOwned(UUID questionId, User user) {
+    private boolean courseActive(UUID courseId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("select is_active from courses where course_id = ?", Boolean.class, courseId));
+    }
+
+    private void requireNotInSelectedPool(UUID questionId) {
+        Boolean inUse = jdbc.queryForObject("""
+                select exists(select 1 from exam_template_questions tq
+                              join exam_templates t on t.exam_template_id = tq.exam_template_id
+                              join viva_exams e on e.exam_template_id = t.exam_template_id
+                              where tq.question_id = ? and t.question_pool_mode = 'SELECTED'
+                                and e.status in ('READY', 'OPEN'))""",
+                Boolean.class, questionId);
+        if (Boolean.TRUE.equals(inUse)) {
+            throw ApiException.conflict("QUESTION_IN_USE",
+                    "The question is in the selected pool of a published or open exam");
+        }
+    }
+
+    private Question loadWritable(UUID questionId, User user) {
         Question q = load(questionId);
         access.write(q.getCourseId(), user, NOT_FOUND, "Question not found");
-        if (!q.getOwnerId().equals(user.getUserId())) {
-            throw ApiException.forbidden("NOT_QUESTION_OWNER", "Only the owner of the question can change it");
-        }
         return q;
     }
 
