@@ -177,10 +177,14 @@ class ExamStudentService {
         return new ImportReport(accounts.size(), created, report.added(), report.alreadyInExam(), notStudent, errors);
     }
 
-    /** Only students who have not checked in can leave the roster; the others keep a contiguous order. */
+    /**
+     * Only students who have not checked in can leave the roster; the others keep a contiguous order. A published or
+     * open buổi thi keeps at least one student, as publishing required (unpublish or cancel it instead).
+     */
     void remove(UUID examId, UUID studentId, User user) {
         refresher.refreshDue();
-        requireRosterEditable(access.write(examId, user));
+        VivaExam exam = access.write(examId, user);
+        requireRosterEditable(exam);
         MapSqlParameterSource p = ExamQueries.params(examId).addValue("s", studentId);
         List<Integer> seq = jdbc.queryForList(
                 "select seq_no from viva_exam_students where viva_exam_id = :e and student_id = :s", p, Integer.class);
@@ -191,6 +195,11 @@ class ExamStudentService {
                 "select exists(select 1 from exam_attempts where viva_exam_id = :e and student_id = :s)", p, Boolean.class);
         if (Boolean.TRUE.equals(checkedIn)) {
             throw ApiException.conflict("ATTEMPT_EXISTS", "The student already checked in");
+        }
+        Integer roster = jdbc.queryForObject("select count(*) from viva_exam_students where viva_exam_id = :e", p, Integer.class);
+        if (exam.getStatus() != ExamStatus.DRAFT && roster != null && roster <= 1) {
+            throw ApiException.conflict("LAST_STUDENT",
+                    "A published or open exam needs at least one student; unpublish or cancel it instead");
         }
         jdbc.update("delete from viva_exam_students where viva_exam_id = :e and student_id = :s", p);
         jdbc.update("update viva_exam_students set seq_no = seq_no - 1 where viva_exam_id = :e and seq_no > :seq",

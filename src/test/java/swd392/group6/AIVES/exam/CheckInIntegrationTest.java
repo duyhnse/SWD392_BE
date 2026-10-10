@@ -146,6 +146,25 @@ class CheckInIntegrationTest extends ExamTestBase {
     }
 
     @Test
+    void publishedExamKeepsAtLeastOneStudent() throws Exception {
+        Course c = course();
+        questions(c, c.topicA(), UNDERSTAND, 1);
+        User first = data.student();
+        User last = data.student();
+        UUID exam = createExam(c, template(c, 1), T0.plusSeconds(600), T0.plusSeconds(3600), null);
+        addStudents(c, exam, first, last);
+        publish(c, exam);
+
+        call(delete("/api/v1/viva-exams/" + exam + "/students/" + first.getUserId()), c.token())
+                .andExpect(status().isNoContent());
+        call(delete("/api/v1/viva-exams/" + exam + "/students/" + last.getUserId()), c.token())
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("LAST_STUDENT"));
+        call(post("/api/v1/viva-exams/" + exam + "/unpublish"), c.token()).andExpect(status().isOk());
+        call(delete("/api/v1/viva-exams/" + exam + "/students/" + last.getUserId()), c.token())
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
     void poolThatShrankAfterPublishingFailsTheCheckInClearly() throws Exception {
         Course c = course();
         List<UUID> qs = questions(c, c.topicA(), UNDERSTAND, 2);
