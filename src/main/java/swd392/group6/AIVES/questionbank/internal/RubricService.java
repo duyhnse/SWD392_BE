@@ -28,7 +28,7 @@ import java.util.UUID;
 public class RubricService {
 
     static final int MAX_CRITERIA = 10;
-    private static final BigDecimal MAX_NUMERIC_5_2 = new BigDecimal("999.99");
+    static final BigDecimal MAX_SCORE = new BigDecimal("100");
     private static final UUID NO_ID = new UUID(0, 0);
 
     private final RubricRepository rubrics;
@@ -155,7 +155,7 @@ public class RubricService {
         }
     }
 
-    /** INV-01 + BR-Q3: 1–10 criteria, 0 < maxScore, 0 < weight ≤ 100, Σ weight = 100 ± 0.01. */
+    /** INV-01 + BR-Q3: 1–10 criteria, 0 < maxScore ≤ 100, 0 < weight ≤ 100, both with at most 2 decimals, Σ weight = 100 ± 0.01. */
     static void validateCriteria(List<CriterionRequest> criteria) {
         if (criteria.isEmpty() || criteria.size() > MAX_CRITERIA) {
             throw ApiException.unprocessable("RUBRIC_CRITERIA_COUNT",
@@ -163,20 +163,24 @@ public class RubricService {
         }
         BigDecimal total = BigDecimal.ZERO;
         for (CriterionRequest c : criteria) {
-            if (c.maxScore().signum() <= 0 || c.maxScore().compareTo(MAX_NUMERIC_5_2) > 0) {
+            if (c.maxScore().signum() <= 0 || c.maxScore().compareTo(MAX_SCORE) > 0 || decimals(c.maxScore()) > 2) {
                 throw ApiException.unprocessable("RUBRIC_MAX_SCORE_INVALID",
-                        "Criterion \"" + c.name() + "\": max score must be greater than 0 (and at most 999.99)");
+                        "Criterion \"" + c.name() + "\": max score must be greater than 0 and at most 100, with at most 2 decimals");
             }
-            if (c.weightPercent().signum() <= 0 || c.weightPercent().compareTo(Rubric.HUNDRED) > 0) {
+            if (c.weightPercent().signum() <= 0 || c.weightPercent().compareTo(Rubric.HUNDRED) > 0 || decimals(c.weightPercent()) > 2) {
                 throw ApiException.unprocessable("RUBRIC_WEIGHT_INVALID",
-                        "Criterion \"" + c.name() + "\": weight must be greater than 0 and at most 100");
+                        "Criterion \"" + c.name() + "\": weight must be greater than 0 and at most 100, with at most 2 decimals");
             }
             total = total.add(c.weightPercent());
         }
         if (total.subtract(Rubric.HUNDRED).abs().compareTo(Rubric.WEIGHT_TOLERANCE) > 0) {
             throw ApiException.unprocessable("RUBRIC_WEIGHTS_NOT_100",
-                    "Weights total " + total.setScale(2, RoundingMode.HALF_UP).toPlainString());
+                    "Weights must total exactly 100%; they total " + total.setScale(2, RoundingMode.HALF_UP).toPlainString() + "%");
         }
+    }
+
+    private static int decimals(BigDecimal v) {
+        return Math.max(0, v.stripTrailingZeros().scale());
     }
 
     private static void addCriteria(Rubric rubric, List<CriterionRequest> criteria) {

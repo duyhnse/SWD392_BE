@@ -38,11 +38,11 @@ public final class QuestionBankDtos {
 
     // ---- Rubrics ----
 
-    public record CriterionRequest(@NotBlank @Size(max = 150) String name, String description,
+    public record CriterionRequest(@NotBlank @Size(max = 150) String name, @Size(max = 1000) String description,
                                    @NotNull BigDecimal maxScore, @NotNull BigDecimal weightPercent, Integer sortOrder) {
     }
 
-    public record RubricRequest(@NotBlank @Size(max = 150) String name, String description,
+    public record RubricRequest(@NotBlank @Size(max = 150) String name, @Size(max = 1000) String description,
                                 @NotNull @Valid List<CriterionRequest> criteria) {
     }
 
