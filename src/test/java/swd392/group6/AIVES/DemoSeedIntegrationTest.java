@@ -45,7 +45,7 @@ class DemoSeedIntegrationTest {
     @Test
     void seededScenariosAreVisibleThroughTheApis() throws Exception {
         String vinh = TestUsers.login(mockMvc, "vinhdqse190180", "VinhAives@2026");
-        mockMvc.perform(get("/api/v1/me/sessions").header("Authorization", "Bearer " + vinh))
+        mockMvc.perform(get("/api/v1/me/viva-exams").header("Authorization", "Bearer " + vinh))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[*].stage", hasItems("UPCOMING", "COMPLETED")));
         mockMvc.perform(get("/api/v1/me/results").header("Authorization", "Bearer " + vinh))

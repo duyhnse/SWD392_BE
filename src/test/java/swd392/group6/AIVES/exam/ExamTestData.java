@@ -83,19 +83,14 @@ class ExamTestData {
         return id;
     }
 
-    void sessionState(UUID sessionId, String status, Instant startedAt, Instant endedAt) {
-        jdbc.update("update exam_sessions set status = ?, started_at = ?, ended_at = ?, deadline_at = ? where session_id = ?",
-                status, ts(startedAt), ts(endedAt), startedAt == null ? null : ts(startedAt.plusSeconds(900)), sessionId);
+    void attemptState(UUID attemptId, String status, Instant endedAt) {
+        jdbc.update("update exam_attempts set status = ?, ended_at = ?, end_reason = ? where attempt_id = ?",
+                status, ts(endedAt), "COMPLETED".equals(status) ? "ALL_QUESTIONS_DONE" : null, attemptId);
     }
 
-    void evaluation(UUID sessionId, String status) {
-        jdbc.update("insert into grade_evaluations (evaluation_id, session_id, status) values (?, ?, ?)",
-                UUID.randomUUID(), sessionId, status);
-    }
-
-    UUID sessionOf(UUID examId, User student) {
-        return jdbc.queryForObject("select session_id from exam_sessions where viva_exam_id = ? and student_id = ?",
-                UUID.class, examId, student.getUserId());
+    void evaluation(UUID attemptId, String status) {
+        jdbc.update("insert into grade_evaluations (evaluation_id, attempt_id, status) values (?, ?, ?)",
+                UUID.randomUUID(), attemptId, status);
     }
 
     private static Timestamp ts(Instant i) {

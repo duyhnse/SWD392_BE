@@ -1,6 +1,8 @@
 package swd392.group6.AIVES.exam;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -15,46 +17,88 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Request / response bodies of the buổi thi endpoints (15 §5.3). */
+/** Request / response bodies of the đề thi, buổi thi and lượt thi endpoints (15 §5.3). */
 final class ExamDtos {
 
     private ExamDtos() {
     }
 
-    // ---- requests -------------------------------------------------------------------------------------------
+    // ---- đề thi (exam templates) ----------------------------------------------------------------------------
 
-    /** Missing numbers take the defaults of {@code viva_exams}; the examiner defaults to the caller. */
-    record CreateExamRequest(@NotBlank @Size(max = 200) String title, String description, String instructions,
-                             @Size(max = 150) String location, UUID examinerId,
-                             @NotNull Instant windowStart, @NotNull Instant windowEnd, Language language,
-                             Integer mainQuestionCount, Integer maxFollowupsPerQuestion, Integer timeLimitPerStudentSec,
-                             Integer answerTimeLimitSec, Integer silenceWarningSec, Integer reconnectGraceSec,
-                             List<UUID> topicIds, List<BloomLevel> bloomLevels, Boolean showQuestionText) {
+    /** Missing numbers take the {@code exam_templates} defaults; the language is always the course language (D57). */
+    record CreateTemplateRequest(@NotBlank @Size(max = 200) String title, String description,
+                                 Integer maxFollowupsPerQuestion, Integer maxAnswerSec, Integer silenceWarningSec,
+                                 Boolean showQuestionText,
+                                 @DecimalMin("0") @DecimalMax("10") BigDecimal passScore,
+                                 List<@Valid @NotNull TemplateItemRequest> items) {
     }
 
-    /** {@code null} = unchanged; an empty string clears description / instructions / location. */
-    record UpdateExamRequest(@NotNull Integer version, @Size(max = 200) String title, String description,
-                             String instructions, @Size(max = 150) String location, UUID examinerId,
-                             Instant windowStart, Instant windowEnd, Language language,
-                             Integer mainQuestionCount, Integer maxFollowupsPerQuestion, Integer timeLimitPerStudentSec,
-                             Integer answerTimeLimitSec, Integer silenceWarningSec, Integer reconnectGraceSec,
-                             List<UUID> topicIds, List<BloomLevel> bloomLevels, Boolean showQuestionText) {
-
-        boolean touchesConfig() {
-            return examinerId != null || windowStart != null || windowEnd != null || language != null
-                    || mainQuestionCount != null || maxFollowupsPerQuestion != null || timeLimitPerStudentSec != null
-                    || answerTimeLimitSec != null || silenceWarningSec != null || reconnectGraceSec != null
-                    || topicIds != null || bloomLevels != null || showQuestionText != null;
-        }
+    /** Full replacement of the template's own fields (rows and pool have their own endpoints). */
+    record UpdateTemplateRequest(@NotNull Integer version, @NotBlank @Size(max = 200) String title, String description,
+                                 @NotNull Integer maxFollowupsPerQuestion,
+                                 @NotNull Integer maxAnswerSec, @NotNull Integer silenceWarningSec,
+                                 @NotNull Boolean showQuestionText,
+                                 @DecimalMin("0") @DecimalMax("10") BigDecimal passScore) {
     }
 
-    record BlueprintRequest(@NotNull List<@Valid @NotNull BlueprintItemRequest> items) {
+    /** {@code secondsPerQuestion} null = default for the Bloom level ({@code exam.seconds.*} settings). */
+    record TemplateItemRequest(UUID topicId, BloomLevel bloomLevel, @NotNull @Min(1) @Max(10) Integer count,
+                               Integer secondsPerQuestion) {
     }
 
-    record BlueprintItemRequest(UUID topicId, BloomLevel bloomLevel, @NotNull @Min(1) @Max(10) Integer count) {
+    record TemplateItemsRequest(@NotNull List<@Valid @NotNull TemplateItemRequest> items) {
     }
 
     record QuestionPoolRequest(@NotNull QuestionPoolMode mode, List<UUID> questionIds) {
+    }
+
+    record DuplicateTemplateRequest(@Size(max = 200) String title) {
+    }
+
+    record ArchiveRequest(boolean archived) {
+    }
+
+    /** {@code available} = PUBLISHED questions of the pool that match the row right now. */
+    record TemplateItemView(UUID id, UUID topicId, String topicName, BloomLevel bloomLevel,
+                            int count, int secondsPerQuestion, int sortOrder, int available) {
+    }
+
+    record TemplateDetail(UUID id, long no, UUID courseId, String title, String description, Language language,
+                          int maxFollowupsPerQuestion, int maxAnswerSec, int silenceWarningSec,
+                          boolean showQuestionText, BigDecimal passScore,
+                          QuestionPoolMode questionPoolMode, List<UUID> selectedQuestionIds,
+                          List<TemplateItemView> items, int mainQuestionCount, int totalDurationSec,
+                          boolean poolSufficient, boolean locked, boolean archived, long usedByExamCount,
+                          UUID createdBy, int version, Instant createdAt, Instant updatedAt) {
+    }
+
+    record TemplateSummary(UUID id, long no, UUID courseId, String title, int mainQuestionCount, int totalDurationSec,
+                           BigDecimal passScore, boolean locked, boolean archived, long usedByExamCount, int version,
+                           Instant updatedAt) {
+    }
+
+    // ---- buổi thi -------------------------------------------------------------------------------------------
+
+    /** Missing connection rules take the {@code viva_exams} defaults; the examiner defaults to the caller. */
+    record CreateExamRequest(@NotNull UUID templateId, @NotBlank @Size(max = 200) String title, String description,
+                             String instructions, @Size(max = 150) String location, UUID examinerId,
+                             @NotNull Instant checkinOpensAt, @NotNull Instant checkinClosesAt,
+                             Integer reconnectGraceSec, Integer maxDisconnects, Integer maxFrozenSec,
+                             Integer replaceMainAfterSec) {
+    }
+
+    /** {@code null} = unchanged; an empty string clears description / instructions / location. */
+    record UpdateExamRequest(@NotNull Integer version, UUID templateId, @Size(max = 200) String title,
+                             String description, String instructions, @Size(max = 150) String location,
+                             UUID examinerId, Instant checkinOpensAt, Instant checkinClosesAt,
+                             Integer reconnectGraceSec, Integer maxDisconnects, Integer maxFrozenSec,
+                             Integer replaceMainAfterSec) {
+
+        /** Fields that cannot change once students may check in. */
+        boolean touchesFrozenFields() {
+            return templateId != null || examinerId != null || checkinOpensAt != null || reconnectGraceSec != null
+                    || maxDisconnects != null || maxFrozenSec != null || replaceMainAfterSec != null;
+        }
     }
 
     /** Each field is a JSON array or one pasted string ("SE190001, SE190002\nSE190003"). */
@@ -64,37 +108,31 @@ final class ExamDtos {
     record CancelRequest(String reason) {
     }
 
-    record RetakeRequest(@Size(max = 200) String title, @NotNull Instant windowStart, @NotNull Instant windowEnd,
-                         Object studentCodes, Object usernames) {
+    record RetakeRequest(@Size(max = 200) String title, @NotNull Instant checkinOpensAt,
+                         @NotNull Instant checkinClosesAt, Object studentCodes, Object usernames) {
     }
 
-    // ---- responses ------------------------------------------------------------------------------------------
-
-    record ExamSummary(UUID id, UUID courseId, String title, ExamStatus status, Instant windowStart, Instant windowEnd,
-                       int mainQuestionCount, int timeLimitPerStudentSec, long studentCount, long completedCount,
-                       long confirmedCount, boolean resultsReleased, UUID retakeOfVivaExamId, int version) {
+    record ExamSummary(UUID id, long no, UUID courseId, UUID templateId, String templateTitle, String title, ExamStatus status,
+                       Instant checkinOpensAt, Instant checkinClosesAt, int mainQuestionCount, int durationSec,
+                       long studentCount, long checkedInCount, long completedCount, long confirmedCount,
+                       boolean resultsReleased, UUID retakeOfVivaExamId, int version) {
     }
 
-    record ExamDetail(UUID id, UUID courseId, String title, String description, String instructions, String location,
-                      ExamStatus status, UUID createdBy, UUID examinerId, Instant windowStart, Instant windowEnd,
-                      Language language, int mainQuestionCount, int maxFollowupsPerQuestion,
-                      int timeLimitPerStudentSec, int answerTimeLimitSec, int silenceWarningSec, int reconnectGraceSec,
-                      List<UUID> topicIds, List<BloomLevel> bloomLevels, String selectionStrategy,
-                      boolean showQuestionText, List<BlueprintItemView> blueprint, QuestionPoolView questionPool,
-                      long studentCount, Map<SessionStage, Long> stageCounts, boolean resultsReleased,
+    record ExamDetail(UUID id, long no, UUID courseId, String title, String description, String instructions, String location,
+                      ExamStatus status, UUID createdBy, UUID examinerId, TemplateSummary template,
+                      Instant checkinOpensAt, Instant checkinClosesAt, int durationSec, Instant lastPossibleEndAt,
+                      int reconnectGraceSec, int maxDisconnects, int maxFrozenSec, int replaceMainAfterSec,
+                      long studentCount, Map<ExamStage, Long> stageCounts, boolean resultsReleased,
                       Instant resultsReleasedAt, UUID retakeOfVivaExamId, String cancelReason, int version,
                       Instant createdAt, Instant updatedAt) {
     }
 
-    record BlueprintItemView(UUID id, UUID topicId, BloomLevel bloomLevel, int count, int sortOrder) {
-    }
-
-    /** {@code availableCount} = PUBLISHED questions the generation would draw from right now. */
-    record QuestionPoolView(QuestionPoolMode mode, List<UUID> questionIds, int availableCount) {
+    /** Pool check: rows the pool cannot serve (publish and check-in refuse with POOL_TOO_SMALL). */
+    record PoolCheck(boolean sufficient, List<QuestionSelector.RowShortage> shortages) {
     }
 
     record StudentView(UUID studentId, String username, String fullName, String studentCode, int seqNo,
-                       Instant addedAt, UUID sessionId, String sessionStatus, SessionStage stage) {
+                       Instant addedAt, UUID attemptId, String attemptStatus, ExamStage stage) {
     }
 
     record StudentRef(UUID studentId, String username, String studentCode, String fullName, int seqNo) {
@@ -112,32 +150,44 @@ final class ExamDtos {
                         List<String> notStudent, List<ImportRowError> errors) {
     }
 
-    record GeneratedQuestion(UUID sessionQuestionId, UUID questionId, int orderNo, UUID topicId, BloomLevel bloomLevel,
-                             String content) {
-    }
-
-    record GeneratedSession(UUID sessionId, UUID studentId, String username, String studentCode, int seqNo,
-                            List<GeneratedQuestion> questions) {
-    }
-
-    record GenerationResult(ExamStatus status, List<GeneratedSession> sessions, List<QuestionSelector.Warning> warnings) {
-    }
-
-    record SessionRow(UUID sessionId, UUID studentId, String username, String fullName, String studentCode,
-                      Integer seqNo, String status, String cancelReason, String endReason, SessionStage stage,
-                      Instant startedAt, Instant deadlineAt, Instant endedAt, UUID evaluationId,
-                      String evaluationStatus, BigDecimal finalTotalScore) {
-    }
-
-    /** A lượt thi as the student sees it (15 §2.2) — never with question content. */
-    record MySession(UUID sessionId, UUID vivaExamId, UUID courseId, String courseCode, String courseName,
-                     String title, String description, String instructions, String location, Language language,
-                     SessionStage stage, ResultStatus resultStatus, Instant windowStart, Instant windowEnd,
-                     int timeLimitPerStudentSec, int mainQuestionCount, int maxFollowupsPerQuestion,
-                     Instant startedAt, Instant deadlineAt, Instant endedAt, int attemptsAllowed, int attemptsUsed,
-                     UUID evaluationId) {
-    }
-
     record RetakeResult(ExamDetail exam, AddStudentsReport students) {
+    }
+
+    // ---- lượt thi (attempts) --------------------------------------------------------------------------------
+
+    record CheckInRequest(boolean consentRecording, @Size(max = 300) String clientInfo) {
+    }
+
+    /** One roster row of a buổi thi as the lecturer sees it, with the attempt when there is one. */
+    record AttemptRow(UUID studentId, String username, String fullName, String studentCode, int seqNo,
+                      ExamStage stage, UUID attemptId, Long attemptNo, String status, String endReason, Instant startedAt,
+                      Instant deadlineAt, Instant endedAt, int disconnectCount, int frozenSecTotal,
+                      UUID evaluationId, String evaluationStatus, BigDecimal finalTotalScore) {
+    }
+
+    /** A drawn question with its snapshot (D49) — lecturers only. */
+    record AttemptQuestionView(UUID attemptQuestionId, UUID questionId, int orderNo, String status, String topicName,
+                               BloomLevel bloomLevel, String content, String referenceAnswer,
+                               int timeBudgetSec, int timeUsedSec, String rubricName, Instant startedAt,
+                               Instant endedAt, UUID replacesAttemptQuestionId, String voidReason) {
+    }
+
+    record AttemptDetail(UUID attemptId, long attemptNo, UUID vivaExamId, UUID courseId, UUID studentId, String username,
+                         String fullName, String studentCode, String status, String endReason, String cancelReason,
+                         Instant startedAt, Instant deadlineAt, Instant endedAt, Instant consentRecordedAt,
+                         int disconnectCount, int frozenSecTotal, String clientInfo, Long selectionSeed,
+                         List<AttemptQuestionView> questions) {
+    }
+
+    /**
+     * A buổi thi as the student sees it (15 §2.2) — never with question content. {@code attemptId} is set once
+     * the student checked in.
+     */
+    record MyExam(UUID vivaExamId, long examNo, UUID courseId, String courseCode, String courseName, String title,
+                  String description, String instructions, String location, Language language, ExamStage stage,
+                  ResultStatus resultStatus, Instant checkinOpensAt, Instant checkinClosesAt, int durationSec,
+                  int mainQuestionCount, int maxFollowupsPerQuestion, boolean showQuestionText, UUID attemptId,
+                  Long attemptNo, Instant startedAt, Instant deadlineAt, Instant endedAt, int attemptsAllowed, int attemptsUsed,
+                  UUID evaluationId) {
     }
 }

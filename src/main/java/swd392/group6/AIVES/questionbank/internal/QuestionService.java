@@ -37,6 +37,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /** Questions and their state machine (03 §2.1, 04 §5–§7, 15 §5.2). */
@@ -46,6 +48,7 @@ import java.util.stream.Collectors;
 public class QuestionService {
 
     private static final String NOT_FOUND = "QUESTION_NOT_FOUND";
+    private static final Pattern QUESTION_CODE = Pattern.compile("\\s*[Qq]?\\s*-?\\s*(\\d{1,12})\\s*");
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final QuestionRepository questions;
@@ -77,7 +80,11 @@ public class QuestionService {
             if (notEmpty(filter.origin())) {
                 p.add(root.get("origin").in(filter.origin()));
             }
-            if (filter.q() != null && !filter.q().isBlank()) {
+            Matcher code = filter.q() == null ? null : QUESTION_CODE.matcher(filter.q());
+            if (code != null && code.matches()) {
+                // "Q-12", "q12" or "12" finds question Q-12 (D56)
+                p.add(cb.equal(root.get("displayNo"), Long.parseLong(code.group(1))));
+            } else if (filter.q() != null && !filter.q().isBlank()) {
                 String like = "%" + filter.q().trim().toLowerCase(Locale.ROOT)
                         .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
                 p.add(cb.like(cb.lower(root.get("content")), like, '\\'));
@@ -86,13 +93,13 @@ public class QuestionService {
         };
         Page<Question> result = questions.findAll(spec, PageRequest.of(Math.max(page, 0), Math.clamp(size, 1, 100),
                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.asc("id"))));
-        Map<UUID, String> topicNames = topics.findByCourseIdOrderBySortOrderAscNameAsc(courseId).stream()
-                .collect(Collectors.toMap(Topic::getId, Topic::getName));
+        Map<UUID, Topic> courseTopics = topics.findByCourseIdOrderBySortOrderAscNameAsc(courseId).stream()
+                .collect(Collectors.toMap(Topic::getId, c -> c));
         Map<UUID, String> rubricNames = rubrics.findAllById(result.getContent().stream().map(Question::getRubricId)
                         .filter(Objects::nonNull).collect(Collectors.toSet())).stream()
                 .collect(Collectors.toMap(Rubric::getId, Rubric::getName));
-        return PageResponse.of(result, q -> new QuestionSummaryDto(q.getId(), q.getCourseId(), q.getTopicId(),
-                topicNames.get(q.getTopicId()), q.getContent(), q.getBloomLevel(), q.getLanguage(), q.getStatus(),
+        return PageResponse.of(result, q -> new QuestionSummaryDto(q.getId(), no(q.getDisplayNo()), q.getCourseId(), q.getTopicId(),
+                topicName(courseTopics.get(q.getTopicId())), q.getContent(), q.getBloomLevel(), q.getLanguage(), q.getStatus(),
                 q.getOrigin(), q.getRubricId(), q.getRubricId() == null ? null : rubricNames.get(q.getRubricId()),
                 q.isLocked(), q.getOwnerId(), q.getVersion(), q.getCreatedAt(), q.getUpdatedAt(), q.getPublishedAt()));
     }
@@ -128,9 +135,9 @@ public class QuestionService {
         return toDto(questions.saveAndFlush(q));
     }
 
-    /** Owner edit with optimistic locking (E6, E7, BR-Q6, BR-Q11). */
+    /** Edit by any lecturer of the course (D55) with optimistic locking (E6, E7, BR-Q6, BR-Q11). */
     public QuestionDto update(UUID questionId, UpdateQuestionRequest request, User user) {
-        Question q = loadOwned(questionId, user);
+        Question q = loadWritable(questionId, user);
         if (q.getStatus() != QuestionStatus.DRAFT && q.getStatus() != QuestionStatus.PUBLISHED) {
             throw invalidState(q, "edited");
         }
@@ -160,10 +167,18 @@ public class QuestionService {
         return toDto(flush(q));
     }
 
+    /** DRAFT, or an unlocked PUBLISHED question that no published/open buổi thi picks by hand, → DISCARDED. */
     public QuestionDto discard(UUID questionId, User user) {
-        Question q = loadOwned(questionId, user);
-        if (q.getStatus() != QuestionStatus.DRAFT) {
-            throw invalidState(q, "discarded (only drafts can be discarded; unpublish first)");
+        Question q = loadWritable(questionId, user);
+        if (q.getStatus() == QuestionStatus.PUBLISHED) {
+            if (q.isLocked()) {
+                throw locked();
+            }
+            requireNotInSelectedPool(questionId);
+            q.setPublishedAt(null);
+            q.setPublishedBy(null);
+        } else if (q.getStatus() != QuestionStatus.DRAFT) {
+            throw invalidState(q, "discarded (only drafts and published questions can be discarded)");
         }
         q.setStatus(QuestionStatus.DISCARDED);
         q.setDiscardedAt(Instant.now(clock));
@@ -172,7 +187,7 @@ public class QuestionService {
     }
 
     public QuestionDto restore(UUID questionId, User user) {
-        Question q = loadOwned(questionId, user);
+        Question q = loadWritable(questionId, user);
         if (q.getStatus() != QuestionStatus.DISCARDED) {
             throw invalidState(q, "restored (only discarded questions can be restored)");
         }
@@ -182,23 +197,16 @@ public class QuestionService {
         return toDto(flush(q));
     }
 
-    /** PUBLISHED → DRAFT when unlocked and not assigned to a session that is about to run or running. */
+    /** PUBLISHED → DRAFT when unlocked and not in the selected pool of a published or open buổi thi. */
     public QuestionDto unpublish(UUID questionId, User user) {
-        Question q = loadOwned(questionId, user);
+        Question q = loadWritable(questionId, user);
         if (q.getStatus() != QuestionStatus.PUBLISHED) {
             throw invalidState(q, "unpublished (it is not published)");
         }
         if (q.isLocked()) {
             throw locked();
         }
-        Boolean inUse = jdbc.queryForObject("""
-                select exists(select 1 from session_questions sq join exam_sessions s on s.session_id = sq.session_id
-                              where sq.question_id = ? and s.status in ('SCHEDULED', 'IN_PROGRESS', 'INTERRUPTED'))""",
-                Boolean.class, questionId);
-        if (Boolean.TRUE.equals(inUse)) {
-            throw ApiException.conflict("QUESTION_IN_USE",
-                    "The question is assigned to a scheduled or running exam session");
-        }
+        requireNotInSelectedPool(questionId);
         q.setStatus(QuestionStatus.DRAFT);
         q.setPublishedAt(null);
         q.setPublishedBy(null);
@@ -208,7 +216,7 @@ public class QuestionService {
 
     /** New DRAFT copy of a locked PUBLISHED question; publishing it retires the predecessor (BR-Q8). */
     public QuestionDto successor(UUID questionId, User user) {
-        Question source = loadOwned(questionId, user);
+        Question source = loadWritable(questionId, user);
         if (source.getStatus() != QuestionStatus.PUBLISHED || !source.isLocked()) {
             throw ApiException.conflict("QUESTION_NOT_LOCKED",
                     "Only a locked, published question needs a successor; edit this question directly");
@@ -261,12 +269,12 @@ public class QuestionService {
         Instant now = Instant.now(clock);
         for (UUID id : new LinkedHashSet<>(questionIds)) {
             Question q = questions.findById(id).orElse(null);
-            if (q == null || !access.canRead(q.getCourseId(), user)) {
+            if (q == null || !access.canWrite(q.getCourseId(), user)) {
                 failed.add(new PublishFailure(id, List.of(NOT_FOUND)));
                 continue;
             }
-            if (!q.getOwnerId().equals(user.getUserId())) {
-                failed.add(new PublishFailure(id, List.of("NOT_QUESTION_OWNER")));
+            if (!courseActive(q.getCourseId())) {
+                failed.add(new PublishFailure(id, List.of("COURSE_ARCHIVED")));
                 continue;
             }
             if (q.getStatus() != QuestionStatus.DRAFT) {
@@ -298,10 +306,10 @@ public class QuestionService {
 
     /** Hard delete of a never-used DRAFT (15 §5.2); everything else must be discarded instead. */
     public void delete(UUID questionId, User user) {
-        Question q = loadOwned(questionId, user);
+        Question q = loadWritable(questionId, user);
         Boolean used = jdbc.queryForObject("""
-                select exists(select 1 from session_questions where question_id = ?)
-                    or exists(select 1 from viva_exam_questions where question_id = ?)
+                select exists(select 1 from attempt_questions where question_id = ?)
+                    or exists(select 1 from exam_template_questions where question_id = ?)
                     or exists(select 1 from exam_turns where question_id = ?)
                     or exists(select 1 from question_grades where question_id = ?)
                     or exists(select 1 from questions where supersedes_question_id = ?)""",
@@ -338,12 +346,27 @@ public class QuestionService {
         return errors;
     }
 
-    private Question loadOwned(UUID questionId, User user) {
+    private boolean courseActive(UUID courseId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("select is_active from courses where course_id = ?", Boolean.class, courseId));
+    }
+
+    private void requireNotInSelectedPool(UUID questionId) {
+        Boolean inUse = jdbc.queryForObject("""
+                select exists(select 1 from exam_template_questions tq
+                              join exam_templates t on t.exam_template_id = tq.exam_template_id
+                              join viva_exams e on e.exam_template_id = t.exam_template_id
+                              where tq.question_id = ? and t.question_pool_mode = 'SELECTED'
+                                and e.status in ('READY', 'OPEN'))""",
+                Boolean.class, questionId);
+        if (Boolean.TRUE.equals(inUse)) {
+            throw ApiException.conflict("QUESTION_IN_USE",
+                    "The question is in the selected pool of a published or open exam");
+        }
+    }
+
+    private Question loadWritable(UUID questionId, User user) {
         Question q = load(questionId);
         access.write(q.getCourseId(), user, NOT_FOUND, "Question not found");
-        if (!q.getOwnerId().equals(user.getUserId())) {
-            throw ApiException.forbidden("NOT_QUESTION_OWNER", "Only the owner of the question can change it");
-        }
         return q;
     }
 
@@ -378,7 +401,7 @@ public class QuestionService {
 
     private static ApiException locked() {
         return ApiException.conflict("QUESTION_LOCKED",
-                "The question was used in a completed session and cannot change; create a successor instead");
+                "The question was drawn into an exam attempt and cannot change; create a successor instead");
     }
 
     private static ApiException versionConflict() {
@@ -397,7 +420,7 @@ public class QuestionService {
     // ---------------------------------------------------------------- mapping
 
     private QuestionDto toDto(Question q) {
-        String topicName = topics.findById(q.getTopicId()).map(Topic::getName).orElse(null);
+        Topic topic = topics.findById(q.getTopicId()).orElse(null);
         QuestionRubricDto rubric = q.getRubricId() == null ? null : rubrics.findById(q.getRubricId())
                 .map(r -> new QuestionRubricDto(r.getId(), r.getName(), r.isLocked(), r.totalWeight(),
                         RubricService.criteria(r)))
@@ -413,10 +436,14 @@ public class QuestionService {
             ai = new AiDto(q.getAiOriginalContent(), q.getAiOriginalReferenceAnswer(), q.getAiSuggestedBloom(),
                     suggestedRubric(q.getId()), q.getGenerationRequestId());
         }
-        return new QuestionDto(q.getId(), q.getCourseId(), q.getTopicId(), topicName, q.getContent(),
+        return new QuestionDto(q.getId(), no(q.getDisplayNo()), q.getCourseId(), q.getTopicId(), topicName(topic), q.getContent(),
                 q.getReferenceAnswer(), q.getBloomLevel(), q.getLanguage(), q.getStatus(), q.getOrigin(), rubric, ai,
                 sourceDtos, q.isLocked(), q.getOwnerId(), q.getSupersedesQuestionId(), q.getVersion(), q.getCreatedAt(),
                 q.getUpdatedAt(), q.getPublishedBy(), q.getPublishedAt(), q.getDiscardedAt());
+    }
+
+    private static String topicName(Topic topic) {
+        return topic == null ? null : topic.getName();
     }
 
     private JsonNode suggestedRubric(UUID questionId) {
@@ -424,5 +451,9 @@ public class QuestionService {
                 "select ai_suggested_rubric::text from questions where question_id = ? and ai_suggested_rubric is not null",
                 String.class, questionId);
         return raw.isEmpty() ? null : JSON.readTree(raw.getFirst());
+    }
+
+    static long no(Long displayNo) {
+        return displayNo == null ? 0 : displayNo;
     }
 }

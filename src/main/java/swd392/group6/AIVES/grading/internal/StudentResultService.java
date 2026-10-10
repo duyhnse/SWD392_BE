@@ -6,13 +6,12 @@ import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.exam.ExamApi;
 import swd392.group6.AIVES.exam.ExamApi.ExamInfo;
-import swd392.group6.AIVES.exam.ExamApi.SessionInfo;
+import swd392.group6.AIVES.exam.ExamApi.AttemptInfo;
 import swd392.group6.AIVES.grading.internal.GradingDtos.ResultCriterionDto;
 import swd392.group6.AIVES.grading.internal.GradingDtos.ResultDto;
 import swd392.group6.AIVES.grading.internal.GradingDtos.ResultSummaryDto;
 import swd392.group6.AIVES.grading.internal.GradingDtos.ResultThreadDto;
 import swd392.group6.AIVES.interview.InterviewApi;
-import swd392.group6.AIVES.questionbank.QuestionBankApi;
 import swd392.group6.AIVES.user.User;
 
 import java.time.Clock;
@@ -46,28 +45,27 @@ class StudentResultService {
     private final CriterionScoreRepository criterionScores;
     private final GradeDisputeRepository disputes;
     private final InterviewApi interviewApi;
-    private final QuestionBankApi questionBankApi;
     private final Clock clock;
 
-    /** A released result of the caller: evaluation, session and exam. */
-    record Visible(GradeEvaluation evaluation, SessionInfo session, ExamInfo exam) {
+    /** A released result of the caller: evaluation, attempt and exam. */
+    record Visible(GradeEvaluation evaluation, AttemptInfo attempt, ExamInfo exam) {
     }
 
     public List<ResultSummaryDto> list(User student) {
-        Map<UUID, UUID> sessionToExam = support.sessionExamIdsOfStudent(student.getUserId());
-        if (sessionToExam.isEmpty()) {
+        Map<UUID, UUID> attemptToExam = support.attemptExamIdsOfStudent(student.getUserId());
+        if (attemptToExam.isEmpty()) {
             return List.of();
         }
         Map<UUID, ExamInfo> exams = new HashMap<>();
-        return evaluations.findBySessionIdIn(sessionToExam.keySet()).stream()
+        return evaluations.findByAttemptIdIn(attemptToExam.keySet()).stream()
                 .filter(e -> e.getStatus() == EvaluationStatus.CONFIRMED)
                 .map(e -> {
-                    ExamInfo exam = exams.computeIfAbsent(sessionToExam.get(e.getSessionId()),
+                    ExamInfo exam = exams.computeIfAbsent(attemptToExam.get(e.getAttemptId()),
                             id -> examApi.getExam(id).orElse(null));
                     if (exam == null || !exam.resultsReleased()) {
                         return null;
                     }
-                    return new ResultSummaryDto(e.getEvaluationId(), e.getSessionId(), exam.vivaExamId(), exam.title(),
+                    return new ResultSummaryDto(e.getEvaluationId(), e.getAttemptId(), exam.vivaExamId(), exam.title(),
                             e.getFinalTotalScore(), e.getConfirmedAt(), exam.resultsReleasedAt());
                 })
                 .filter(Objects::nonNull)
@@ -83,7 +81,11 @@ class StudentResultService {
                 : criterionScores.findByQuestionGradeIdIn(all.stream().map(QuestionGrade::getQuestionGradeId).toList())
                 .stream().collect(Collectors.groupingBy(CriterionScore::getQuestionGradeId));
         Map<UUID, Integer> orderNo = new HashMap<>();
-        interviewApi.getThreads(visible.session().sessionId()).forEach(t -> orderNo.put(t.sessionQuestionId(), t.orderNo()));
+        Map<UUID, String> contents = new HashMap<>();
+        examApi.getAttemptQuestions(visible.attempt().attemptId()).forEach(q -> {
+            orderNo.put(q.attemptQuestionId(), q.orderNo());
+            contents.put(q.attemptQuestionId(), q.content());
+        });
 
         List<ResultThreadDto> threads = all.stream().map(g -> {
             GradingJson.Snapshot snapshot = GradingJson.snapshot(g.getRubricSnapshot());
@@ -95,9 +97,8 @@ class StudentResultService {
                     .map(c -> new ResultCriterionDto(c.name(), c.maxScore(), c.weightPercent(),
                             scores.get(c.criterionId()).getFinalScore()))
                     .toList();
-            String content = questionBankApi.getQuestion(g.getQuestionId()).map(QuestionBankApi.QuestionInfo::content)
-                    .orElse(null);
-            return new ResultThreadDto(g.getQuestionGradeId(), orderNo.getOrDefault(g.getSessionQuestionId(), 0), content,
+            String content = contents.get(g.getAttemptQuestionId());
+            return new ResultThreadDto(g.getQuestionGradeId(), orderNo.getOrDefault(g.getAttemptQuestionId(), 0), content,
                     g.isIncludeInTotal(), g.getFinalScore(), criterionDtos, GradingJson.strings(g.getAiStrengths()),
                     GradingJson.strings(g.getAiWeaknesses()), GradingJson.strings(g.getAiMissingPoints()),
                     g.getAiFeedback(), g.getLecturerComment());
@@ -106,7 +107,7 @@ class StudentResultService {
         Instant deadline = disputeDeadline(visible.exam());
         boolean canDispute = deadline != null && !clock.instant().isAfter(deadline)
                 && !disputes.existsByEvaluationIdAndStatus(evaluationId, DisputeStatus.OPEN);
-        return new ResultDto(evaluationId, visible.session().sessionId(), visible.exam().vivaExamId(),
+        return new ResultDto(evaluationId, visible.attempt().attemptId(), visible.exam().vivaExamId(),
                 visible.exam().title(), evaluation.getFinalTotalScore(), evaluation.getLecturerComment(),
                 evaluation.getConfirmedAt(), visible.exam().resultsReleasedAt(), deadline, canDispute, threads);
     }
@@ -114,15 +115,15 @@ class StudentResultService {
     /** The caller's own evaluation, CONFIRMED and released; otherwise 404 RESULT_NOT_FOUND. */
     public Visible requireVisible(UUID evaluationId, User student) {
         GradeEvaluation evaluation = evaluations.findById(evaluationId).orElseThrow(StudentResultService::notFound);
-        SessionInfo session = examApi.getSession(evaluation.getSessionId()).orElseThrow(StudentResultService::notFound);
-        if (!session.studentId().equals(student.getUserId()) || evaluation.getStatus() != EvaluationStatus.CONFIRMED) {
+        AttemptInfo attempt = examApi.getAttempt(evaluation.getAttemptId()).orElseThrow(StudentResultService::notFound);
+        if (!attempt.studentId().equals(student.getUserId()) || evaluation.getStatus() != EvaluationStatus.CONFIRMED) {
             throw notFound();
         }
-        ExamInfo exam = examApi.getExam(session.vivaExamId()).orElseThrow(StudentResultService::notFound);
+        ExamInfo exam = examApi.getExam(attempt.vivaExamId()).orElseThrow(StudentResultService::notFound);
         if (!exam.resultsReleased()) {
             throw notFound();
         }
-        return new Visible(evaluation, session, exam);
+        return new Visible(evaluation, attempt, exam);
     }
 
     static Instant disputeDeadline(ExamInfo exam) {

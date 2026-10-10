@@ -211,27 +211,53 @@ class QuestionsIntegrationTest {
     }
 
     @Test
-    void nonOwnerCannotEditButCanRead_BR_Q6_AC_Q8() throws Exception {
+    void lecturersOfTheCourseShareTheBank_unassignedSeeNothing_D55_AC_Q8() throws Exception {
         UUID id = fx.question(owner, bank.courseId(), completeQuestion(bank.topicId(), bank.rubricId(), "Mine"));
         Actor colleague = fx.lecturer();
         fx.assign(bank.courseId(), colleague);
-        int v = version(id);
+        Actor outsider = fx.lecturer();
 
-        fx.perform(colleague, get("/api/v1/questions/" + id)).andExpect(status().isOk());
         fx.perform(colleague, get("/api/v1/courses/" + bank.courseId() + "/questions"))
                 .andExpect(jsonPath("$.total").value(1));
-        fx.json(colleague, put("/api/v1/questions/" + id), updateBody(v, "Hijack", ""))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("NOT_QUESTION_OWNER"));
-        for (String action : List.of("discard", "restore", "unpublish", "successor")) {
-            fx.perform(colleague, post("/api/v1/questions/" + id + "/" + action))
-                    .andExpect(status().isForbidden())
-                    .andExpect(jsonPath("$.code").value("NOT_QUESTION_OWNER"));
-        }
-        fx.perform(colleague, delete("/api/v1/questions/" + id)).andExpect(status().isForbidden());
-        fx.json(colleague, post("/api/v1/questions/publish"), ids(List.of(id)))
+        fx.json(colleague, put("/api/v1/questions/" + id), updateBody(version(id), "Edited by a colleague", ""))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.failed[0].errors", contains("NOT_QUESTION_OWNER")));
+                .andExpect(jsonPath("$.content").value("Edited by a colleague"));
+        fx.json(colleague, post("/api/v1/questions/publish"), ids(List.of(id)))
+                .andExpect(jsonPath("$.published", contains(id.toString())));
+        fx.perform(colleague, post("/api/v1/questions/" + id + "/unpublish")).andExpect(status().isOk());
+
+        fx.perform(outsider, get("/api/v1/questions/" + id)).andExpect(status().isNotFound());
+        fx.json(outsider, put("/api/v1/questions/" + id), updateBody(version(id), "Hijack", ""))
+                .andExpect(status().isNotFound());
+        fx.perform(outsider, post("/api/v1/questions/" + id + "/discard")).andExpect(status().isNotFound());
+        fx.json(outsider, post("/api/v1/questions/publish"), ids(List.of(id)))
+                .andExpect(jsonPath("$.failed[0].errors", contains("QUESTION_NOT_FOUND")));
+    }
+
+    @Test
+    void questionsHaveShortNumbersThatSearchFinds_D56() throws Exception {
+        UUID id = fx.question(owner, bank.courseId(), completeQuestion(bank.topicId(), bank.rubricId(), "Numbered"));
+        fx.question(owner, bank.courseId(), completeQuestion(bank.topicId(), bank.rubricId(), "Another"));
+        String body = fx.perform(owner, get("/api/v1/questions/" + id)).andExpect(jsonPath("$.no").isNumber())
+                .andReturn().getResponse().getContentAsString();
+        long no = ((Number) com.jayway.jsonpath.JsonPath.read(body, "$.no")).longValue();
+        for (String q : List.of("Q-" + no, "q" + no, String.valueOf(no))) {
+            fx.perform(owner, get("/api/v1/courses/" + bank.courseId() + "/questions").param("q", q))
+                    .andExpect(jsonPath("$.total").value(1))
+                    .andExpect(jsonPath("$.items[0].id").value(id.toString()))
+                    .andExpect(jsonPath("$.items[0].no").value(no));
+        }
+    }
+
+    @Test
+    void publishedQuestionCanBeDiscardedDirectly() throws Exception {
+        UUID id = fx.publishedQuestion(owner, bank, "Published then discarded");
+        fx.perform(owner, post("/api/v1/questions/" + id + "/discard"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DISCARDED"))
+                .andExpect(jsonPath("$.publishedAt").doesNotExist());
+        fx.perform(owner, post("/api/v1/questions/" + id + "/restore"))
+                .andExpect(jsonPath("$.status").value("DRAFT"));
     }
 
     @Test
@@ -277,11 +303,6 @@ class QuestionsIntegrationTest {
         fx.perform(owner, post("/api/v1/questions/" + id + "/restore"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_QUESTION_STATE"));
-
-        UUID published = fx.publishedQuestion(owner, bank, "Published");
-        fx.perform(owner, post("/api/v1/questions/" + published + "/discard"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("INVALID_QUESTION_STATE"));
     }
 
     @Test
@@ -297,22 +318,15 @@ class QuestionsIntegrationTest {
     }
 
     @Test
-    void unpublishRefusedWhileAssignedToUpcomingOrRunningSession() throws Exception {
-        UUID scheduled = fx.publishedQuestion(owner, bank, "Scheduled");
-        fx.assignToSession(bank.courseId(), scheduled, owner, "SCHEDULED");
-        fx.perform(owner, post("/api/v1/questions/" + scheduled + "/unpublish"))
+    void unpublishRefusedWhileInTheSelectedPoolOfAPublishedExam() throws Exception {
+        UUID selected = fx.publishedQuestion(owner, bank, "Selected");
+        fx.selectInPublishedExam(bank.courseId(), selected, owner);
+        fx.perform(owner, post("/api/v1/questions/" + selected + "/unpublish"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("QUESTION_IN_USE"));
 
-        UUID running = fx.publishedQuestion(owner, bank, "Running");
-        fx.assignToSession(bank.courseId(), running, owner, "IN_PROGRESS");
-        fx.perform(owner, post("/api/v1/questions/" + running + "/unpublish"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("QUESTION_IN_USE"));
-
-        UUID cancelled = fx.publishedQuestion(owner, bank, "Cancelled");
-        fx.assignToSession(bank.courseId(), cancelled, owner, "CANCELLED");
-        fx.perform(owner, post("/api/v1/questions/" + cancelled + "/unpublish")).andExpect(status().isOk());
+        UUID free = fx.publishedQuestion(owner, bank, "Free");
+        fx.perform(owner, post("/api/v1/questions/" + free + "/unpublish")).andExpect(status().isOk());
     }
 
     @Test

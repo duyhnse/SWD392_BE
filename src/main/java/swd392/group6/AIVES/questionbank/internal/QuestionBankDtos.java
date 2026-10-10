@@ -38,11 +38,11 @@ public final class QuestionBankDtos {
 
     // ---- Rubrics ----
 
-    public record CriterionRequest(@NotBlank @Size(max = 150) String name, String description,
+    public record CriterionRequest(@NotBlank @Size(max = 150) String name, @Size(max = 1000) String description,
                                    @NotNull BigDecimal maxScore, @NotNull BigDecimal weightPercent, Integer sortOrder) {
     }
 
-    public record RubricRequest(@NotBlank @Size(max = 150) String name, String description,
+    public record RubricRequest(@NotBlank @Size(max = 150) String name, @Size(max = 1000) String description,
                                 @NotNull @Valid List<CriterionRequest> criteria) {
     }
 
@@ -53,7 +53,7 @@ public final class QuestionBankDtos {
                                int sortOrder) {
     }
 
-    public record RubricDto(UUID id, UUID courseId, String name, String description,
+    public record RubricDto(UUID id, long no, UUID courseId, String name, String description,
                             @JsonProperty("isLocked") boolean isLocked, BigDecimal totalWeight, long questionCount,
                             List<CriterionDto> criteria, UUID createdBy, Instant createdAt, Instant updatedAt) {
     }
@@ -92,7 +92,7 @@ public final class QuestionBankDtos {
                             String excerpt) {
     }
 
-    public record QuestionDto(UUID id, UUID courseId, UUID topicId, String topicName, String content,
+    public record QuestionDto(UUID id, long no, UUID courseId, UUID topicId, String topicName, String content,
                               String referenceAnswer, BloomLevel bloomLevel, Language language,
                               QuestionStatus status, QuestionOrigin origin, QuestionRubricDto rubric, AiDto ai,
                               List<SourceDto> sources, @JsonProperty("isLocked") boolean isLocked, UUID ownerId,
@@ -100,8 +100,8 @@ public final class QuestionBankDtos {
                               UUID publishedBy, Instant publishedAt, Instant discardedAt) {
     }
 
-    public record QuestionSummaryDto(UUID id, UUID courseId, UUID topicId, String topicName, String content,
-                                     BloomLevel bloomLevel, Language language, QuestionStatus status,
+    public record QuestionSummaryDto(UUID id, long no, UUID courseId, UUID topicId, String topicName,
+                                     String content, BloomLevel bloomLevel, Language language, QuestionStatus status,
                                      QuestionOrigin origin, UUID rubricId, String rubricName,
                                      @JsonProperty("isLocked") boolean isLocked, UUID ownerId, Integer version,
                                      Instant createdAt, Instant updatedAt, Instant publishedAt) {

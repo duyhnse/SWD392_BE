@@ -92,13 +92,34 @@ public class TopicService {
         Topic topic = load(topicId);
         access.write(topic.getCourseId(), user, "TOPIC_NOT_FOUND", "Topic not found");
         Boolean usedElsewhere = jdbc.queryForObject("""
-                select exists(select 1 from viva_exam_blueprint_items where topic_id = ?)
-                    or exists(select 1 from ai_generation_requests where topic_id = ?)""",
-                Boolean.class, topicId, topicId);
+                select exists(select 1 from exam_template_items where topic_id = ?)
+                    or exists(select 1 from ai_generation_requests where topic_id = ?)
+                    or exists(select 1 from attempt_questions where topic_id = ?)""",
+                Boolean.class, topicId, topicId, topicId);
         if (questions.existsByTopicId(topicId) || Boolean.TRUE.equals(usedElsewhere)) {
-            throw ApiException.conflict("TOPIC_IN_USE", "The topic still has questions or is used by an exam blueprint");
+            throw ApiException.conflict("TOPIC_IN_USE",
+                    "The topic still has questions or is used by an exam template or attempt; move its questions first");
         }
         topics.delete(topic);
+    }
+
+    /**
+     * Moves every question of a topic to another topic of the same course (D54) — the way to merge or retire a topic.
+     * Attempts keep the topic name they were taken with (snapshot, D49); template rows that name the topic do not move.
+     */
+    public MoveResult moveQuestions(UUID topicId, UUID targetTopicId, User user) {
+        Topic topic = load(topicId);
+        access.write(topic.getCourseId(), user, "TOPIC_NOT_FOUND", "Topic not found");
+        Topic target = topics.findById(targetTopicId)
+                .filter(t -> t.getCourseId().equals(topic.getCourseId()) && !t.getId().equals(topicId))
+                .orElseThrow(() -> ApiException.unprocessable("TOPIC_NOT_IN_COURSE",
+                        "The target must be another topic of the same course"));
+        int moved = jdbc.update("update questions set topic_id = ?, version = version + 1, updated_at = now() where topic_id = ?",
+                target.getId(), topicId);
+        return new MoveResult(moved, target.getId());
+    }
+
+    public record MoveResult(int moved, UUID targetTopicId) {
     }
 
     @Transactional(readOnly = true)

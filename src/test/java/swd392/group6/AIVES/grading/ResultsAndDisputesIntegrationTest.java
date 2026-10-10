@@ -93,7 +93,7 @@ class ResultsAndDisputesIntegrationTest {
         // confirmed but not released
         mockMvc.perform(get("/api/v1/me/results/{id}", id).header("Authorization", studentToken))
                 .andExpect(status().isNotFound());
-        mockMvc.perform(get("/api/v1/sessions/{id}/turns", s.sessionId()).header("Authorization", studentToken))
+        mockMvc.perform(get("/api/v1/attempts/{id}/turns", s.sessionId()).header("Authorization", studentToken))
                 .andExpect(status().isForbidden());
 
         fx.releaseResults(examId, Instant.now());
@@ -112,7 +112,7 @@ class ResultsAndDisputesIntegrationTest {
                 .andExpect(jsonPath("$.canDispute").value(true))
                 .andExpect(content().string(not(containsString("SECRET reference answer"))))
                 .andExpect(content().string(not(containsString("aiScore"))));
-        mockMvc.perform(get("/api/v1/sessions/{id}/turns", s.sessionId()).header("Authorization", studentToken))
+        mockMvc.perform(get("/api/v1/attempts/{id}/turns", s.sessionId()).header("Authorization", studentToken))
                 .andExpect(status().isOk());
 
         // other students and lecturers cannot use /me/results

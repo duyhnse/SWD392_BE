@@ -13,20 +13,20 @@ import swd392.group6.AIVES.questionbank.BloomLevel;
 
 import java.util.UUID;
 
-/** One row of the cấu trúc đề — {@code viva_exam_blueprint_items} (D29). */
+/** One row of a đề thi: "N câu chương X mức Bloom Y, mỗi câu S giây" (D45, D46). {@code exam_template_items}. */
 @Entity
-@Table(name = "viva_exam_blueprint_items")
+@Table(name = "exam_template_items")
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
-class BlueprintItem {
+class ExamTemplateItem {
 
     @Id
-    @Column(name = "blueprint_item_id", nullable = false, updatable = false)
+    @Column(name = "template_item_id", nullable = false, updatable = false)
     private UUID id;
 
-    @Column(name = "viva_exam_id", nullable = false, updatable = false)
-    private UUID vivaExamId;
+    @Column(name = "exam_template_id", nullable = false, updatable = false)
+    private UUID templateId;
 
     /** null = any topic of the course. */
     @Column(name = "topic_id")
@@ -39,6 +39,11 @@ class BlueprintItem {
 
     @Column(name = "question_count", nullable = false)
     private int questionCount;
+
+    /** Budget of one main question including its follow-ups. */
+    @Column(name = "seconds_per_question", nullable = false)
+    private int secondsPerQuestion;
+
 
     @Column(name = "sort_order", nullable = false)
     private int sortOrder;

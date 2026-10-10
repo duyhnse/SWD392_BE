@@ -14,16 +14,18 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 /** FG7 language & speech configuration stored in {@code system_settings} (15 §4, §5.1). */
 @Service
 @RequiredArgsConstructor
-class SettingsService {
+class SettingsService implements SettingsApi {
 
     static final Set<String> KNOWN_KEYS = Set.of("default_language", "stt.provider", "stt.language.vi",
-            "stt.language.en", "tts.provider", "tts.voice.vi", "tts.voice.en");
+            "stt.language.en", "tts.provider", "tts.voice.vi", "tts.voice.en", "exam.seconds.REMEMBER",
+            "exam.seconds.UNDERSTAND", "exam.seconds.APPLY", "exam.seconds.ANALYZE", "exam.seconds.ANY");
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -63,6 +65,16 @@ class SettingsService {
         return list();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<String> value(String key) {
+        return jdbc.sql("select setting_value::text from system_settings where setting_key = ?").param(key)
+                .query(String.class).optional()
+                .map(JSON::readTree)
+                .filter(JsonNode::isString)
+                .map(JsonNode::asString);
+    }
+
     /** Language for new courses when the admin does not choose one. */
     @Transactional(readOnly = true)
     public Language defaultLanguage() {
@@ -89,6 +101,17 @@ class SettingsService {
         }
         if (key.equals("default_language") && !Set.of("VI", "EN").contains(value.asString())) {
             throw ApiException.unprocessable("INVALID_SETTING_VALUE", "default_language must be VI or EN");
+        }
+        if (key.startsWith("exam.seconds.")) {
+            int seconds;
+            try {
+                seconds = Integer.parseInt(value.asString().trim());
+            } catch (NumberFormatException e) {
+                seconds = -1;
+            }
+            if (seconds < 30 || seconds > 1800) {
+                throw ApiException.unprocessable("INVALID_SETTING_VALUE", key + " must be a number of seconds, 30–1800");
+            }
         }
     }
 }

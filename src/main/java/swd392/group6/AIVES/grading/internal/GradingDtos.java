@@ -23,7 +23,7 @@ final class GradingDtos {
     record StudentRef(UUID id, String fullName, String studentCode) {
     }
 
-    record EvaluationDto(UUID id, UUID sessionId, UUID vivaExamId, String status, int version, StudentRef student,
+    record EvaluationDto(UUID id, UUID attemptId, UUID vivaExamId, String status, int version, StudentRef student,
                          BigDecimal aiTotalScore, BigDecimal finalTotalScore, BigDecimal currentTotalScore,
                          String aiGeneralFeedback, String lecturerComment, UUID confirmedBy, Instant confirmedAt,
                          Instant createdAt, Instant updatedAt, List<ThreadDto> threads) {
@@ -43,14 +43,14 @@ final class GradingDtos {
                         BigDecimal weightPercent, BigDecimal aiScore, String aiJustification, BigDecimal finalScore) {
     }
 
-    record ThreadDto(UUID gradeId, UUID sessionQuestionId, int orderNo, String status, boolean includeInTotal,
+    record ThreadDto(UUID gradeId, UUID attemptQuestionId, int orderNo, String status, boolean includeInTotal,
                      QuestionRef question, RubricRef rubric, List<TurnDto> turns, List<CriterionDto> criteria,
                      BigDecimal aiScore, BigDecimal finalScore, List<String> aiStrengths, List<String> aiWeaknesses,
                      List<String> aiMissingPoints, String aiFeedback, String aiError, GradingJson.Signals signals,
                      String lecturerComment, UUID confirmedBy, Instant confirmedAt) {
     }
 
-    record EvaluationSummaryDto(UUID sessionId, StudentRef student, String sessionStatus, Instant endedAt,
+    record EvaluationSummaryDto(UUID attemptId, Long attemptNo, StudentRef student, String attemptStatus, Instant endedAt,
                                 UUID evaluationId, String evaluationStatus, BigDecimal aiTotalScore,
                                 BigDecimal finalTotalScore, int aiFailedThreads, int missingDataThreads,
                                 boolean openDispute) {
@@ -80,7 +80,7 @@ final class GradingDtos {
 
     // ----- student results ----------------------------------------------------------------------------------------
 
-    record ResultSummaryDto(UUID evaluationId, UUID sessionId, UUID vivaExamId, String examTitle,
+    record ResultSummaryDto(UUID evaluationId, UUID attemptId, UUID vivaExamId, String examTitle,
                             BigDecimal finalTotalScore, Instant confirmedAt, Instant resultsReleasedAt) {
     }
 
@@ -93,7 +93,7 @@ final class GradingDtos {
                            String lecturerComment) {
     }
 
-    record ResultDto(UUID evaluationId, UUID sessionId, UUID vivaExamId, String examTitle, BigDecimal finalTotalScore,
+    record ResultDto(UUID evaluationId, UUID attemptId, UUID vivaExamId, String examTitle, BigDecimal finalTotalScore,
                      String lecturerComment, Instant confirmedAt, Instant resultsReleasedAt, Instant disputeDeadline,
                      boolean canDispute, List<ResultThreadDto> threads) {
     }
@@ -106,7 +106,7 @@ final class GradingDtos {
     record ResolutionRequest(@NotBlank @Size(max = 4000) String resolution) {
     }
 
-    record DisputeDto(UUID id, UUID evaluationId, UUID sessionId, UUID vivaExamId, String examTitle, StudentRef student,
+    record DisputeDto(UUID id, UUID evaluationId, UUID attemptId, UUID vivaExamId, String examTitle, StudentRef student,
                       String reason, List<UUID> questionGradeIds, String status, String resolution, UUID resolvedBy,
                       Instant createdAt, Instant resolvedAt, String evaluationStatus) {
     }
@@ -123,8 +123,13 @@ final class GradingDtos {
                          BigDecimal goodAnswerRate) {
     }
 
-    record ReportDto(UUID vivaExamId, String title, int totalSessions, Map<String, Integer> sessionsByStatus,
-                     Map<String, Integer> sessionsByStage, int evaluatedCount, int confirmedCount, ScoreStats finalTotals,
+    /**
+     * @param studentsByStage every roster student by derived stage (no attempt → UPCOMING / AVAILABLE / MISSED)
+     * @param passedCount     confirmed totals ≥ {@code passScore}; null when the đề thi has no pass mark
+     */
+    record ReportDto(UUID vivaExamId, String title, int rosterSize, int totalAttempts,
+                     Map<String, Integer> attemptsByStatus, Map<String, Integer> studentsByStage, int evaluatedCount,
+                     int confirmedCount, ScoreStats finalTotals, BigDecimal passScore, Integer passedCount,
                      List<Bin> distribution, List<QuestionStats> questions, List<QuestionStats> hardestQuestions) {
     }
 }

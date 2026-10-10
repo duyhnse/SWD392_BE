@@ -71,18 +71,31 @@ abstract class ExamTestBase {
         return call(request, token, null);
     }
 
-    /** DRAFT exam, window [start, end], {@code n} main questions, extra JSON fields appended. */
-    UUID createExam(Course c, Instant start, Instant end, int n, String extra) throws Exception {
-        String json = "{\"title\":\"Viva\",\"windowStart\":\"" + start + "\",\"windowEnd\":\"" + end
-                + "\",\"mainQuestionCount\":" + n + ",\"timeLimitPerStudentSec\":900"
-                + (extra == null ? "" : "," + extra) + "}";
+    /** A đề thi with the given rows JSON ({@code [{"topicId":…,"bloomLevel":…,"count":…}]}) and extra fields. */
+    UUID template(Course c, String itemsJson, String extra) throws Exception {
+        String json = "{\"title\":\"Đề\",\"items\":" + itemsJson + (extra == null ? "" : "," + extra) + "}";
+        String body = call(post("/api/v1/courses/" + c.id() + "/exam-templates"), c.token(), json)
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return UUID.fromString(JsonPath.read(body, "$.id"));
+    }
+
+    /** One "any topic, any Bloom" row of {@code n} questions × 120 s. */
+    UUID template(Course c, int n) throws Exception {
+        return template(c, "[{\"count\":" + n + ",\"secondsPerQuestion\":120}]", null);
+    }
+
+    /** DRAFT buổi thi of the template, check-in window [opens, closes], extra JSON fields appended. */
+    UUID createExam(Course c, UUID templateId, Instant opens, Instant closes, String extra) throws Exception {
+        String json = "{\"title\":\"Viva\",\"templateId\":\"" + templateId + "\",\"checkinOpensAt\":\"" + opens
+                + "\",\"checkinClosesAt\":\"" + closes + "\"" + (extra == null ? "" : "," + extra) + "}";
         String body = call(post("/api/v1/courses/" + c.id() + "/viva-exams"), c.token(), json)
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return UUID.fromString(JsonPath.read(body, "$.id"));
     }
 
+    /** DRAFT buổi thi with a fresh {@code n}-question template, check-in T0+1h … T0+2h. */
     UUID createExam(Course c, int n) throws Exception {
-        return createExam(c, T0.plusSeconds(3600), T0.plusSeconds(7200), n, null);
+        return createExam(c, template(c, n), T0.plusSeconds(3600), T0.plusSeconds(7200), null);
     }
 
     void addStudents(Course c, UUID examId, User... students) throws Exception {
@@ -94,9 +107,19 @@ abstract class ExamTestBase {
                 "{\"studentCodes\":\"" + codes.toString().trim() + "\"}").andExpect(status().isOk());
     }
 
-    String generate(Course c, UUID examId) throws Exception {
-        return call(post("/api/v1/viva-exams/" + examId + "/generate-sessions"), c.token())
+    String publish(Course c, UUID examId) throws Exception {
+        return call(post("/api/v1/viva-exams/" + examId + "/publish"), c.token())
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+    }
+
+    ResultActions checkIn(User student, UUID examId) throws Exception {
+        return call(post("/api/v1/me/viva-exams/" + examId + "/check-in"), token(student), "{\"consentRecording\":true}");
+    }
+
+    /** Checks the student in (must succeed) and returns the attempt id. */
+    UUID checkedIn(User student, UUID examId) throws Exception {
+        String body = json(checkIn(student, examId).andExpect(status().isOk()));
+        return UUID.fromString(JsonPath.read(body, "$.attemptId"));
     }
 
     String json(ResultActions result) throws Exception {
@@ -107,13 +130,14 @@ abstract class ExamTestBase {
         return jdbc.queryForObject("select status from viva_exams where viva_exam_id = ?", String.class, examId);
     }
 
-    List<UUID> sessionQuestions(UUID sessionId) {
-        return jdbc.queryForList("select question_id from session_questions where session_id = ? order by order_no",
-                UUID.class, sessionId);
+    List<UUID> attemptQuestions(UUID attemptId) {
+        return jdbc.queryForList("""
+                select question_id from attempt_questions where attempt_id = ? and status <> 'VOIDED' order by order_no""",
+                UUID.class, attemptId);
     }
 
-    String myStage(User student, UUID sessionId) throws Exception {
-        return JsonPath.read(json(call(get("/api/v1/me/sessions/" + sessionId), token(student))
+    String myStage(User student, UUID examId) throws Exception {
+        return JsonPath.read(json(call(get("/api/v1/me/viva-exams/" + examId), token(student))
                 .andExpect(status().isOk())), "$.stage");
     }
 }

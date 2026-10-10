@@ -7,11 +7,11 @@ import org.springframework.data.jpa.repository.Query;
 import java.util.List;
 import java.util.UUID;
 
-interface BlueprintItemRepository extends JpaRepository<BlueprintItem, UUID> {
+interface ExamTemplateItemRepository extends JpaRepository<ExamTemplateItem, UUID> {
 
-    List<BlueprintItem> findByVivaExamIdOrderBySortOrder(UUID vivaExamId);
+    List<ExamTemplateItem> findByTemplateIdOrderBySortOrder(UUID templateId);
 
     @Modifying(flushAutomatically = true)
-    @Query("delete from BlueprintItem b where b.vivaExamId = :vivaExamId")
-    void deleteByExam(UUID vivaExamId);
+    @Query("delete from ExamTemplateItem i where i.templateId = :templateId")
+    void deleteByTemplate(UUID templateId);
 }

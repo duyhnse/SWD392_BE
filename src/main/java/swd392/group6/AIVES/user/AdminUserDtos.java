@@ -41,7 +41,7 @@ final class AdminUserDtos {
      * {@code GET /admin/users/{id}}: the profile plus role details — assigned courses for a lecturer,
      * number of lượt thi for a student (null when not applicable).
      */
-    record UserDetail(@JsonUnwrapped UserResponseDTO user, List<CourseRef> courses, Long examSessionCount) {
+    record UserDetail(@JsonUnwrapped UserResponseDTO user, List<CourseRef> courses, Long examAttemptCount) {
     }
 
     record LecturerSummary(UUID userId, String username, String fullName, String email, boolean active,

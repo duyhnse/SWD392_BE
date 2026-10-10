@@ -79,10 +79,18 @@ application:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
   ai:
-    # mock = deterministic adapters, no API keys (default). real = provider adapters (M3).
+    # mock = deterministic adapters, no AI node needed (default). node = the AI node over Tailscale (D41, 16).
     mode: ${AI_MODE:mock}
     embedding:
       dimension: 1536
+  ai-node:
+    base-url: ${AI_NODE_URL:}
+    token: ${AI_NODE_TOKEN:}
+    callback-secret: ${AI_NODE_CALLBACK_SECRET:}
+    # How the AI node reaches this backend (tailnet address of node 1)
+    callback-base-url: ${AI_NODE_CALLBACK_BASE_URL:http://localhost:8080}
+    process-answer-timeout: 12s
+    job-timeout: 5m
   storage:
     provider: ${STORAGE_PROVIDER:local}
     local-dir: ${STORAGE_LOCAL_DIR:./data/storage}

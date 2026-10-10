@@ -53,9 +53,9 @@ final class GradingControllers {
 
         private final EvaluationService service;
 
-        @PostMapping("/sessions/{sessionId}/evaluation")
-        public ResponseEntity<EvaluationDto> create(@PathVariable UUID sessionId, @AuthenticationPrincipal User user) {
-            EvaluationService.Created result = service.create(sessionId, user);
+        @PostMapping("/attempts/{attemptId}/evaluation")
+        public ResponseEntity<EvaluationDto> create(@PathVariable UUID attemptId, @AuthenticationPrincipal User user) {
+            EvaluationService.Created result = service.create(attemptId, user);
             return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK).body(result.evaluation());
         }
 
