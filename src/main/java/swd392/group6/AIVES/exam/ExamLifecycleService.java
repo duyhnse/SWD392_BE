@@ -198,7 +198,7 @@ class ExamLifecycleService {
         VivaExam exam = access.read(examId, user);
         Instant now = clock.instant();
         return jdbc.query("""
-                        select v.student_id, u.username, u.full_name, u.student_code, v.seq_no, a.attempt_id, a.status,
+                        select v.student_id, u.username, u.full_name, u.student_code, v.seq_no, a.attempt_id, a.display_no, a.status,
                                a.end_reason, a.started_at, a.deadline_at, a.ended_at, a.disconnect_count, a.frozen_sec_total,
                                g.evaluation_id, g.status as evaluation_status, g.final_total_score
                         from viva_exam_students v join users u on u.user_id = v.student_id
@@ -210,7 +210,7 @@ class ExamLifecycleService {
                         rs.getString("full_name"), rs.getString("student_code"), rs.getInt("seq_no"),
                         ExamStage.of(rs.getString("status"), exam.getStatus(), exam.getCheckinOpensAt(),
                                 exam.getCheckinClosesAt(), now),
-                        rs.getObject("attempt_id", UUID.class), rs.getString("status"), rs.getString("end_reason"),
+                        rs.getObject("attempt_id", UUID.class), (Long) rs.getObject("display_no"), rs.getString("status"), rs.getString("end_reason"),
                         ExamQueries.instant(rs.getTimestamp("started_at")), ExamQueries.instant(rs.getTimestamp("deadline_at")),
                         ExamQueries.instant(rs.getTimestamp("ended_at")), rs.getInt("disconnect_count"),
                         rs.getInt("frozen_sec_total"), rs.getObject("evaluation_id", UUID.class),

@@ -28,6 +28,11 @@ class ExamTemplate {
     @Column(name = "exam_template_id", nullable = false, updatable = false)
     private UUID id;
 
+    /** Short number shown as a code (D56); assigned by the database sequence on insert. */
+    @org.hibernate.annotations.Generated
+    @Column(name = "display_no", insertable = false, updatable = false)
+    private Long displayNo;
+
     @Column(name = "course_id", nullable = false, updatable = false)
     private UUID courseId;
 
@@ -58,9 +63,6 @@ class ExamTemplate {
     @Column(name = "pass_score", precision = 4, scale = 2)
     private BigDecimal passScore;
 
-    /** Grades every question of this template instead of the question's own rubric (rows may override again). */
-    @Column(name = "rubric_id")
-    private UUID rubricId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "question_pool_mode", nullable = false, length = 30)

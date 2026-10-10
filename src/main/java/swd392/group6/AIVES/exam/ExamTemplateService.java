@@ -66,13 +66,12 @@ class ExamTemplateService {
         t.setCourseId(courseId);
         t.setTitle(r.title().trim());
         t.setDescription(VivaExamService.blankToNull(r.description()));
-        t.setLanguage(r.language() != null ? r.language() : courseLanguage(courseId));
+        t.setLanguage(courseLanguage(courseId));
         t.setMaxFollowupsPerQuestion(orDefault(r.maxFollowupsPerQuestion(), 2));
         t.setMaxAnswerSec(orDefault(r.maxAnswerSec(), 120));
         t.setSilenceWarningSec(orDefault(r.silenceWarningSec(), 15));
         t.setShowQuestionText(r.showQuestionText() == null || r.showQuestionText());
         t.setPassScore(scale(r.passScore()));
-        t.setRubricId(r.rubricId());
         t.setCreatedBy(user.getUserId());
         t.setCreatedAt(now);
         t.setUpdatedAt(now);
@@ -95,13 +94,12 @@ class ExamTemplateService {
         }
         t.setTitle(r.title().trim());
         t.setDescription(VivaExamService.blankToNull(r.description()));
-        t.setLanguage(r.language());
+        t.setLanguage(courseLanguage(t.getCourseId()));
         t.setMaxFollowupsPerQuestion(r.maxFollowupsPerQuestion());
         t.setMaxAnswerSec(r.maxAnswerSec());
         t.setSilenceWarningSec(r.silenceWarningSec());
         t.setShowQuestionText(r.showQuestionText());
         t.setPassScore(scale(r.passScore()));
-        t.setRubricId(r.rubricId());
         validate(t);
         return touch(t);
     }
@@ -146,13 +144,12 @@ class ExamTemplateService {
         t.setCourseId(source.getCourseId());
         t.setTitle(title != null && !title.isBlank() ? title.trim() : copyTitle(source.getTitle()));
         t.setDescription(source.getDescription());
-        t.setLanguage(source.getLanguage());
+        t.setLanguage(courseLanguage(source.getCourseId()));
         t.setMaxFollowupsPerQuestion(source.getMaxFollowupsPerQuestion());
         t.setMaxAnswerSec(source.getMaxAnswerSec());
         t.setSilenceWarningSec(source.getSilenceWarningSec());
         t.setShowQuestionText(source.isShowQuestionText());
         t.setPassScore(source.getPassScore());
-        t.setRubricId(source.getRubricId());
         t.setQuestionPoolMode(source.getQuestionPoolMode());
         t.setCreatedBy(user.getUserId());
         t.setCreatedAt(now);
@@ -160,7 +157,7 @@ class ExamTemplateService {
         templates.saveAndFlush(t);
         items.saveAllAndFlush(items.findByTemplateIdOrderBySortOrder(source.getId()).stream()
                 .map(i -> new ExamTemplateItem(UUID.randomUUID(), t.getId(), i.getTopicId(), i.getBloomLevel(),
-                        i.getQuestionCount(), i.getSecondsPerQuestion(), i.getRubricId(), i.getSortOrder()))
+                        i.getQuestionCount(), i.getSecondsPerQuestion(), i.getSortOrder()))
                 .toList());
         jdbc.update("""
                 insert into exam_template_questions (exam_template_id, question_id)
@@ -218,9 +215,6 @@ class ExamTemplateService {
             if (row.topicId() != null && !questionBank.topicBelongsToCourse(row.topicId(), t.getCourseId())) {
                 throw ApiException.unprocessable("TOPIC_NOT_IN_COURSE", "Topic " + row.topicId() + " is not a topic of this course");
             }
-            if (row.rubricId() != null && !questionBank.rubricUsableInCourse(row.rubricId(), t.getCourseId())) {
-                throw rubricInvalid(row.rubricId());
-            }
             int seconds = row.secondsPerQuestion() != null ? row.secondsPerQuestion() : defaultSeconds(row.bloomLevel());
             if (seconds < 30 || seconds > 1800) {
                 throw ApiException.unprocessable("INVALID_SECONDS_PER_QUESTION", "secondsPerQuestion must be 30–1800");
@@ -228,7 +222,7 @@ class ExamTemplateService {
             total += row.count();
             duration += row.count() * seconds;
             result.add(new ExamTemplateItem(UUID.randomUUID(), t.getId(), row.topicId(), row.bloomLevel(), row.count(),
-                    seconds, row.rubricId(), order++));
+                    seconds, order++));
         }
         if (total > MAX_QUESTIONS) {
             throw ApiException.unprocessable("INVALID_QUESTION_COUNT", "A template has at most " + MAX_QUESTIONS
@@ -269,14 +263,6 @@ class ExamTemplateService {
         if (t.getSilenceWarningSec() < 5 || t.getSilenceWarningSec() > 120) {
             throw ApiException.unprocessable("INVALID_CONFIG", "silenceWarningSec must be 5–120");
         }
-        if (t.getRubricId() != null && !questionBank.rubricUsableInCourse(t.getRubricId(), t.getCourseId())) {
-            throw rubricInvalid(t.getRubricId());
-        }
-    }
-
-    private static ApiException rubricInvalid(UUID rubricId) {
-        return ApiException.unprocessable("RUBRIC_NOT_USABLE",
-                "Rubric " + rubricId + " is not a rubric of this course with weights totalling 100");
     }
 
     private TemplateDetail touch(ExamTemplate t) {

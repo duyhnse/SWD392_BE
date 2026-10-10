@@ -36,6 +36,11 @@ public class Rubric {
     @Column(name = "rubric_id", nullable = false, updatable = false)
     private UUID id;
 
+    /** Short number shown as a code (D56); assigned by the database sequence on insert. */
+    @org.hibernate.annotations.Generated
+    @Column(name = "display_no", insertable = false, updatable = false)
+    private Long displayNo;
+
     @Column(name = "course_id", nullable = false, updatable = false)
     private UUID courseId;
 

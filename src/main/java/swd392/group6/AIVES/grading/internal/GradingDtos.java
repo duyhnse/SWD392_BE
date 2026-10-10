@@ -50,7 +50,7 @@ final class GradingDtos {
                      String lecturerComment, UUID confirmedBy, Instant confirmedAt) {
     }
 
-    record EvaluationSummaryDto(UUID attemptId, StudentRef student, String attemptStatus, Instant endedAt,
+    record EvaluationSummaryDto(UUID attemptId, Long attemptNo, StudentRef student, String attemptStatus, Instant endedAt,
                                 UUID evaluationId, String evaluationStatus, BigDecimal aiTotalScore,
                                 BigDecimal finalTotalScore, int aiFailedThreads, int missingDataThreads,
                                 boolean openDispute) {

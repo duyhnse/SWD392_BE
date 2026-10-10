@@ -73,7 +73,7 @@ class ExamQueries {
 
     TemplateSummary summary(ExamTemplate t) {
         List<ExamTemplateItem> rows = items.findByTemplateIdOrderBySortOrder(t.getId());
-        return new TemplateSummary(t.getId(), t.getCourseId(), t.getTitle(), questionCount(rows), durationSec(rows),
+        return new TemplateSummary(t.getId(), no(t.getDisplayNo()), t.getCourseId(), t.getTitle(), questionCount(rows), durationSec(rows),
                 t.getPassScore(), t.isLocked(), t.isArchived(), usedByExamCount(t.getId()), version(t.getVersion()),
                 t.getUpdatedAt());
     }
@@ -87,15 +87,19 @@ class ExamQueries {
             TopicInfo topic = i.getTopicId() == null ? null : topics.get(i.getTopicId());
             return new TemplateItemView(i.getId(), i.getTopicId(), topic == null ? null : topic.name(),
                     i.getBloomLevel(), i.getQuestionCount(),
-                    i.getSecondsPerQuestion(), i.getRubricId(), i.getSortOrder(), (int) pool.stream().filter(row::matches).count());
+                    i.getSecondsPerQuestion(), i.getSortOrder(), (int) pool.stream().filter(row::matches).count());
         }).toList();
         boolean sufficient = !rows.isEmpty() && QuestionSelector.shortages(pool, rows(rows)).isEmpty();
         List<UUID> selected = t.getQuestionPoolMode() == QuestionPoolMode.SELECTED ? selectedQuestionIds(t.getId()) : List.of();
-        return new TemplateDetail(t.getId(), t.getCourseId(), t.getTitle(), t.getDescription(), t.getLanguage(),
+        return new TemplateDetail(t.getId(), no(t.getDisplayNo()), t.getCourseId(), t.getTitle(), t.getDescription(), t.getLanguage(),
                 t.getMaxFollowupsPerQuestion(), t.getMaxAnswerSec(), t.getSilenceWarningSec(), t.isShowQuestionText(),
-                t.getPassScore(), t.getRubricId(), t.getQuestionPoolMode(), selected, views, questionCount(rows),
+                t.getPassScore(), t.getQuestionPoolMode(), selected, views, questionCount(rows),
                 durationSec(rows), sufficient, t.isLocked(), t.isArchived(), usedByExamCount(t.getId()), t.getCreatedBy(),
                 version(t.getVersion()), t.getCreatedAt(), t.getUpdatedAt());
+    }
+
+    static long no(Long displayNo) {
+        return displayNo == null ? 0 : displayNo;
     }
 
     long studentCount(UUID examId) {
@@ -139,7 +143,7 @@ class ExamQueries {
         TemplateSummary summary = summary(template);
         int duration = summary.totalDurationSec();
         Instant lastEnd = e.getCheckinClosesAt().plusSeconds((long) duration + e.getMaxFrozenSec());
-        return new ExamDetail(e.getId(), e.getCourseId(), e.getTitle(), e.getDescription(), e.getInstructions(),
+        return new ExamDetail(e.getId(), no(e.getDisplayNo()), e.getCourseId(), e.getTitle(), e.getDescription(), e.getInstructions(),
                 e.getLocation(), e.getStatus(), e.getCreatedBy(), e.getExaminerId(), summary, e.getCheckinOpensAt(),
                 e.getCheckinClosesAt(), duration, lastEnd, e.getReconnectGraceSec(), e.getMaxDisconnects(),
                 e.getMaxFrozenSec(), e.getReplaceMainAfterSec(), studentCount(e.getId()), stageCounts(e),

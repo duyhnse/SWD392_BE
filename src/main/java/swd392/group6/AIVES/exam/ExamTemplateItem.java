@@ -44,9 +44,6 @@ class ExamTemplateItem {
     @Column(name = "seconds_per_question", nullable = false)
     private int secondsPerQuestion;
 
-    /** Optional rubric for this row's questions (beats the template rubric). */
-    @Column(name = "rubric_id")
-    private UUID rubricId;
 
     @Column(name = "sort_order", nullable = false)
     private int sortOrder;

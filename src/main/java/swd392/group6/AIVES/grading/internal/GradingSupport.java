@@ -120,13 +120,13 @@ class GradingSupport {
     }
 
     /** A roster student of a buổi thi with their attempt, if they checked in (D48). */
-    record RosterRow(UUID studentId, String fullName, String studentCode, UUID attemptId, String attemptStatus,
-                     Instant endedAt) {
+    record RosterRow(UUID studentId, String fullName, String studentCode, UUID attemptId, Long attemptNo,
+                     String attemptStatus, Instant endedAt) {
     }
 
     List<RosterRow> rosterOfExam(UUID vivaExamId) {
         return jdbc.query("""
-                        select u.user_id, u.full_name, u.student_code, a.attempt_id, a.status, a.ended_at
+                        select u.user_id, u.full_name, u.student_code, a.attempt_id, a.display_no, a.status, a.ended_at
                         from viva_exam_students vs
                         join users u on u.user_id = vs.student_id
                         left join exam_attempts a on a.viva_exam_id = vs.viva_exam_id and a.student_id = vs.student_id
@@ -134,7 +134,7 @@ class GradingSupport {
                         order by vs.seq_no, u.student_code nulls last""",
                 new MapSqlParameterSource("exam", vivaExamId),
                 (rs, i) -> new RosterRow(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3),
-                        rs.getObject(4, UUID.class), rs.getString(5), instant(rs.getTimestamp(6))));
+                        rs.getObject(4, UUID.class), (Long) rs.getObject(5), rs.getString(6), instant(rs.getTimestamp(7))));
     }
 
     /** Ids of the lượt thi of a student, with their buổi thi. */

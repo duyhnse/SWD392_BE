@@ -62,7 +62,7 @@ class VivaExamService {
         Long total = jdbc.queryForObject("select count(*) from viva_exams e" + where, params, Long.class);
         params.addValue("limit", s).addValue("offset", (long) p * s);
         List<ExamSummary> items = jdbc.query("""
-                select e.viva_exam_id, e.course_id, e.exam_template_id, t.title as template_title, e.title, e.status,
+                select e.viva_exam_id, e.display_no, e.course_id, e.exam_template_id, t.title as template_title, e.title, e.status,
                        e.checkin_opens_at, e.checkin_closes_at, e.results_released, e.retake_of_viva_exam_id, e.version,
                        (select coalesce(sum(i.question_count), 0) from exam_template_items i
                           where i.exam_template_id = e.exam_template_id) as questions,
@@ -76,7 +76,7 @@ class VivaExamService {
                           where a.viva_exam_id = e.viva_exam_id and g.status = 'CONFIRMED') as confirmed
                 from viva_exams e join exam_templates t on t.exam_template_id = e.exam_template_id""" + where
                         + " order by e.checkin_opens_at desc, e.title limit :limit offset :offset",
-                params, (rs, i) -> new ExamSummary(rs.getObject("viva_exam_id", UUID.class),
+                params, (rs, i) -> new ExamSummary(rs.getObject("viva_exam_id", UUID.class), rs.getLong("display_no"),
                         rs.getObject("course_id", UUID.class), rs.getObject("exam_template_id", UUID.class),
                         rs.getString("template_title"), rs.getString("title"), ExamStatus.valueOf(rs.getString("status")),
                         ExamQueries.instant(rs.getTimestamp("checkin_opens_at")),

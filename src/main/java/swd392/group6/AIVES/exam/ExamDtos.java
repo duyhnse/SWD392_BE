@@ -25,25 +25,25 @@ final class ExamDtos {
 
     // ---- đề thi (exam templates) ----------------------------------------------------------------------------
 
-    /** Missing numbers take the {@code exam_templates} defaults; the language defaults to the course language. */
-    record CreateTemplateRequest(@NotBlank @Size(max = 200) String title, String description, Language language,
+    /** Missing numbers take the {@code exam_templates} defaults; the language is always the course language (D57). */
+    record CreateTemplateRequest(@NotBlank @Size(max = 200) String title, String description,
                                  Integer maxFollowupsPerQuestion, Integer maxAnswerSec, Integer silenceWarningSec,
                                  Boolean showQuestionText,
-                                 @DecimalMin("0") @DecimalMax("10") BigDecimal passScore, UUID rubricId,
+                                 @DecimalMin("0") @DecimalMax("10") BigDecimal passScore,
                                  List<@Valid @NotNull TemplateItemRequest> items) {
     }
 
     /** Full replacement of the template's own fields (rows and pool have their own endpoints). */
     record UpdateTemplateRequest(@NotNull Integer version, @NotBlank @Size(max = 200) String title, String description,
-                                 @NotNull Language language, @NotNull Integer maxFollowupsPerQuestion,
+                                 @NotNull Integer maxFollowupsPerQuestion,
                                  @NotNull Integer maxAnswerSec, @NotNull Integer silenceWarningSec,
                                  @NotNull Boolean showQuestionText,
-                                 @DecimalMin("0") @DecimalMax("10") BigDecimal passScore, UUID rubricId) {
+                                 @DecimalMin("0") @DecimalMax("10") BigDecimal passScore) {
     }
 
     /** {@code secondsPerQuestion} null = default for the Bloom level ({@code exam.seconds.*} settings). */
     record TemplateItemRequest(UUID topicId, BloomLevel bloomLevel, @NotNull @Min(1) @Max(10) Integer count,
-                               Integer secondsPerQuestion, UUID rubricId) {
+                               Integer secondsPerQuestion) {
     }
 
     record TemplateItemsRequest(@NotNull List<@Valid @NotNull TemplateItemRequest> items) {
@@ -60,19 +60,19 @@ final class ExamDtos {
 
     /** {@code available} = PUBLISHED questions of the pool that match the row right now. */
     record TemplateItemView(UUID id, UUID topicId, String topicName, BloomLevel bloomLevel,
-                            int count, int secondsPerQuestion, UUID rubricId, int sortOrder, int available) {
+                            int count, int secondsPerQuestion, int sortOrder, int available) {
     }
 
-    record TemplateDetail(UUID id, UUID courseId, String title, String description, Language language,
+    record TemplateDetail(UUID id, long no, UUID courseId, String title, String description, Language language,
                           int maxFollowupsPerQuestion, int maxAnswerSec, int silenceWarningSec,
-                          boolean showQuestionText, BigDecimal passScore, UUID rubricId,
+                          boolean showQuestionText, BigDecimal passScore,
                           QuestionPoolMode questionPoolMode, List<UUID> selectedQuestionIds,
                           List<TemplateItemView> items, int mainQuestionCount, int totalDurationSec,
                           boolean poolSufficient, boolean locked, boolean archived, long usedByExamCount,
                           UUID createdBy, int version, Instant createdAt, Instant updatedAt) {
     }
 
-    record TemplateSummary(UUID id, UUID courseId, String title, int mainQuestionCount, int totalDurationSec,
+    record TemplateSummary(UUID id, long no, UUID courseId, String title, int mainQuestionCount, int totalDurationSec,
                            BigDecimal passScore, boolean locked, boolean archived, long usedByExamCount, int version,
                            Instant updatedAt) {
     }
@@ -112,13 +112,13 @@ final class ExamDtos {
                          @NotNull Instant checkinClosesAt, Object studentCodes, Object usernames) {
     }
 
-    record ExamSummary(UUID id, UUID courseId, UUID templateId, String templateTitle, String title, ExamStatus status,
+    record ExamSummary(UUID id, long no, UUID courseId, UUID templateId, String templateTitle, String title, ExamStatus status,
                        Instant checkinOpensAt, Instant checkinClosesAt, int mainQuestionCount, int durationSec,
                        long studentCount, long checkedInCount, long completedCount, long confirmedCount,
                        boolean resultsReleased, UUID retakeOfVivaExamId, int version) {
     }
 
-    record ExamDetail(UUID id, UUID courseId, String title, String description, String instructions, String location,
+    record ExamDetail(UUID id, long no, UUID courseId, String title, String description, String instructions, String location,
                       ExamStatus status, UUID createdBy, UUID examinerId, TemplateSummary template,
                       Instant checkinOpensAt, Instant checkinClosesAt, int durationSec, Instant lastPossibleEndAt,
                       int reconnectGraceSec, int maxDisconnects, int maxFrozenSec, int replaceMainAfterSec,
@@ -160,7 +160,7 @@ final class ExamDtos {
 
     /** One roster row of a buổi thi as the lecturer sees it, with the attempt when there is one. */
     record AttemptRow(UUID studentId, String username, String fullName, String studentCode, int seqNo,
-                      ExamStage stage, UUID attemptId, String status, String endReason, Instant startedAt,
+                      ExamStage stage, UUID attemptId, Long attemptNo, String status, String endReason, Instant startedAt,
                       Instant deadlineAt, Instant endedAt, int disconnectCount, int frozenSecTotal,
                       UUID evaluationId, String evaluationStatus, BigDecimal finalTotalScore) {
     }
@@ -172,7 +172,7 @@ final class ExamDtos {
                                Instant endedAt, UUID replacesAttemptQuestionId, String voidReason) {
     }
 
-    record AttemptDetail(UUID attemptId, UUID vivaExamId, UUID courseId, UUID studentId, String username,
+    record AttemptDetail(UUID attemptId, long attemptNo, UUID vivaExamId, UUID courseId, UUID studentId, String username,
                          String fullName, String studentCode, String status, String endReason, String cancelReason,
                          Instant startedAt, Instant deadlineAt, Instant endedAt, Instant consentRecordedAt,
                          int disconnectCount, int frozenSecTotal, String clientInfo, Long selectionSeed,
@@ -183,11 +183,11 @@ final class ExamDtos {
      * A buổi thi as the student sees it (15 §2.2) — never with question content. {@code attemptId} is set once
      * the student checked in.
      */
-    record MyExam(UUID vivaExamId, UUID courseId, String courseCode, String courseName, String title,
+    record MyExam(UUID vivaExamId, long examNo, UUID courseId, String courseCode, String courseName, String title,
                   String description, String instructions, String location, Language language, ExamStage stage,
                   ResultStatus resultStatus, Instant checkinOpensAt, Instant checkinClosesAt, int durationSec,
                   int mainQuestionCount, int maxFollowupsPerQuestion, boolean showQuestionText, UUID attemptId,
-                  Instant startedAt, Instant deadlineAt, Instant endedAt, int attemptsAllowed, int attemptsUsed,
+                  Long attemptNo, Instant startedAt, Instant deadlineAt, Instant endedAt, int attemptsAllowed, int attemptsUsed,
                   UUID evaluationId) {
     }
 }

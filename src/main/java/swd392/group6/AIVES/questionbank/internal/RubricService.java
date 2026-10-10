@@ -205,7 +205,11 @@ public class RubricService {
     }
 
     static RubricDto toDto(Rubric r, long questionCount) {
-        return new RubricDto(r.getId(), r.getCourseId(), r.getName(), r.getDescription(), r.isLocked(), r.totalWeight(),
+        return new RubricDto(r.getId(), no(r.getDisplayNo()), r.getCourseId(), r.getName(), r.getDescription(), r.isLocked(), r.totalWeight(),
                 questionCount, criteria(r), r.getCreatedBy(), r.getCreatedAt(), r.getUpdatedAt());
+    }
+
+    static long no(Long displayNo) {
+        return displayNo == null ? 0 : displayNo;
     }
 }

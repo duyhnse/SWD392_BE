@@ -26,14 +26,14 @@ import java.util.UUID;
 class MyExamService {
 
     private static final String SELECT = """
-            select e.viva_exam_id, c.course_id, c.code, c.name, e.title, e.description, e.instructions, e.location,
+            select e.viva_exam_id, e.display_no as exam_no, c.course_id, c.code, c.name, e.title, e.description, e.instructions, e.location,
                    t.language, t.max_followups_per_question, t.show_question_text, e.status as exam_status,
                    e.checkin_opens_at, e.checkin_closes_at, e.results_released,
                    (select coalesce(sum(i.question_count), 0) from exam_template_items i
                       where i.exam_template_id = t.exam_template_id) as questions,
                    (select coalesce(sum(i.question_count * i.seconds_per_question), 0) from exam_template_items i
                       where i.exam_template_id = t.exam_template_id) as duration,
-                   a.attempt_id, a.status, a.started_at, a.deadline_at, a.ended_at,
+                   a.attempt_id, a.display_no as attempt_no, a.status, a.started_at, a.deadline_at, a.ended_at,
                    g.evaluation_id, g.status as evaluation_status
             from viva_exam_students v
             join viva_exams e on e.viva_exam_id = v.viva_exam_id
@@ -77,11 +77,11 @@ class MyExamService {
         ExamStage stage = ExamStage.of(status, ExamStatus.valueOf(rs.getString("exam_status")), opens, closes, now);
         ResultStatus result = ResultStatus.of(status, rs.getString("evaluation_status"), rs.getBoolean("results_released"));
         UUID attemptId = rs.getObject("attempt_id", UUID.class);
-        return new MyExam(rs.getObject("viva_exam_id", UUID.class), rs.getObject("course_id", UUID.class),
+        return new MyExam(rs.getObject("viva_exam_id", UUID.class), rs.getLong("exam_no"), rs.getObject("course_id", UUID.class),
                 rs.getString("code"), rs.getString("name"), rs.getString("title"), rs.getString("description"),
                 rs.getString("instructions"), rs.getString("location"), Language.valueOf(rs.getString("language")),
                 stage, result, opens, closes, rs.getInt("duration"), rs.getInt("questions"),
-                rs.getInt("max_followups_per_question"), rs.getBoolean("show_question_text"), attemptId,
+                rs.getInt("max_followups_per_question"), rs.getBoolean("show_question_text"), attemptId, (Long) rs.getObject("attempt_no"),
                 ExamQueries.instant(rs.getTimestamp("started_at")), ExamQueries.instant(rs.getTimestamp("deadline_at")),
                 ExamQueries.instant(rs.getTimestamp("ended_at")), 1, attemptId != null ? 1 : 0,
                 result == ResultStatus.RELEASED ? rs.getObject("evaluation_id", UUID.class) : null);

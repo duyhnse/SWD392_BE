@@ -39,7 +39,8 @@ class ExamTemplateIntegrationTest extends ExamTestBase {
                   {"topicId":"%s","bloomLevel":"APPLY","count":1,"secondsPerQuestion":400}]}"""
                 .formatted(c.topicA(), c.topicB()))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.language").value("VI"))
+                .andExpect(jsonPath("$.language").value("VI"))          // always the course language (D57)
+                .andExpect(jsonPath("$.no").isNumber())
                 .andExpect(jsonPath("$.passScore").value(5.0))
                 .andExpect(jsonPath("$.maxFollowupsPerQuestion").value(3))
                 .andExpect(jsonPath("$.items", hasSize(2)))
@@ -77,8 +78,6 @@ class ExamTemplateIntegrationTest extends ExamTestBase {
                 .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("INVALID_QUESTION_COUNT"));
         call(put(url), c.token(), "{\"items\":[{\"count\":1,\"secondsPerQuestion\":10}]}")
                 .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("INVALID_SECONDS_PER_QUESTION"));
-        call(put(url), c.token(), "{\"items\":[{\"count\":1,\"rubricId\":\"" + other.rubric() + "\"}]}")
-                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("RUBRIC_NOT_USABLE"));
         call(put(url), c.token(), "{\"items\":[]}")
                 .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("TEMPLATE_ITEMS_REQUIRED"));
         call(put(url), c.token(), "{\"items\":[{\"count\":11}]}").andExpect(status().isBadRequest());
@@ -121,7 +120,7 @@ class ExamTemplateIntegrationTest extends ExamTestBase {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("EXAM_TEMPLATE_LOCKED"));
         call(put("/api/v1/exam-templates/" + template), c.token(), """
-                {"version":%d,"title":"X","language":"VI","maxFollowupsPerQuestion":1,"maxAnswerSec":60,
+                {"version":%d,"title":"X","maxFollowupsPerQuestion":1,"maxAnswerSec":60,
                  "silenceWarningSec":10,"showQuestionText":true}""".formatted(version))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("EXAM_TEMPLATE_LOCKED"));

@@ -78,14 +78,8 @@ class CheckInIntegrationTest extends ExamTestBase {
     void theDrawnQuestionIsSnapshotAndLocked_D49() throws Exception {
         Course c = course();
         UUID q = questions(c, c.topicA(), REMEMBER, 1).getFirst();
-        UUID templateRubric = UUID.randomUUID();
-        jdbc.update("insert into rubrics (rubric_id, course_id, name, created_by) values (?, ?, 'Template rubric', ?)",
-                templateRubric, c.id(), c.lecturer().getUserId());
-        jdbc.update("""
-                insert into rubric_criteria (criterion_id, rubric_id, name, description, max_score, weight_percent)
-                values (?, ?, 'Depth', 'Explains why', 10, 100)""", UUID.randomUUID(), templateRubric);
-        UUID template = template(c, "[{\"bloomLevel\":\"REMEMBER\",\"count\":1}]",
-                "\"rubricId\":\"" + templateRubric + "\"");
+        UUID questionRubric = c.rubric();
+        UUID template = template(c, "[{\"bloomLevel\":\"REMEMBER\",\"count\":1}]", null);
         User student = data.student();
         UUID exam = openExam(c, template, student);
 
@@ -96,7 +90,7 @@ class CheckInIntegrationTest extends ExamTestBase {
         UUID attempt = UUID.fromString(JsonPath.read(mine, "$.attemptId"));
 
         assertThat(jdbc.queryForObject("select is_locked from questions where question_id = ?", Boolean.class, q)).isTrue();
-        assertThat(jdbc.queryForObject("select is_locked from rubrics where rubric_id = ?", Boolean.class, templateRubric)).isTrue();
+        assertThat(jdbc.queryForObject("select is_locked from rubrics where rubric_id = ?", Boolean.class, questionRubric)).isTrue();
         String original = jdbc.queryForObject("select content from questions where question_id = ?", String.class, q);
         // Even a direct change of the bank row does not reach the attempt.
         jdbc.update("update questions set content = 'Changed later' where question_id = ?", q);
@@ -109,11 +103,12 @@ class CheckInIntegrationTest extends ExamTestBase {
                 .andExpect(jsonPath("$.questions[0].referenceAnswer").value("Reference"))
                 .andExpect(jsonPath("$.questions[0].topicName").exists())
                 .andExpect(jsonPath("$.questions[0].timeBudgetSec").value(120))      // exam.seconds.REMEMBER
-                .andExpect(jsonPath("$.questions[0].rubricName").value("Template rubric"))
+                .andExpect(jsonPath("$.questions[0].rubricName").value("Rubric"))
+                .andExpect(jsonPath("$.attemptNo").isNumber())
                 .andExpect(jsonPath("$.questions[0].status").value("PENDING"));
         assertThat(jdbc.queryForObject("""
                 select rubric_snapshot->>'rubricId' from attempt_questions where attempt_id = ?""", String.class, attempt))
-                .as("the template rubric overrides the question's own (D45)").isEqualTo(templateRubric.toString());
+                .as("a question is graded with its own rubric (D57)").isEqualTo(questionRubric.toString());
         call(get("/api/v1/attempts/" + attempt), token(student)).andExpect(status().isNotFound());
         call(get("/api/v1/attempts/" + attempt), token(data.lecturer())).andExpect(status().isNotFound());
     }

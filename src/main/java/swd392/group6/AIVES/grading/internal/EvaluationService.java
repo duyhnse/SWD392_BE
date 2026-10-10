@@ -92,7 +92,7 @@ class EvaluationService {
         List<EvaluationSummaryDto> rows = attempts.stream().map(s -> {
             GradeEvaluation e = s.attemptId() == null ? null : byAttempt.get(s.attemptId());
             List<QuestionGrade> threads = e == null ? List.of() : gradesByEvaluation.getOrDefault(e.getEvaluationId(), List.of());
-            return new EvaluationSummaryDto(s.attemptId(), new StudentRef(s.studentId(), s.fullName(), s.studentCode()),
+            return new EvaluationSummaryDto(s.attemptId(), s.attemptNo(), new StudentRef(s.studentId(), s.fullName(), s.studentCode()),
                     s.attemptStatus(), s.endedAt(), e == null ? null : e.getEvaluationId(), e == null ? null : e.getStatus().name(),
                     e == null ? null : e.getAiTotalScore(), e == null ? null : e.getFinalTotalScore(),
                     (int) threads.stream().filter(g -> g.getStatus() == QuestionGradeStatus.AI_FAILED).count(),

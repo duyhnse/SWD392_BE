@@ -90,7 +90,6 @@ class CheckInService {
 
         List<UUID> questionIds = draw.picks().stream().map(QuestionSelector.Pick::questionId).toList();
         Map<UUID, QuestionSnapshot> snapshots = questionBank.snapshot(questionIds);
-        Map<UUID, Optional<RubricSnapshot>> overrides = new HashMap<>();
         UUID attemptId = UUID.randomUUID();
         int duration = 0;
         List<MapSqlParameterSource> questionRows = new ArrayList<>();
@@ -99,7 +98,7 @@ class CheckInService {
         for (QuestionSelector.Pick pick : draw.picks()) {
             ExamTemplateItem row = rows.get(pick.rowIndex());
             QuestionSnapshot q = snapshots.get(pick.questionId());
-            RubricSnapshot rubric = rubricFor(row, template, q, overrides);
+            RubricSnapshot rubric = rubricOf(q);
             rubricIds.add(rubric.rubricId());
             duration += row.getSecondsPerQuestion();
             questionRows.add(new MapSqlParameterSource("id", UUID.randomUUID()).addValue("a", attemptId)
@@ -130,12 +129,9 @@ class CheckInService {
         return myExams.get(student, examId);
     }
 
-    /** Row rubric → template rubric → the question's own rubric (D45). */
-    private RubricSnapshot rubricFor(ExamTemplateItem row, ExamTemplate template, QuestionSnapshot q,
-                                     Map<UUID, Optional<RubricSnapshot>> cache) {
-        UUID override = row.getRubricId() != null ? row.getRubricId() : template.getRubricId();
-        RubricSnapshot rubric = override == null ? q.rubric()
-                : cache.computeIfAbsent(override, questionBank::getRubric).orElse(null);
+    /** A question is graded with its own rubric (D57). */
+    private static RubricSnapshot rubricOf(QuestionSnapshot q) {
+        RubricSnapshot rubric = q.rubric();
         if (rubric == null || rubric.criteria().isEmpty()) {
             throw ApiException.unprocessable("RUBRIC_MISSING", "Question " + q.questionId() + " has no usable rubric");
         }

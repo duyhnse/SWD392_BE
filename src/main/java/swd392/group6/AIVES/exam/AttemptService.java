@@ -48,11 +48,11 @@ class AttemptService {
                         ExamQueries.instant(rs.getTimestamp("started_at")), ExamQueries.instant(rs.getTimestamp("ended_at")),
                         rs.getObject("replaces_attempt_question_id", UUID.class), rs.getString("void_reason")));
         return jdbc.query("""
-                        select a.attempt_id, a.viva_exam_id, a.course_id, a.student_id, u.username, u.full_name, u.student_code,
+                        select a.attempt_id, a.display_no, a.viva_exam_id, a.course_id, a.student_id, u.username, u.full_name, u.student_code,
                                a.status, a.end_reason, a.cancel_reason, a.started_at, a.deadline_at, a.ended_at,
                                a.consent_recorded_at, a.disconnect_count, a.frozen_sec_total, a.client_info, a.selection_seed
                         from exam_attempts a join users u on u.user_id = a.student_id where a.attempt_id = :a""", p,
-                (rs, i) -> new AttemptDetail(rs.getObject("attempt_id", UUID.class), rs.getObject("viva_exam_id", UUID.class),
+                (rs, i) -> new AttemptDetail(rs.getObject("attempt_id", UUID.class), rs.getLong("display_no"), rs.getObject("viva_exam_id", UUID.class),
                         rs.getObject("course_id", UUID.class), rs.getObject("student_id", UUID.class),
                         rs.getString("username"), rs.getString("full_name"), rs.getString("student_code"),
                         rs.getString("status"), rs.getString("end_reason"), rs.getString("cancel_reason"),

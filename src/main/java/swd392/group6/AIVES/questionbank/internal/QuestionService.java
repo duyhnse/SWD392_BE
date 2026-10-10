@@ -37,6 +37,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /** Questions and their state machine (03 §2.1, 04 §5–§7, 15 §5.2). */
@@ -46,6 +48,7 @@ import java.util.stream.Collectors;
 public class QuestionService {
 
     private static final String NOT_FOUND = "QUESTION_NOT_FOUND";
+    private static final Pattern QUESTION_CODE = Pattern.compile("\\s*[Qq]?\\s*-?\\s*(\\d{1,12})\\s*");
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final QuestionRepository questions;
@@ -77,7 +80,11 @@ public class QuestionService {
             if (notEmpty(filter.origin())) {
                 p.add(root.get("origin").in(filter.origin()));
             }
-            if (filter.q() != null && !filter.q().isBlank()) {
+            Matcher code = filter.q() == null ? null : QUESTION_CODE.matcher(filter.q());
+            if (code != null && code.matches()) {
+                // "Q-12", "q12" or "12" finds question Q-12 (D56)
+                p.add(cb.equal(root.get("displayNo"), Long.parseLong(code.group(1))));
+            } else if (filter.q() != null && !filter.q().isBlank()) {
                 String like = "%" + filter.q().trim().toLowerCase(Locale.ROOT)
                         .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
                 p.add(cb.like(cb.lower(root.get("content")), like, '\\'));
@@ -91,7 +98,7 @@ public class QuestionService {
         Map<UUID, String> rubricNames = rubrics.findAllById(result.getContent().stream().map(Question::getRubricId)
                         .filter(Objects::nonNull).collect(Collectors.toSet())).stream()
                 .collect(Collectors.toMap(Rubric::getId, Rubric::getName));
-        return PageResponse.of(result, q -> new QuestionSummaryDto(q.getId(), q.getCourseId(), q.getTopicId(),
+        return PageResponse.of(result, q -> new QuestionSummaryDto(q.getId(), no(q.getDisplayNo()), q.getCourseId(), q.getTopicId(),
                 topicName(courseTopics.get(q.getTopicId())), q.getContent(), q.getBloomLevel(), q.getLanguage(), q.getStatus(),
                 q.getOrigin(), q.getRubricId(), q.getRubricId() == null ? null : rubricNames.get(q.getRubricId()),
                 q.isLocked(), q.getOwnerId(), q.getVersion(), q.getCreatedAt(), q.getUpdatedAt(), q.getPublishedAt()));
@@ -429,7 +436,7 @@ public class QuestionService {
             ai = new AiDto(q.getAiOriginalContent(), q.getAiOriginalReferenceAnswer(), q.getAiSuggestedBloom(),
                     suggestedRubric(q.getId()), q.getGenerationRequestId());
         }
-        return new QuestionDto(q.getId(), q.getCourseId(), q.getTopicId(), topicName(topic), q.getContent(),
+        return new QuestionDto(q.getId(), no(q.getDisplayNo()), q.getCourseId(), q.getTopicId(), topicName(topic), q.getContent(),
                 q.getReferenceAnswer(), q.getBloomLevel(), q.getLanguage(), q.getStatus(), q.getOrigin(), rubric, ai,
                 sourceDtos, q.isLocked(), q.getOwnerId(), q.getSupersedesQuestionId(), q.getVersion(), q.getCreatedAt(),
                 q.getUpdatedAt(), q.getPublishedBy(), q.getPublishedAt(), q.getDiscardedAt());
@@ -444,5 +451,9 @@ public class QuestionService {
                 "select ai_suggested_rubric::text from questions where question_id = ? and ai_suggested_rubric is not null",
                 String.class, questionId);
         return raw.isEmpty() ? null : JSON.readTree(raw.getFirst());
+    }
+
+    static long no(Long displayNo) {
+        return displayNo == null ? 0 : displayNo;
     }
 }
