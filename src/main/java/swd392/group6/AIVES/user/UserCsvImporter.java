@@ -92,12 +92,9 @@ class UserCsvImporter {
         return new ImportReport(total, created, existing, errors);
     }
 
-    /** Account import template (14 §3.4) with one example row per role. */
+    /** Account import template (14 §3.4): header only, so importing an untouched template creates nobody. */
     static byte[] template() {
-        String csv = "\uFEFFusername,full_name,email,student_code,role\n"
-                + "anhnvse180180,Nguyễn Văn Anh,anhnvse180180@fpt.edu.vn,SE180180,STUDENT\n"
-                + "hoangnt,Nguyễn Thị Hoàng,hoangnt@fe.edu.vn,,LECTURER\n";
-        return csv.getBytes(StandardCharsets.UTF_8);
+        return "\uFEFFusername,full_name,email,student_code,role\n".getBytes(StandardCharsets.UTF_8);
     }
 
     private static Map<String, Integer> lowerCaseHeader(Map<String, Integer> header) {

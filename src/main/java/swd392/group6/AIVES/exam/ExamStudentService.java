@@ -127,64 +127,106 @@ class ExamStudentService {
         return new AddStudentsReport(added, alreadyInExam, unknown, notStudent, inactive, notInOriginal);
     }
 
-    /** Class list CSV (username, full_name, email, student_code): missing students are created by the user module. */
+    /**
+     * Class list CSV (columns {@code student_code, username, full_name, email}, any order). A row with only a student
+     * code (or a username) adds an existing student; a row that also has username, full name and email creates the
+     * account when it is missing (user module). Every problem is reported on its row.
+     */
     ImportReport importCsv(UUID examId, InputStream input, User user, boolean dryRun) {
         refresher.refreshDue();
         requireRosterEditable(access.write(examId, user));
 
-        List<NewAccount> accounts = new ArrayList<>();
-        List<Integer> rows = new ArrayList<>();
+        record Row(int row, String code, String username, String fullName, String email) {
+            boolean creates() {
+                return notBlank(username) && notBlank(fullName) && notBlank(email);
+            }
+        }
+        List<Row> rows = new ArrayList<>();
         try (Reader reader = new InputStreamReader(skipBom(input), StandardCharsets.UTF_8);
              CSVParser parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true)
                      .setIgnoreEmptyLines(true).setTrim(true).get().parse(reader)) {
             Map<String, Integer> header = new HashMap<>();
             parser.getHeaderMap().forEach((name, index) -> header.put(name.trim().toLowerCase(Locale.ROOT), index));
-            if (!header.keySet().containsAll(Set.of("username", "full_name", "email"))) {
-                throw invalidFile("Header must contain: username, full_name, email (optional: student_code)");
+            if (!header.containsKey("student_code") && !header.containsKey("username")) {
+                throw invalidFile("Header must contain student_code (or username); add username, full_name, email to create missing accounts");
             }
             for (CSVRecord record : parser) {
-                if (accounts.size() >= MAX_IMPORT_ROWS) {
+                if (rows.size() >= MAX_IMPORT_ROWS) {
                     throw invalidFile("A file may contain at most " + MAX_IMPORT_ROWS + " rows");
                 }
-                accounts.add(NewAccount.student(value(record, header, "username"), value(record, header, "full_name"),
-                        value(record, header, "email"), value(record, header, "student_code")));
-                rows.add((int) record.getRecordNumber() + 1);
+                Row r = new Row((int) record.getRecordNumber() + 1, value(record, header, "student_code"),
+                        value(record, header, "username"), value(record, header, "full_name"), value(record, header, "email"));
+                if (notBlank(r.code()) || notBlank(r.username()) || notBlank(r.fullName()) || notBlank(r.email())) {
+                    rows.add(r);
+                }
             }
         } catch (IOException | IllegalArgumentException | IllegalStateException e) {
             throw invalidFile("The file is not a readable UTF-8 CSV");
         }
 
-        List<ProvisionResult> results = userApi.ensureStudents(accounts);
         List<ImportRowError> errors = new ArrayList<>();
-        List<String> usernames = new ArrayList<>();
+        List<StudentRef> added = new ArrayList<>();
+        List<String> alreadyInExam = new ArrayList<>();
+        List<String> notStudent = new ArrayList<>();
         int created = 0;
+
+        List<Row> creating = rows.stream().filter(Row::creates).toList();
+        List<ProvisionResult> results = userApi.ensureStudents(creating.stream()
+                .map(r -> NewAccount.student(r.username(), r.fullName(), r.email(), r.code())).toList());
         for (int i = 0; i < results.size(); i++) {
             ProvisionResult result = results.get(i);
+            Row r = creating.get(i);
             if (!result.ok()) {
-                errors.add(new ImportRowError(rows.get(i), result.errorField(), result.errorCode(), result.message()));
+                errors.add(new ImportRowError(r.row(), result.errorField(), result.errorCode(), result.message()));
                 continue;
             }
             if (result.created()) {
                 created++;
             }
-            String username = accounts.get(i).username().trim().toLowerCase(Locale.ROOT);
-            if (!usernames.contains(username)) {
-                usernames.add(username);
-            }
+            collect(addResolved(examId, List.of(), List.of(r.username().trim().toLowerCase(Locale.ROOT)), null, user.getUserId()),
+                    r.row(), "username", added, alreadyInExam, notStudent, errors);
         }
-        AddStudentsReport report = addResolved(examId, List.of(), usernames, null, user.getUserId());
-        List<String> notStudent = new ArrayList<>(report.notStudent());
-        notStudent.addAll(report.inactive());
+        for (Row r : rows) {
+            if (r.creates()) {
+                continue;
+            }
+            boolean byCode = notBlank(r.code());
+            if (!byCode && !notBlank(r.username())) {
+                errors.add(new ImportRowError(r.row(), "student_code", "STUDENT_CODE_REQUIRED",
+                        "Give the student code (or the username) of the student"));
+                continue;
+            }
+            AddStudentsReport report = byCode
+                    ? addResolved(examId, List.of(r.code().trim().toUpperCase(Locale.ROOT)), List.of(), null, user.getUserId())
+                    : addResolved(examId, List.of(), List.of(r.username().trim().toLowerCase(Locale.ROOT)), null, user.getUserId());
+            collect(report, r.row(), byCode ? "student_code" : "username", added, alreadyInExam, notStudent, errors);
+        }
+        errors.sort((x, y) -> Integer.compare(x.row(), y.row()));
         DryRun.rollbackIf(dryRun);
-        return new ImportReport(accounts.size(), created, report.added(), report.alreadyInExam(), notStudent, errors);
+        return new ImportReport(rows.size(), created, added, alreadyInExam, notStudent, errors);
     }
 
-    /** Class list template (username, full_name, email, student_code) with two example rows. */
+    /** One row's outcome: added / already there, or a row error (unknown, not a student, deactivated). */
+    private static void collect(AddStudentsReport report, int row, String column, List<StudentRef> added,
+                                List<String> alreadyInExam, List<String> notStudent, List<ImportRowError> errors) {
+        added.addAll(report.added());
+        alreadyInExam.addAll(report.alreadyInExam());
+        report.unknown().forEach(t -> errors.add(new ImportRowError(row, column, "STUDENT_NOT_FOUND",
+                "No account " + t + "; add username, full_name and email to create it")));
+        report.notStudent().forEach(t -> {
+            notStudent.add(t);
+            errors.add(new ImportRowError(row, column, "NOT_A_STUDENT", t + " is not a student account"));
+        });
+        report.inactive().forEach(t -> errors.add(new ImportRowError(row, column, "STUDENT_INACTIVE", t + " is deactivated")));
+    }
+
+    private static boolean notBlank(String s) {
+        return s != null && !s.isBlank();
+    }
+
+    /** Class list template: header only, so importing an untouched template adds nobody. */
     static byte[] template() {
-        String csv = "\uFEFFusername,full_name,email,student_code\n"
-                + "anhnvse180180,Nguyễn Văn Anh,anhnvse180180@fpt.edu.vn,SE180180\n"
-                + "binhttse180181,Trần Thị Bình,binhttse180181@fpt.edu.vn,SE180181\n";
-        return csv.getBytes(StandardCharsets.UTF_8);
+        return "\uFEFFstudent_code,username,full_name,email\n".getBytes(StandardCharsets.UTF_8);
     }
 
     /**

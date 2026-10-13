@@ -187,7 +187,7 @@ class ExamCrudIntegrationTest extends ExamTestBase {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
         call(multipart("/api/v1/viva-exams/" + exam + "/students/import").param("dryRun", "true")
                 .file(new MockMultipartFile("file", "t.csv", "text/csv", template)), c.token())
-                .andExpect(jsonPath("$.total").value(2));
+                .andExpect(jsonPath("$.total").value(0));
 
         call(multipart("/api/v1/viva-exams/" + exam + "/students/import")
                 .file(new MockMultipartFile("file", "class.csv", "text/csv", csv.getBytes(StandardCharsets.UTF_8))), c.token())
@@ -197,6 +197,32 @@ class ExamCrudIntegrationTest extends ExamTestBase {
                 .andExpect(jsonPath("$.added[*].username", contains(existing.getUsername(), fresh)))
                 .andExpect(jsonPath("$.errors", hasSize(1)))
                 .andExpect(jsonPath("$.errors[0].row").value(4));
+    }
+
+    @Test
+    void classListWithOnlyStudentCodesAddsExistingStudents() throws Exception {
+        Course c = course();
+        UUID exam = createExam(c, 2);
+        User a = data.student();
+        User lecturer = data.lecturer();
+        String csv = "student_code\n" + a.getStudentCode().toLowerCase() + "\nSE000NOPE\n\n";
+        call(multipart("/api/v1/viva-exams/" + exam + "/students/import")
+                .file(new MockMultipartFile("file", "codes.csv", "text/csv", csv.getBytes(StandardCharsets.UTF_8))), c.token())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.created").value(0))
+                .andExpect(jsonPath("$.added[0].username").value(a.getUsername()))
+                .andExpect(jsonPath("$.errors[0].row").value(3))
+                .andExpect(jsonPath("$.errors[0].column").value("student_code"))
+                .andExpect(jsonPath("$.errors[0].code").value("STUDENT_NOT_FOUND"));
+        call(multipart("/api/v1/viva-exams/" + exam + "/students/import")
+                .file(new MockMultipartFile("file", "u.csv", "text/csv",
+                        ("username\n" + a.getUsername() + "\n" + lecturer.getUsername() + "\n").getBytes(StandardCharsets.UTF_8))), c.token())
+                .andExpect(jsonPath("$.alreadyInExam[0]").value(a.getUsername().toLowerCase()))
+                .andExpect(jsonPath("$.errors[0].code").value("NOT_A_STUDENT"));
+        call(multipart("/api/v1/viva-exams/" + exam + "/students/import")
+                .file(new MockMultipartFile("file", "x.csv", "text/csv", "name,mail\nx,y\n".getBytes(StandardCharsets.UTF_8))), c.token())
+                .andExpect(status().isUnprocessableContent());
     }
 
     @Test

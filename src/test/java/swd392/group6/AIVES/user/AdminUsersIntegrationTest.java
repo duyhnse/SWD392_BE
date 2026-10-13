@@ -132,7 +132,8 @@ class AdminUsersIntegrationTest {
                         .file(new MockMultipartFile("file", "t.csv", "text/csv", template))
                         .header("Authorization", "Bearer " + adminToken()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.total").value(2))
+                // header only: an untouched template creates nobody
+                .andExpect(jsonPath("$.total").value(0))
                 .andExpect(jsonPath("$.errors.length()").value(0));
     }
 

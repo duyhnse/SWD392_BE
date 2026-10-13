@@ -186,28 +186,35 @@ public class QuestionImportService {
         return new ImportReport(lines.size(), ids.size(), ids, errors);
     }
 
-    /** The template (04 §8): header + two example rows, using this course's first topic / rubric names when given. */
+    /**
+     * The template (04 §8). CSV: the header only. XLSX: the header on the first sheet (the one that is imported) and
+     * a "Hướng dẫn" sheet explaining every column, with this course's topic / rubric names when given. Nothing in it is
+     * imported by accident.
+     */
     @Transactional(readOnly = true)
     public byte[] template(String format, UUID courseId, User user) {
-        String topic = "Architectural styles";
-        String rubric = "";
+        List<String> topics = List.of();
+        List<String> rubricNames = List.of();
         if (courseId != null) {
             access.readCourse(courseId, user);
-            topic = jdbc.queryForList("select name from topics where course_id = ? order by sort_order, name limit 1",
-                    String.class, courseId).stream().findFirst().orElse(topic);
-            rubric = jdbc.queryForList("select name from rubrics where course_id = ? order by name limit 1",
-                    String.class, courseId).stream().findFirst().orElse("");
+            topics = jdbc.queryForList("select name from topics where course_id = ? order by sort_order, name", String.class, courseId);
+            rubricNames = jdbc.queryForList("select name from rubrics where course_id = ? order by name", String.class, courseId);
         }
-        List<List<String>> rows = List.of(COLUMNS,
-                List.of(topic, "Kiến trúc Modular Monolith là gì?", "- Một đơn vị triển khai\n- Chia module theo nghiệp vụ",
-                        "REMEMBER", "VI", rubric),
-                List.of(topic, "So sánh Modular Monolith và Microservices cho một nhóm 5 người.", "", "PHAN_TICH", "", ""));
         try {
-            return "xlsx".equalsIgnoreCase(format) ? xlsx(rows) : csv(rows);
+            return "xlsx".equalsIgnoreCase(format) ? xlsx(topics, rubricNames) : csv(List.of(COLUMNS));
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
     }
+
+    private static final List<List<String>> GUIDE = List.of(
+            List.of("Cột", "Bắt buộc", "Cách điền"),
+            List.of("topic", "Có", "Tên một topic của môn (không phân biệt hoa thường)."),
+            List.of("content", "Có", "Nội dung câu hỏi mở, 10–2000 ký tự."),
+            List.of("reference_answer", "Không (cần để công bố)", "Các ý chính, mỗi ý một dòng bắt đầu bằng \"-\". Tối đa 4000 ký tự."),
+            List.of("bloom_level", "Không (cần để công bố)", "REMEMBER / UNDERSTAND / APPLY / ANALYZE, hoặc NHO / HIEU / VAN_DUNG / PHAN_TICH."),
+            List.of("language", "Không", "VI hoặc EN; để trống = ngôn ngữ của môn."),
+            List.of("rubric_name", "Không (cần để công bố)", "Tên một rubric của môn."));
 
     static List<Line> readCsv(byte[] data) throws IOException {
         String text = new String(data, StandardCharsets.UTF_8);
@@ -304,18 +311,29 @@ public class QuestionImportService {
         return out.toByteArray();
     }
 
-    private static byte[] xlsx(List<List<String>> rows) throws IOException {
+    private static byte[] xlsx(List<String> topics, List<String> rubricNames) throws IOException {
         try (XSSFWorkbook book = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = book.createSheet("questions");
-            for (int r = 0; r < rows.size(); r++) {
-                Row row = sheet.createRow(r);
-                for (int c = 0; c < rows.get(r).size(); c++) {
-                    row.createCell(c).setCellValue(rows.get(r).get(c));
-                }
-            }
+            Row header = sheet.createRow(0);
             for (int c = 0; c < COLUMNS.size(); c++) {
+                header.createCell(c).setCellValue(COLUMNS.get(c));
                 sheet.setColumnWidth(c, c == 1 || c == 2 ? 60 * 256 : 18 * 256);
             }
+            Sheet guide = book.createSheet("Hướng dẫn");
+            int r = 0;
+            for (List<String> line : GUIDE) {
+                Row row = guide.createRow(r++);
+                for (int c = 0; c < line.size(); c++) {
+                    row.createCell(c).setCellValue(line.get(c));
+                }
+            }
+            r++;
+            guide.createRow(r++).createCell(0).setCellValue("Topic của môn: " + (topics.isEmpty() ? "—" : String.join(", ", topics)));
+            guide.createRow(r++).createCell(0).setCellValue("Rubric của môn: " + (rubricNames.isEmpty() ? "—" : String.join(", ", rubricNames)));
+            guide.createRow(r).createCell(0).setCellValue("Chỉ sheet đầu tiên (questions) được nhập; mỗi dòng một câu hỏi, dòng 1 là tiêu đề.");
+            guide.setColumnWidth(0, 22 * 256);
+            guide.setColumnWidth(1, 24 * 256);
+            guide.setColumnWidth(2, 90 * 256);
             book.write(out);
             return out.toByteArray();
         }
