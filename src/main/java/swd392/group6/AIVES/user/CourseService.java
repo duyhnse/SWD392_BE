@@ -135,6 +135,19 @@ class CourseService {
             }
         }
         Set<UUID> current = courseAccessIdsOf(courseId);
+        List<String> examining = new java.util.ArrayList<>();
+        for (UUID id : current) {
+            if (!wanted.contains(id)) {
+                examining.addAll(jdbc.sql("""
+                                select 'B-' || display_no from viva_exams
+                                where course_id = ? and examiner_id = ? and status in ('DRAFT', 'READY', 'OPEN')
+                                order by display_no""").params(courseId, id).query(String.class).list());
+            }
+        }
+        if (!examining.isEmpty()) {
+            throw ApiException.conflict("LECTURER_IS_EXAMINER", "A lecturer you removed is the examiner of "
+                    + String.join(", ", examining) + "; change the examiner of those exam sessions first");
+        }
         for (UUID id : current) {
             if (!wanted.contains(id)) {
                 jdbc.sql("delete from course_lecturers where course_id = ? and lecturer_id = ?").params(courseId, id).update();

@@ -204,5 +204,18 @@ class ExamCrudIntegrationTest extends ExamTestBase {
                 .andExpect(jsonPath("$.code").value("EXAM_NOT_DRAFT"));
         // late roster changes are fine: questions are only drawn at check-in (D48)
         addStudents(c, exam, data.student());
+
+        // the examiner can still change; an admin cannot unassign a lecturer who examines a live buổi thi
+        swd392.group6.AIVES.user.User second = data.lecturer();
+        jdbc.update("insert into course_lecturers (course_id, lecturer_id) values (?, ?)", c.id(), second.getUserId());
+        int v2 = JsonPath.read(json(call(get("/api/v1/viva-exams/" + exam), c.token())), "$.version");
+        call(patch("/api/v1/viva-exams/" + exam), c.token(), "{\"version\":" + v2 + ",\"examinerId\":\"" + second.getUserId() + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.examinerId").value(second.getUserId().toString()));
+        call(put("/api/v1/admin/courses/" + c.id() + "/lecturers"), token(data.admin()),
+                "{\"lecturerIds\":[\"" + c.lecturer().getUserId() + "\"]}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("LECTURER_IS_EXAMINER"))
+                .andExpect(jsonPath("$.detail", org.hamcrest.Matchers.containsString("B-")));
     }
 }

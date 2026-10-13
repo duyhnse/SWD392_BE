@@ -126,8 +126,8 @@ class VivaExamService {
     }
 
     /**
-     * DRAFT: everything. READY / OPEN: texts and the closing time (students may already check in). Never after
-     * CLOSED / CANCELLED.
+     * DRAFT: everything. READY / OPEN: texts, the examiner and the closing time (students may already check in; an
+     * attempt keeps the examiner it started with). Never after CLOSED / CANCELLED.
      */
     ExamDetail update(UUID examId, UpdateExamRequest r, User user) {
         refresher.refreshDue();
@@ -140,6 +140,9 @@ class VivaExamService {
             case READY, OPEN -> {
                 if (r.touchesFrozenFields()) {
                     throw frozen();
+                }
+                if (r.examinerId() != null) {
+                    e.setExaminerId(r.examinerId());
                 }
             }
             default -> throw ApiException.conflict("EXAM_NOT_EDITABLE", "A closed or cancelled exam cannot be edited");
@@ -213,7 +216,7 @@ class VivaExamService {
 
     static ApiException frozen() {
         return ApiException.conflict("EXAM_CONFIG_FROZEN",
-                "Students may check in: only title, description, instructions, location and the closing time can change");
+                "Students may check in: only title, description, instructions, location, examiner and the closing time can change");
     }
 
     private static void applyDraftFields(VivaExam e, UpdateExamRequest r) {

@@ -2,6 +2,7 @@ package swd392.group6.AIVES.questionbank.internal;
 
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -13,16 +14,22 @@ import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.common.Language;
 import swd392.group6.AIVES.common.PageResponse;
+import swd392.group6.AIVES.questionbank.PublishedPoolGuard;
+import swd392.group6.AIVES.questionbank.PublishedPoolGuard.PoolChange;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.AiDto;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.CreateQuestionRequest;
+import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.CriterionRequest;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.PublishFailure;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.PublishResult;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.QuestionDto;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.QuestionFilter;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.QuestionRubricDto;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.QuestionSummaryDto;
+import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.RubricDto;
+import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.RubricRequest;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.SourceDto;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.UpdateQuestionRequest;
+import swd392.group6.AIVES.user.NotificationApi;
 import swd392.group6.AIVES.user.Role;
 import swd392.group6.AIVES.user.User;
 import tools.jackson.databind.JsonNode;
@@ -59,6 +66,9 @@ public class QuestionService {
     private final ContentAccess access;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final RubricService rubricService;
+    private final NotificationApi notifications;
+    private final ObjectProvider<PublishedPoolGuard> poolGuard;
 
     // ---------------------------------------------------------------- read
 
@@ -76,6 +86,9 @@ public class QuestionService {
             }
             if (notEmpty(filter.bloomLevel())) {
                 p.add(root.get("bloomLevel").in(filter.bloomLevel()));
+            }
+            if (filter.generationRequestId() != null) {
+                p.add(cb.equal(root.get("generationRequestId"), filter.generationRequestId()));
             }
             if (notEmpty(filter.origin())) {
                 p.add(root.get("origin").in(filter.origin()));
@@ -149,6 +162,10 @@ public class QuestionService {
         }
         requireTopicOfCourse(request.topicId(), q.getCourseId());
         requireRubricOfCourse(request.rubricId(), q.getCourseId());
+        if (q.getStatus() == QuestionStatus.PUBLISHED
+                && (!request.topicId().equals(q.getTopicId()) || request.bloomLevel() != q.getBloomLevel())) {
+            guard(q.getCourseId(), PoolChange.changed(q.getId(), request.topicId(), request.bloomLevel()));
+        }
         q.setTopicId(request.topicId());
         q.setContent(request.content().strip());
         q.setReferenceAnswer(TopicService.blankToNull(request.referenceAnswer()));
@@ -175,6 +192,7 @@ public class QuestionService {
                 throw locked();
             }
             requireNotInSelectedPool(questionId);
+            guard(q.getCourseId(), PoolChange.removed(questionId));
             q.setPublishedAt(null);
             q.setPublishedBy(null);
         } else if (q.getStatus() != QuestionStatus.DRAFT) {
@@ -207,6 +225,7 @@ public class QuestionService {
             throw locked();
         }
         requireNotInSelectedPool(questionId);
+        guard(q.getCourseId(), PoolChange.removed(questionId));
         q.setStatus(QuestionStatus.DRAFT);
         q.setPublishedAt(null);
         q.setPublishedBy(null);
@@ -301,7 +320,46 @@ public class QuestionService {
             published.add(id);
         }
         questions.flush();
+        if (!published.isEmpty()) {
+            // 04 §5 step 9: one confirmation per publish action, never blocking it
+            notifications.notify(user.getUserId(), "QUESTIONS_PUBLISHED", "Đã công bố " + published.size() + " câu hỏi",
+                    "Các câu này giờ có thể được bốc vào đề thi.", Map.of("questionIds", published.stream().map(UUID::toString).toList()));
+        }
         return new PublishResult(published, failed);
+    }
+
+    /**
+     * "Use AI-suggested rubric" (04 §5 step 5): turns the generation's suggested rubric into a real course rubric
+     * named after the question and attaches it.
+     */
+    public QuestionDto rubricFromSuggestion(UUID questionId, User user) {
+        Question q = loadWritable(questionId, user);
+        if (q.isLocked() || (q.getStatus() != QuestionStatus.DRAFT && q.getStatus() != QuestionStatus.PUBLISHED)) {
+            throw q.isLocked() ? locked() : invalidState(q, "given a rubric");
+        }
+        String json = jdbc.queryForObject("select ai_suggested_rubric::text from questions where question_id = ?",
+                String.class, questionId);
+        JsonNode suggestion = json == null ? null : JSON.readTree(json);
+        if (suggestion == null || !suggestion.path("criteria").isArray() || suggestion.path("criteria").isEmpty()) {
+            throw ApiException.conflict("NO_AI_RUBRIC", "This question has no AI-suggested rubric");
+        }
+        List<CriterionRequest> criteria = new ArrayList<>();
+        int order = 0;
+        for (JsonNode c : suggestion.path("criteria")) {
+            criteria.add(new CriterionRequest(c.path("name").asString(), c.path("description").asString(""),
+                    c.path("max_score").decimalValue(), c.path("weight_percent").decimalValue(), order++));
+        }
+        String base = "Q-" + q.getDisplayNo() + " · " + suggestion.path("name").asString("Rubric AI");
+        base = base.length() > 140 ? base.substring(0, 140) : base;
+        String name = base;
+        for (int i = 2; rubrics.nameTaken(q.getCourseId(), name, new UUID(0, 0)); i++) {
+            name = base + " (" + i + ")";
+        }
+        RubricDto rubric = rubricService.create(q.getCourseId(), new RubricRequest(name,
+                "Tạo từ gợi ý của AI cho câu Q-" + q.getDisplayNo(), criteria), user);
+        q.setRubricId(rubric.id());
+        q.setUpdatedAt(Instant.now(clock));
+        return toDto(flush(q));
     }
 
     /** Hard delete of a never-used DRAFT (15 §5.2); everything else must be discarded instead. */
@@ -344,6 +402,10 @@ public class QuestionService {
             errors.add("RUBRIC_WEIGHTS_NOT_100");
         }
         return errors;
+    }
+
+    private void guard(UUID courseId, PoolChange change) {
+        poolGuard.ifAvailable(g -> g.check(courseId, List.of(change)));
     }
 
     private boolean courseActive(UUID courseId) {

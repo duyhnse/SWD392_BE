@@ -83,6 +83,14 @@ application:
     mode: ${AI_MODE:mock}
     embedding:
       dimension: 1536
+  # RAG (04 §9). Tuning values, measured on real course PDFs. min-similarity: the mock's bag-of-words embeddings
+  # score far lower than a real model — use about 0.3 with real embeddings (RAG_MIN_SIMILARITY).
+  rag:
+    top-k: ${RAG_TOP_K:8}
+    min-similarity: ${RAG_MIN_SIMILARITY:0.05}
+    min-relevant-chunks: ${RAG_MIN_RELEVANT_CHUNKS:1}
+    chunk-size-tokens: 350
+    chunk-overlap-tokens: 50
   ai-node:
     base-url: ${AI_NODE_URL:}
     token: ${AI_NODE_TOKEN:}

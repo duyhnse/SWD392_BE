@@ -26,7 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
-/** Course materials (15 §5.2). Indexing / RAG is a later milestone. */
+/** Course materials (15 §5.2) and their indexing for RAG (04 §9.1). */
 @RestController
 @RequestMapping("/api/v1")
 @PreAuthorize("hasAnyRole('ADMIN', 'LECTURER')")
@@ -60,6 +60,11 @@ class MaterialController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
                         .filename(file.fileName(), StandardCharsets.UTF_8).build().toString())
                 .body(file.data());
+    }
+
+    @PostMapping("/materials/{id}/reindex")
+    public MaterialDto reindex(@PathVariable UUID id, @AuthenticationPrincipal User user) {
+        return service.reindex(id, user);
     }
 
     @DeleteMapping("/materials/{id}")

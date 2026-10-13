@@ -96,7 +96,7 @@ final class ExamDtos {
 
         /** Fields that cannot change once students may check in. */
         boolean touchesFrozenFields() {
-            return templateId != null || examinerId != null || checkinOpensAt != null || reconnectGraceSec != null
+            return templateId != null || checkinOpensAt != null || reconnectGraceSec != null
                     || maxDisconnects != null || maxFrozenSec != null || replaceMainAfterSec != null;
         }
     }

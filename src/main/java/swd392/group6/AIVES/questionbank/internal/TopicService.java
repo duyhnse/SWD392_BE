@@ -1,10 +1,14 @@
 package swd392.group6.AIVES.questionbank.internal;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.common.ApiException;
+import swd392.group6.AIVES.questionbank.PublishedPoolGuard;
+import swd392.group6.AIVES.questionbank.PublishedPoolGuard.PoolChange;
+import swd392.group6.AIVES.questionbank.BloomLevel;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.CreateTopicRequest;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.TermsDto;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.TopicDto;
@@ -38,6 +42,7 @@ public class TopicService {
     private final ContentAccess access;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final ObjectProvider<PublishedPoolGuard> poolGuard;
 
     @Transactional(readOnly = true)
     public List<TopicDto> list(UUID courseId, User user) {
@@ -114,6 +119,11 @@ public class TopicService {
                 .filter(t -> t.getCourseId().equals(topic.getCourseId()) && !t.getId().equals(topicId))
                 .orElseThrow(() -> ApiException.unprocessable("TOPIC_NOT_IN_COURSE",
                         "The target must be another topic of the same course"));
+        List<PoolChange> changes = jdbc.query(
+                "select question_id, bloom_level from questions where topic_id = ? and status = 'PUBLISHED'",
+                (rs, i) -> PoolChange.changed(rs.getObject(1, UUID.class), target.getId(),
+                        rs.getString(2) == null ? null : BloomLevel.valueOf(rs.getString(2))), topicId);
+        poolGuard.ifAvailable(g -> g.check(topic.getCourseId(), changes));
         int moved = jdbc.update("update questions set topic_id = ?, version = version + 1, updated_at = now() where topic_id = ?",
                 target.getId(), topicId);
         return new MoveResult(moved, target.getId());

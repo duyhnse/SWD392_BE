@@ -2,6 +2,8 @@ package swd392.group6.AIVES.questionbank.internal;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -108,7 +110,29 @@ public final class QuestionBankDtos {
     }
 
     public record QuestionFilter(List<QuestionStatus> status, List<UUID> topicId, List<BloomLevel> bloomLevel,
-                                 List<QuestionOrigin> origin, String q) {
+                                 List<QuestionOrigin> origin, String q, UUID generationRequestId) {
+    }
+
+    // ---- AI generation (04 §9.2) ----
+
+    public record GenerationRequest(@NotNull UUID topicId, @NotEmpty @Size(max = 20) List<@NotNull UUID> materialIds,
+                                    @NotNull @Min(1) @Max(20) Integer count,
+                                    @NotEmpty List<@NotNull BloomLevel> bloomLevels,
+                                    @Size(max = 1000) String focusText, Language language) {
+    }
+
+    public record GenerationDto(UUID id, UUID courseId, UUID topicId, String topicName, List<UUID> materialIds,
+                                int requestedCount, List<BloomLevel> bloomLevels, String focusText, Language language,
+                                String status, int generatedCount, String message, UUID requestedBy,
+                                Instant createdAt, Instant finishedAt) {
+    }
+
+    // ---- Import (04 §8) ----
+
+    public record ImportRowError(int row, String column, String code, String message) {
+    }
+
+    public record ImportReport(int total, int imported, List<UUID> questionIds, List<ImportRowError> errors) {
     }
 
     // ---- Materials ----

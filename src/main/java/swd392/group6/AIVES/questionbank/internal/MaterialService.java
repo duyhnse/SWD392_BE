@@ -8,6 +8,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.beans.factory.annotation.Value;
+import swd392.group6.AIVES.ai.AiJobService;
+import swd392.group6.AIVES.ai.AiJobType;
+import swd392.group6.AIVES.ai.node.AiNodeFileLinks;
 import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.MaterialDto;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.MaterialFile;
@@ -22,11 +26,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
-/** Course materials: upload / list / download / delete (04 §9.1 step 1; indexing is the RAG milestone). */
+/**
+ * Course materials: upload / list / download / delete, and indexing for RAG (04 §9.1): upload or re-index sends an
+ * {@code INDEX_MATERIAL} job to the AI node (mock by default); {@link AiResultListener} stores the chunks.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class MaterialService {
+
+    static final String JOB_SUBJECT = "MATERIAL";
 
     public static final long MAX_BYTES = 50L * 1024 * 1024;
 
@@ -44,6 +53,14 @@ public class MaterialService {
     private final StoragePort storage;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final AiJobService aiJobs;
+    private final AiNodeFileLinks fileLinks;
+
+    @Value("${application.rag.chunk-size-tokens:350}")
+    private int chunkSizeTokens;
+
+    @Value("${application.rag.chunk-overlap-tokens:50}")
+    private int chunkOverlapTokens;
 
     @Transactional(readOnly = true)
     public List<MaterialDto> list(UUID courseId, User user) {
@@ -99,7 +116,32 @@ public class MaterialService {
         materials.flush();
         storage.put(key, data, contentType);
         afterRollback(() -> storage.delete(key));
+        startIndexing(m);
         return toDto(m);
+    }
+
+    /** E4: a FAILED (or already INDEXED) material can be indexed again; its old chunks are dropped. */
+    public MaterialDto reindex(UUID materialId, User user) {
+        CourseMaterial m = load(materialId);
+        access.write(m.getCourseId(), user, NOT_FOUND, "Material not found");
+        if (m.getStatus() == MaterialStatus.PROCESSING) {
+            throw ApiException.conflict("MATERIAL_PROCESSING", "The material is being indexed right now");
+        }
+        jdbc.update("delete from material_chunks where material_id = ?", materialId);
+        startIndexing(m);
+        return toDto(materials.saveAndFlush(m));
+    }
+
+    private void startIndexing(CourseMaterial m) {
+        m.setStatus(MaterialStatus.PROCESSING);
+        m.setErrorMessage(null);
+        m.setPageCount(null);
+        m.setIndexedAt(null);
+        materials.flush();
+        aiJobs.enqueue(AiJobType.INDEX_MATERIAL, JOB_SUBJECT, m.getId(), Map.of(
+                "material_id", m.getId(), "file_name", m.getFileName(), "content_type", m.getContentType(),
+                "file_url", fileLinks.create(m.getStorageKey()),
+                "chunking", Map.of("size_tokens", chunkSizeTokens, "overlap_tokens", chunkOverlapTokens)));
     }
 
     /** BR-Q12: only when no question cites it. Chunks go with it; the stored object is removed after commit. */

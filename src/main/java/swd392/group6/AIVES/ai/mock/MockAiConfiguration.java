@@ -10,6 +10,7 @@ import swd392.group6.AIVES.ai.EmbeddingPort;
 import swd392.group6.AIVES.ai.InterviewAiPort;
 import swd392.group6.AIVES.ai.SpeechToTextPort;
 import swd392.group6.AIVES.ai.TextToSpeechPort;
+import swd392.group6.AIVES.storage.StoragePort;
 
 /** {@code application.ai.mode=mock} (the default): every AI port uses its deterministic mock. */
 @Slf4j
@@ -27,8 +28,8 @@ class MockAiConfiguration {
     }
 
     @Bean
-    AiJobPort mockAiJobs(EmbeddingPort embeddings) {
-        return new MockAiJobAdapter(embeddings);
+    AiJobPort mockAiJobs(EmbeddingPort embeddings, StoragePort storage) {
+        return new MockAiJobAdapter(embeddings, storage);
     }
 
     @Bean
