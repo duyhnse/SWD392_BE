@@ -7,7 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Public API of the exam module for interview and grading (07 §7, 15 §5.3). Status values are the DB enum names.
+ * Public API of the exam module for interview and grading (15 §5.3). Status values are the DB enum names.
  * Attempt questions carry the snapshot taken at check-in (D49): never read the question bank to grade or ask.
  */
 public interface ExamApi {

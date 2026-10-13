@@ -185,7 +185,7 @@ class VivaExamService {
         exams.delete(e);
     }
 
-    /** 07 §3 rules for a buổi thi, 422 with a specific code per field. */
+    /** 07 §2 rules for a buổi thi, 422 with a specific code per field. */
     void validate(VivaExam e) {
         if (!e.getCheckinClosesAt().isAfter(e.getCheckinOpensAt())) {
             throw ApiException.unprocessable("INVALID_WINDOW", "checkinClosesAt must be after checkinOpensAt");

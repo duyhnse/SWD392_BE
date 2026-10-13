@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Public API of the question bank for exam, interview and grading (04 §12, 15 §5.2). */
+/** Public API of the question bank for exam, interview and grading (15 §5.2). */
 public interface QuestionBankApi {
 
     /**
