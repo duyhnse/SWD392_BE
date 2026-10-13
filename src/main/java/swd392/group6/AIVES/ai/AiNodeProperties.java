@@ -9,7 +9,8 @@ import java.time.Duration;
  *
  * @param baseUrl         e.g. {@code http://aives-ai:8000} (MagicDNS name on the tailnet); used in {@code node} mode
  * @param token           bearer token node 1 → AI node
- * @param callbackSecret  HMAC key the AI node signs callbacks with (and node 1 signs file links with)
+ * @param callbackSecret  HMAC key the AI node signs callbacks with (and node 1 signs file links with); blank = a random
+ *                        key for this process (fine in mock mode; node mode needs the shared value)
  * @param callbackBaseUrl how the AI node reaches node 1, e.g. {@code http://aives-web:8081}
  * @param jobTimeout      a SUBMITTED job without result after this is polled, then TIMED_OUT after 3× this
  */
@@ -18,6 +19,13 @@ public record AiNodeProperties(String baseUrl, String token, String callbackSecr
                                Duration connectTimeout, Duration processAnswerTimeout, Duration jobTimeout) {
 
     public AiNodeProperties {
+        // Signed file links are made in every mode (mock too). Without a configured secret, use a random one for this
+        // process: links stay valid while it runs. In node mode the AI node must share the configured secret.
+        if (callbackSecret == null || callbackSecret.isBlank()) {
+            byte[] random = new byte[32];
+            new java.security.SecureRandom().nextBytes(random);
+            callbackSecret = java.util.HexFormat.of().formatHex(random);
+        }
         connectTimeout = connectTimeout == null ? Duration.ofSeconds(2) : connectTimeout;
         processAnswerTimeout = processAnswerTimeout == null ? Duration.ofSeconds(12) : processAnswerTimeout;
         jobTimeout = jobTimeout == null ? Duration.ofMinutes(5) : jobTimeout;

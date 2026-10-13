@@ -15,10 +15,11 @@ class AiNodeConfiguration {
 
     @Bean
     AiNodeClient aiNodeClient(AiNodeProperties properties,
-                              @Value("${application.ai.embedding.dimension:1536}") int dimension) {
+                              @Value("${application.ai.embedding.dimension:1536}") int dimension,
+                              @Value("${application.ai-node.callback-secret:}") String configuredSecret) {
+        // properties.callbackSecret() is never blank (a random one is made); node mode needs the value shared with the node
         if (properties.baseUrl() == null || properties.baseUrl().isBlank()
-                || properties.token() == null || properties.token().isBlank()
-                || properties.callbackSecret() == null || properties.callbackSecret().isBlank()) {
+                || properties.token() == null || properties.token().isBlank() || configuredSecret.isBlank()) {
             throw new IllegalStateException("AI mode = node needs AI_NODE_URL, AI_NODE_TOKEN and AI_NODE_CALLBACK_SECRET");
         }
         log.info("AI mode = NODE: {}", properties.baseUrl());
