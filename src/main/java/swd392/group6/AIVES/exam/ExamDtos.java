@@ -143,7 +143,7 @@ final class ExamDtos {
                              List<String> notStudent, List<String> inactive, List<String> notInOriginal) {
     }
 
-    record ImportRowError(int row, String field, String code, String message) {
+    record ImportRowError(int row, String column, String code, String message) {
     }
 
     record ImportReport(int total, int created, List<StudentRef> added, List<String> alreadyInExam,
