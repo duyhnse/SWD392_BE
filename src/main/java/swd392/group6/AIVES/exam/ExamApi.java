@@ -19,6 +19,9 @@ public interface ExamApi {
     /** Questions of an attempt in asking order, VOIDED ones included (they keep their order number). */
     List<AttemptQuestionInfo> getAttemptQuestions(UUID attemptId);
 
+    /** Attempts still running ({@code IN_PROGRESS} or {@code INTERRUPTED}) — the interview sweeper's work list. */
+    List<UUID> runningAttemptIds();
+
     /** Attempts of a buổi thi with the roster order (grading reports, exports). */
     List<AttemptInfo> listAttempts(UUID vivaExamId);
 
@@ -31,7 +34,7 @@ public interface ExamApi {
 
     record AttemptInfo(UUID attemptId, UUID vivaExamId, UUID courseId, UUID studentId, UUID examinerId, String status,
                        String endReason, Instant startedAt, Instant deadlineAt, Instant endedAt, int disconnectCount,
-                       int frozenSecTotal, Integer seqNo) {
+                       int frozenSecTotal, Integer seqNo, Instant lastSeenAt, Instant disconnectedSince) {
     }
 
     /**
@@ -41,6 +44,6 @@ public interface ExamApi {
     record AttemptQuestionInfo(UUID attemptQuestionId, UUID questionId, int orderNo, String status, String topicName,
                                String bloomLevel, String language, String content,
                                String referenceAnswer, String rubricSnapshotJson, int timeBudgetSec, int timeUsedSec,
-                               String voidReason) {
+                               String voidReason, Instant startedAt) {
     }
 }

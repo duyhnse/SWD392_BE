@@ -48,6 +48,9 @@ public interface QuestionBankApi {
      */
     void lockForExam(Collection<UUID> questionIds, Collection<UUID> rubricIds);
 
+    /** Course terms, used as STT hotwords in the interview (never student data, BR-I8). */
+    List<String> courseTerms(UUID courseId);
+
     record PublishedQuestion(UUID questionId, UUID courseId, UUID topicId, BloomLevel bloomLevel, Language language,
                              String content) {
     }

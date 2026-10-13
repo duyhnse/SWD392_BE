@@ -196,8 +196,9 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
         if (node == null || node.isMissingNode() || node.isNull() || node.path("audio_base64").asString("").isEmpty()) {
             return null;
         }
+        JsonNode duration = node.path("duration_ms");
         return new SynthesizedAudio(Base64.getDecoder().decode(node.path("audio_base64").asString()),
-                node.path("content_type").asString("audio/mpeg"));
+                node.path("content_type").asString("audio/mpeg"), duration.isNumber() ? duration.asInt() : null);
     }
 
     private static List<String> strings(JsonNode array) {
