@@ -63,8 +63,13 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      # RAG tuning (04 §9): about 0.3 with real embeddings; 0.05 suits the mock bag-of-words ones
+      RAG_MIN_SIMILARITY: ${RAG_MIN_SIMILARITY:-0.05}
+      RAG_TOP_K: ${RAG_TOP_K:-8}
     ports:
-      - "127.0.0.1:8080:8080"
+      # 127.0.0.1 = only Caddy reaches it. With the AI node over Tailscale, set BACKEND_BIND to node 1's tailnet IPv4
+      # so the node can call back and fetch signed file links (16 §5); /internal/* is never public through Caddy.
+      - "${BACKEND_BIND:-127.0.0.1}:8080:8080"
     volumes:
       - backend_storage:/app/data/storage
 
