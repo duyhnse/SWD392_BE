@@ -174,6 +174,21 @@ class ExamCrudIntegrationTest extends ExamTestBase {
                 + fresh + ",Nguyễn Mới," + fresh + "@fpt.edu.vn,SE" + fresh.substring(1).toUpperCase() + "\n"
                 + "bad,No Email,not-an-email,SEBAD1\n";
 
+        // check first: the same report, but no account is created and nobody is added
+        call(multipart("/api/v1/viva-exams/" + exam + "/students/import").param("dryRun", "true")
+                .file(new MockMultipartFile("file", "class.csv", "text/csv", csv.getBytes(StandardCharsets.UTF_8))), c.token())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.created").value(1))
+                .andExpect(jsonPath("$.added", hasSize(2)))
+                .andExpect(jsonPath("$.errors[0].row").value(4));
+        assertThat(jdbc.queryForObject("select count(*) from viva_exam_students where viva_exam_id = ?", Integer.class, exam)).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from users where username = ?", Integer.class, fresh)).isZero();
+        byte[] template = call(get("/api/v1/viva-exams/student-import-template"), c.token())
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        call(multipart("/api/v1/viva-exams/" + exam + "/students/import").param("dryRun", "true")
+                .file(new MockMultipartFile("file", "t.csv", "text/csv", template)), c.token())
+                .andExpect(jsonPath("$.total").value(2));
+
         call(multipart("/api/v1/viva-exams/" + exam + "/students/import")
                 .file(new MockMultipartFile("file", "class.csv", "text/csv", csv.getBytes(StandardCharsets.UTF_8))), c.token())
                 .andExpect(status().isOk())

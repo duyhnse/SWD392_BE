@@ -4,6 +4,8 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+import swd392.group6.AIVES.common.DryRun;
 import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.user.AdminUserDtos.ImportReport;
 import swd392.group6.AIVES.user.AdminUserDtos.RowError;
@@ -34,7 +36,9 @@ class UserCsvImporter {
         this.provisioning = provisioning;
     }
 
-    ImportReport importCsv(InputStream input, boolean allowRoleColumn) {
+    /** {@code dryRun}: validate and report only (the transaction is rolled back). */
+    @Transactional
+    public ImportReport importCsv(InputStream input, boolean allowRoleColumn, boolean dryRun) {
         List<NewAccount> accounts = new ArrayList<>();
         List<RowError> errors = new ArrayList<>();
         List<Integer> rowNumbers = new ArrayList<>();
@@ -84,7 +88,16 @@ class UserCsvImporter {
             }
         }
         errors.sort((a, b) -> Integer.compare(a.row(), b.row()));
+        DryRun.rollbackIf(dryRun);
         return new ImportReport(total, created, existing, errors);
+    }
+
+    /** Account import template (14 §3.4) with one example row per role. */
+    static byte[] template() {
+        String csv = "\uFEFFusername,full_name,email,student_code,role\n"
+                + "anhnvse180180,Nguyễn Văn Anh,anhnvse180180@fpt.edu.vn,SE180180,STUDENT\n"
+                + "hoangnt,Nguyễn Thị Hoàng,hoangnt@fe.edu.vn,,LECTURER\n";
+        return csv.getBytes(StandardCharsets.UTF_8);
     }
 
     private static Map<String, Integer> lowerCaseHeader(Map<String, Integer> header) {

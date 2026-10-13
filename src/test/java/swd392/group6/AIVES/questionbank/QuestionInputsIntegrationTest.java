@@ -253,6 +253,15 @@ class QuestionInputsIntegrationTest {
                 Architecture,Question number ten about sagas?,,,,
                 Architecture,question  number ONE about layers?,,,,
                 """;
+        String check = QuestionBankFixture.body(fx.perform(lecturer,
+                multipart("/api/v1/courses/" + bank.courseId() + "/questions/import").param("dryRun", "true")
+                        .file(new MockMultipartFile("file", "bank.csv", "text/csv", csv.getBytes(StandardCharsets.UTF_8))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imported").value(7))
+                .andExpect(jsonPath("$.questionIds", hasSize(0))));
+        assertThat(check).contains("DUPLICATE");
+        assertThat(jdbc.queryForObject("select count(*) from questions where course_id = ? and origin = 'IMPORTED'",
+                Integer.class, bank.courseId())).isZero();
         ResultHolder r = importFile("bank.csv", csv.getBytes(StandardCharsets.UTF_8));
         assertThat((Integer) r.read("$.total")).isEqualTo(11);
         assertThat((Integer) r.read("$.imported")).isEqualTo(7);

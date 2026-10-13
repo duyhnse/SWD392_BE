@@ -95,13 +95,23 @@ class VivaExamController {
         return students.add(id, request.studentCodes(), request.usernames(), user);
     }
 
+    @GetMapping("/viva-exams/student-import-template")
+    ResponseEntity<byte[]> studentImportTemplate() {
+        return ResponseEntity.ok()
+                .contentType(new org.springframework.http.MediaType("text", "csv", java.nio.charset.StandardCharsets.UTF_8))
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                        org.springframework.http.ContentDisposition.attachment().filename("aives-class-list-template.csv").build().toString())
+                .body(ExamStudentService.template());
+    }
+
     @PostMapping("/viva-exams/{id}/students/import")
     ImportReport importStudents(@PathVariable UUID id, @AuthenticationPrincipal User user,
-                                @RequestPart("file") MultipartFile file) throws IOException {
+                                @RequestPart("file") MultipartFile file,
+                                @RequestParam(defaultValue = "false") boolean dryRun) throws IOException {
         if (file.getSize() > MAX_IMPORT_BYTES) {
             throw new ApiException(HttpStatus.CONTENT_TOO_LARGE, "FILE_TOO_LARGE", "The class list must be at most 2 MB");
         }
-        return students.importCsv(id, file.getInputStream(), user);
+        return students.importCsv(id, file.getInputStream(), user, dryRun);
     }
 
     @DeleteMapping("/viva-exams/{id}/students/{studentId}")

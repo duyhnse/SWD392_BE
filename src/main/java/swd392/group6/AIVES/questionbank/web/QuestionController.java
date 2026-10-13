@@ -59,8 +59,9 @@ class QuestionController {
     @PostMapping(path = "/courses/{courseId}/questions/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ImportReport importQuestions(@PathVariable UUID courseId,
                                         @RequestPart(value = "file", required = false) MultipartFile file,
+                                        @RequestParam(defaultValue = "false") boolean dryRun,
                                         @AuthenticationPrincipal User user) {
-        return importService.importFile(courseId, file, user);
+        return importService.importFile(courseId, file, user, dryRun);
     }
 
     @GetMapping("/question-import-template")

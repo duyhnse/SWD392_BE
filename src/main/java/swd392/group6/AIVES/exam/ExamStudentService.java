@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.common.ApiException;
+import swd392.group6.AIVES.common.DryRun;
 import swd392.group6.AIVES.exam.ExamDtos.AddStudentsReport;
 import swd392.group6.AIVES.exam.ExamDtos.ImportReport;
 import swd392.group6.AIVES.exam.ExamDtos.ImportRowError;
@@ -127,7 +128,7 @@ class ExamStudentService {
     }
 
     /** Class list CSV (username, full_name, email, student_code): missing students are created by the user module. */
-    ImportReport importCsv(UUID examId, InputStream input, User user) {
+    ImportReport importCsv(UUID examId, InputStream input, User user, boolean dryRun) {
         refresher.refreshDue();
         requireRosterEditable(access.write(examId, user));
 
@@ -174,7 +175,16 @@ class ExamStudentService {
         AddStudentsReport report = addResolved(examId, List.of(), usernames, null, user.getUserId());
         List<String> notStudent = new ArrayList<>(report.notStudent());
         notStudent.addAll(report.inactive());
+        DryRun.rollbackIf(dryRun);
         return new ImportReport(accounts.size(), created, report.added(), report.alreadyInExam(), notStudent, errors);
+    }
+
+    /** Class list template (username, full_name, email, student_code) with two example rows. */
+    static byte[] template() {
+        String csv = "\uFEFFusername,full_name,email,student_code\n"
+                + "anhnvse180180,Nguyễn Văn Anh,anhnvse180180@fpt.edu.vn,SE180180\n"
+                + "binhttse180181,Trần Thị Bình,binhttse180181@fpt.edu.vn,SE180181\n";
+        return csv.getBytes(StandardCharsets.UTF_8);
     }
 
     /**

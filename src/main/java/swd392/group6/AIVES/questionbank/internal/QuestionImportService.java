@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import swd392.group6.AIVES.common.ApiException;
+import swd392.group6.AIVES.common.DryRun;
 import swd392.group6.AIVES.common.Language;
 import swd392.group6.AIVES.questionbank.BloomLevel;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.ImportReport;
@@ -69,7 +70,8 @@ public class QuestionImportService {
     record Line(int row, Map<String, String> cells) {
     }
 
-    public ImportReport importFile(UUID courseId, MultipartFile file, User user) {
+    /** {@code dryRun}: validate and report only (the transaction is rolled back). */
+    public ImportReport importFile(UUID courseId, MultipartFile file, User user, boolean dryRun) {
         access.writeCourse(courseId, user);
         if (file == null || file.isEmpty()) {
             throw ApiException.unprocessable("FILE_EMPTY", "Upload a non-empty file in the 'file' field");
@@ -92,7 +94,9 @@ public class QuestionImportService {
         if (lines.size() > MAX_ROWS) {
             throw ApiException.unprocessable("IMPORT_TOO_MANY_ROWS", "A file has at most " + MAX_ROWS + " rows (found " + lines.size() + ")");
         }
-        return importLines(courseId, lines, user);
+        ImportReport report = importLines(courseId, lines, user);
+        DryRun.rollbackIf(dryRun);
+        return dryRun ? new ImportReport(report.total(), report.imported(), List.of(), report.errors()) : report;
     }
 
     ImportReport importLines(UUID courseId, List<Line> lines, User user) {
