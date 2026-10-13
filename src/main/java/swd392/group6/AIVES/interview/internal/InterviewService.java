@@ -75,7 +75,8 @@ class InterviewService {
     /** What the browser may add to the audit trail (05 §10, FG5). */
     static final Set<String> CLIENT_EVENTS = Set.of("SILENCE_WARNING", "QUESTION_REPLAYED", "TAB_HIDDEN", "TAB_VISIBLE",
             "FULLSCREEN_EXIT", "FULLSCREEN_ENTER", "MIC_LOST", "CAMERA_LOST", "RECORDING_STARTED", "RECORDING_STOPPED",
-            "RECORDING_UPLOAD_FAILED", "TTS_FALLBACK", "NETWORK_LOST", "NETWORK_BACK");
+            "RECORDING_UPLOAD_FAILED", "TTS_FALLBACK", "NETWORK_LOST", "NETWORK_BACK", "DEVICES_CHECKED",
+            "CAMERA_UNAVAILABLE", "SCREEN_UNAVAILABLE", "SCREEN_LOST");
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final ExamApi exams;
