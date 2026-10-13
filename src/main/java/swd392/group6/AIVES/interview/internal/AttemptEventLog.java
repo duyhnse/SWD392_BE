@@ -62,6 +62,6 @@ class AttemptEventLog {
                 .filter(n -> n.at().isAfter(now.minusSeconds(60))).findFirst().orElse(null);
     }
 
-    private static final String NOTICES = "'LECTURER_SKIPPED', 'LECTURER_RESUMED', 'LECTURER_ENDED', 'QUESTION_REPLACED',"
+    private static final String NOTICES = "'LECTURER_SKIPPED', 'LECTURER_RESUMED', 'LECTURER_ENDED', 'LECTURER_VOIDED', 'QUESTION_REPLACED',"
             + " 'TIME_UP', 'INTERRUPTED', 'RECONNECTED'";
 }

@@ -21,7 +21,7 @@ class JdbcExamApi implements ExamApi {
     private static final String ATTEMPT_SELECT = """
             select a.attempt_id, a.viva_exam_id, a.course_id, a.student_id, a.examiner_id, a.status, a.end_reason,
                    a.started_at, a.deadline_at, a.ended_at, a.disconnect_count, a.frozen_sec_total, v.seq_no,
-                   a.last_seen_at, a.disconnected_since
+                   a.last_seen_at, a.disconnected_since, a.cancel_reason
             from exam_attempts a
             left join viva_exam_students v on v.viva_exam_id = a.viva_exam_id and v.student_id = a.student_id""";
 
@@ -29,7 +29,8 @@ class JdbcExamApi implements ExamApi {
             rs.getObject(2, UUID.class), rs.getObject(3, UUID.class), rs.getObject(4, UUID.class),
             rs.getObject(5, UUID.class), rs.getString(6), rs.getString(7), instant(rs.getTimestamp(8)),
             instant(rs.getTimestamp(9)), instant(rs.getTimestamp(10)), rs.getInt(11), rs.getInt(12),
-            (Integer) rs.getObject(13), instant(rs.getTimestamp(14)), instant(rs.getTimestamp(15)));
+            (Integer) rs.getObject(13), instant(rs.getTimestamp(14)), instant(rs.getTimestamp(15)),
+            rs.getString(16));
 
     private final JdbcTemplate jdbc;
 

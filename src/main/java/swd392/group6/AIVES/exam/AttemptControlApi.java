@@ -38,6 +38,9 @@ public interface AttemptControlApi {
     /** Attempt finished ({@code ALL_QUESTIONS_DONE}, {@code TIME_UP}, {@code ENDED_BY_LECTURER}). */
     void complete(UUID attemptId, String endReason, Instant at);
 
+    /** The examiner voids a running attempt (e.g. cheating): {@code CANCELLED} with the reason; it is never graded. */
+    void cancel(UUID attemptId, String reason, Instant at);
+
     void startQuestion(UUID attemptQuestionId, Instant at);
 
     /** {@code DONE}, {@code SKIPPED} or {@code NOT_REACHED}. */

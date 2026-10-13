@@ -76,7 +76,7 @@ class InterviewService {
     static final Set<String> CLIENT_EVENTS = Set.of("SILENCE_WARNING", "QUESTION_REPLAYED", "TAB_HIDDEN", "TAB_VISIBLE",
             "FULLSCREEN_EXIT", "FULLSCREEN_ENTER", "MIC_LOST", "CAMERA_LOST", "RECORDING_STARTED", "RECORDING_STOPPED",
             "RECORDING_UPLOAD_FAILED", "TTS_FALLBACK", "NETWORK_LOST", "NETWORK_BACK", "DEVICES_CHECKED",
-            "CAMERA_UNAVAILABLE", "SCREEN_UNAVAILABLE", "SCREEN_LOST");
+            "CAMERA_UNAVAILABLE", "SCREEN_UNAVAILABLE", "SCREEN_LOST", "MIC_RECONNECTED");
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final ExamApi exams;
@@ -92,14 +92,15 @@ class InterviewService {
     private final NotificationApi notifications;
     private final ApplicationEventPublisher publisher;
     private final JdbcTemplate jdbc;
+    private final LiveFrames frames;
     private final TransactionTemplate tx;
     private final Clock clock;
 
     InterviewService(ExamApi exams, AttemptControlApi control, TurnStore turns, AttemptEventLog events,
                      QuestionAudio questionAudio, InterviewAiPort ai, SpeechToTextPort stt, QuestionBankApi questionBank,
                      StoragePort storage, CourseAccessApi courseAccess, NotificationApi notifications,
-                     ApplicationEventPublisher publisher, JdbcTemplate jdbc, PlatformTransactionManager txManager,
-                     Clock clock) {
+                     ApplicationEventPublisher publisher, JdbcTemplate jdbc, LiveFrames frames,
+                     PlatformTransactionManager txManager, Clock clock) {
         this.exams = exams;
         this.control = control;
         this.turns = turns;
@@ -113,6 +114,7 @@ class InterviewService {
         this.notifications = notifications;
         this.publisher = publisher;
         this.jdbc = jdbc;
+        this.frames = frames;
         this.tx = new TransactionTemplate(txManager);
         this.clock = clock;
     }
@@ -236,6 +238,63 @@ class InterviewService {
             return null;
         });
         return view(attemptId);
+    }
+
+    /**
+     * Void a running attempt (03 §2.3 "examiner voids", D65) — e.g. caught cheating. Status {@code CANCELLED} with the
+     * reason; the open turn is cancelled, the rest skipped; the attempt is never graded and the student sees why.
+     */
+    AttemptState voidAttempt(UUID attemptId, String reason, User lecturer) {
+        requireWrite(attemptId, lecturer);
+        if (reason == null || reason.isBlank()) {
+            throw ApiException.unprocessable("REASON_REQUIRED", "Give a reason for voiding the attempt");
+        }
+        inTx(() -> {
+            AttemptInfo a = locked(attemptId);
+            if (!"IN_PROGRESS".equals(a.status()) && !"INTERRUPTED".equals(a.status())) {
+                throw notInProgress();
+            }
+            Instant now = clock.instant();
+            turns.open(a.attemptId()).ifPresent(t -> turns.close(t.turnId(), "CANCELLED"));
+            for (AttemptQuestionInfo q : questions(a.attemptId())) {
+                if ("IN_PROGRESS".equals(q.status()) || "PENDING".equals(q.status())) {
+                    control.finishQuestion(q.attemptQuestionId(), "SKIPPED", now);
+                }
+            }
+            String r = reason.strip();
+            control.cancel(a.attemptId(), r.length() > 1000 ? r.substring(0, 1000) : r, now);
+            events.log(a.attemptId(), null, "LECTURER_VOIDED", lecturer.getUserId(), payload("reason", r), now);
+            return null;
+        });
+        frames.drop(attemptId);
+        return view(attemptId);
+    }
+
+    /** Latest camera / screen still from the student's browser (live proctoring, D65). */
+    void putFrame(UUID attemptId, String kind, byte[] data, String contentType, User student) {
+        AttemptInfo a = own(attemptId, student);
+        if (!"IN_PROGRESS".equals(a.status()) && !"INTERRUPTED".equals(a.status())) {
+            throw notInProgress();
+        }
+        String k = kind == null ? "" : kind.toUpperCase(Locale.ROOT);
+        if (!k.equals("CAMERA") && !k.equals("SCREEN")) {
+            throw ApiException.unprocessable("FRAME_KIND_INVALID", "kind must be CAMERA or SCREEN");
+        }
+        String type = contentType == null ? "" : contentType.split(";")[0].trim().toLowerCase(Locale.ROOT);
+        if (!type.equals("image/jpeg") && !type.equals("image/webp")) {
+            throw new ApiException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "FRAME_TYPE_UNSUPPORTED", "Send image/jpeg or image/webp");
+        }
+        if (data == null || data.length == 0 || data.length > LiveFrames.MAX_BYTES) {
+            throw ApiException.unprocessable("FRAME_SIZE_INVALID", "A frame must be 1 byte to 400 KB");
+        }
+        frames.put(attemptId, k, new LiveFrames.Frame(data, type, clock.instant()));
+    }
+
+    LiveFrames.Frame frame(UUID attemptId, String kind, User lecturer) {
+        AttemptInfo a = attempt(attemptId);
+        courseAccess.requireRead(a.courseId(), lecturer);
+        return frames.get(attemptId, kind == null ? "" : kind.toUpperCase(Locale.ROOT), clock.instant())
+                .orElseThrow(() -> ApiException.notFound("FRAME_NOT_FOUND", "No recent frame"));
     }
 
     /** Resume an INTERRUPTED attempt (D51): frozen time is given back and the open question is asked again. */
@@ -589,6 +648,7 @@ class InterviewService {
         events.log(a.attemptId(), null, "ATTEMPT_COMPLETED", null, payload("reason", reason), now);
         List<UUID> asked = turns.all(a.attemptId()).stream().map(Turn::questionId).distinct().toList();
         publisher.publishEvent(new AttemptCompletedEvent(a.attemptId(), a.courseId(), asked, reason));
+        frames.drop(a.attemptId());
     }
 
     // ================================================================================================ connection
@@ -682,7 +742,7 @@ class InterviewService {
         AttemptEventLog.Notice n = events.notice(attemptId, now);
         return new AttemptState(attemptId, exam.title(), a.status(), a.endReason(), events.version(attemptId), now,
                 a.deadlineAt(), remaining(a, now), progress, turn, n == null ? null : new Notice(n.type(), n.at()),
-                exam.showQuestionText(), exam.silenceWarningSec());
+                exam.showQuestionText(), exam.silenceWarningSec(), a.cancelReason());
     }
 
     private LiveAttempt liveRow(AttemptInfo a, ExamInfo exam, Instant now) {
@@ -707,7 +767,9 @@ class InterviewService {
                 p.threadRemainingSec(), open == null ? null : open.type(), open == null ? null : open.status(),
                 open == null ? null : open.questionText(), a.lastSeenAt(), online, a.disconnectedSince(),
                 a.disconnectCount(), a.frozenSecTotal(), last.map(Turn::processingMs).orElse(null),
-                turnCount == null ? 0 : turnCount, Objects.requireNonNull(rec).chunks(), rec.last(), events.version(a.attemptId()));
+                turnCount == null ? 0 : turnCount, Objects.requireNonNull(rec).chunks(), rec.last(), events.version(a.attemptId()),
+                a.cancelReason(), frames.get(a.attemptId(), "CAMERA", now).map(LiveFrames.Frame::at).orElse(null),
+                frames.get(a.attemptId(), "SCREEN", now).map(LiveFrames.Frame::at).orElse(null));
     }
 
     private static Progress progress(List<AttemptQuestionInfo> qs, AttemptQuestionInfo current, Turn open, ExamInfo exam) {

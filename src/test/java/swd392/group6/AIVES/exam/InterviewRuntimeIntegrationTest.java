@@ -392,6 +392,51 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
         assertThat(JsonPath.<List<Integer>>read(events, "$[?(@.type == 'TAB_HIDDEN')].payload.ms")).containsExactly(1200);
     }
 
+    @Test
+    void examinerVoidsACheatingAttempt_D65() throws Exception {
+        Started s = start(3);
+        String t1 = turnId(state(s));
+        call(post("/api/v1/attempts/" + s.attempt() + "/void"), s.c().token(), "{}")
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("REASON_REQUIRED"));
+        call(post("/api/v1/attempts/" + s.attempt() + "/void"), s.c().token(), "{\"reason\":\"Dùng điện thoại tra đáp án\"}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.cancelReason").value("Dùng điện thoại tra đáp án"));
+        String st = state(s);
+        assertThat((String) JsonPath.read(st, "$.status")).isEqualTo("CANCELLED");
+        assertThat((String) JsonPath.read(st, "$.cancelReason")).contains("điện thoại");
+        assertThat((String) JsonPath.read(st, "$.notice.type")).isEqualTo("LECTURER_VOIDED");
+        assertThat(jdbc.queryForObject("select status from exam_turns where turn_id = ?", String.class, UUID.fromString(t1)))
+                .isEqualTo("CANCELLED");
+        assertThat(jdbc.queryForList("select status from attempt_questions where attempt_id = ?", String.class, s.attempt()))
+                .containsOnly("SKIPPED");
+        assertThat(myStage(s.student(), s.exam())).isEqualTo("CANCELLED");
+        assertThat(completed.seen.stream().filter(e -> e.attemptId().equals(s.attempt()))).isEmpty(); // never graded
+        answer(s, t1, LONG).andExpect(status().isConflict());
+        call(post("/api/v1/attempts/" + s.attempt() + "/void"), s.c().token(), "{\"reason\":\"x\"}").andExpect(status().isConflict());
+        MockMultipartFile chunk = new MockMultipartFile("file", "c.webm", "video/webm", new byte[]{1, 2, 3});
+        mockMvc.perform(multipart(org.springframework.http.HttpMethod.PUT, "/api/v1/attempts/" + s.attempt() + "/recordings/CAMERA/0")
+                .file(chunk).header("Authorization", "Bearer " + token(s.student()))).andExpect(status().isOk()); // evidence after the void
+    }
+
+    @Test
+    void liveFramesReachTheExaminerOnly_D65() throws Exception {
+        Started s = start(1);
+        state(s);
+        byte[] jpeg = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1, 2, 3};
+        MockMultipartFile frame = new MockMultipartFile("file", "f.jpg", "image/jpeg", jpeg);
+        mockMvc.perform(multipart(org.springframework.http.HttpMethod.PUT, "/api/v1/attempts/" + s.attempt() + "/live-frame/camera")
+                .file(frame).header("Authorization", "Bearer " + token(s.student()))).andExpect(status().isNoContent());
+        call(get("/api/v1/attempts/" + s.attempt() + "/live-frame/CAMERA"), s.c().token())
+                .andExpect(status().isOk()).andExpect(result -> assertThat(result.getResponse().getContentAsByteArray()).isEqualTo(jpeg));
+        call(get("/api/v1/attempts/" + s.attempt() + "/live-frame/SCREEN"), s.c().token()).andExpect(status().isNotFound());
+        call(get("/api/v1/attempts/" + s.attempt() + "/live"), s.c().token()).andExpect(jsonPath("$.cameraFrameAt").isNotEmpty());
+        call(get("/api/v1/attempts/" + s.attempt() + "/live-frame/CAMERA"), token(data.lecturer())).andExpect(status().isNotFound());
+        mockMvc.perform(multipart(org.springframework.http.HttpMethod.PUT, "/api/v1/attempts/" + s.attempt() + "/live-frame/camera")
+                .file(frame).header("Authorization", "Bearer " + token(data.student()))).andExpect(status().isNotFound());
+        clock.advance(Duration.ofSeconds(61));
+        call(get("/api/v1/attempts/" + s.attempt() + "/live-frame/CAMERA"), s.c().token()).andExpect(status().isNotFound());
+    }
+
     private Instant deadline(UUID attempt) {
         return jdbc.queryForObject("select deadline_at from exam_attempts where attempt_id = ?", java.sql.Timestamp.class,
                 attempt).toInstant();

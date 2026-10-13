@@ -96,6 +96,13 @@ class JdbcAttemptControl implements AttemptControlApi {
     }
 
     @Override
+    public void cancel(UUID attemptId, String reason, Instant at) {
+        jdbc.update("""
+                        update exam_attempts set status = 'CANCELLED', cancel_reason = ?, ended_at = ?, disconnected_since = null
+                        where attempt_id = ? and status in ('IN_PROGRESS', 'INTERRUPTED')""", reason, ts(at), attemptId);
+    }
+
+    @Override
     public void startQuestion(UUID attemptQuestionId, Instant at) {
         jdbc.update("""
                         update attempt_questions set status = 'IN_PROGRESS', started_at = coalesce(started_at, ?)

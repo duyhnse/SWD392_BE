@@ -34,7 +34,8 @@ public interface ExamApi {
 
     record AttemptInfo(UUID attemptId, UUID vivaExamId, UUID courseId, UUID studentId, UUID examinerId, String status,
                        String endReason, Instant startedAt, Instant deadlineAt, Instant endedAt, int disconnectCount,
-                       int frozenSecTotal, Integer seqNo, Instant lastSeenAt, Instant disconnectedSince) {
+                       int frozenSecTotal, Integer seqNo, Instant lastSeenAt, Instant disconnectedSince,
+                       String cancelReason) {
     }
 
     /**

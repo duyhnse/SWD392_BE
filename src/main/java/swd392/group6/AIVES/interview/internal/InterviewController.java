@@ -1,12 +1,16 @@
 package swd392.group6.AIVES.interview.internal;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -93,6 +97,32 @@ class InterviewController {
                            @AuthenticationPrincipal User user) {
         service.end(id, body == null ? null : body.reason(), user);
         return service.liveAttempt(id, user);
+    }
+
+    /** Void the attempt (cheating …): reason required, never graded (D65). */
+    @PostMapping("/attempts/{id}/void")
+    @PreAuthorize("hasRole('LECTURER')")
+    public LiveAttempt voidAttempt(@PathVariable UUID id, @RequestBody(required = false) ReasonRequest body,
+                                   @AuthenticationPrincipal User user) {
+        service.voidAttempt(id, body == null ? null : body.reason(), user);
+        return service.liveAttempt(id, user);
+    }
+
+    /** Student browser: latest camera / screen still for the live proctoring view (every ~5 s). */
+    @PutMapping("/attempts/{id}/live-frame/{kind}")
+    @PreAuthorize("hasRole('STUDENT')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void putFrame(@PathVariable UUID id, @PathVariable String kind, @RequestPart("file") MultipartFile file,
+                         @AuthenticationPrincipal User user) throws IOException {
+        service.putFrame(id, kind, file.getBytes(), file.getContentType(), user);
+    }
+
+    @GetMapping("/attempts/{id}/live-frame/{kind}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'LECTURER')")
+    public ResponseEntity<byte[]> frame(@PathVariable UUID id, @PathVariable String kind, @AuthenticationPrincipal User user) {
+        LiveFrames.Frame f = service.frame(id, kind, user);
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType(f.contentType())).cacheControl(CacheControl.noStore())
+                .lastModified(f.at().toEpochMilli()).body(f.data());
     }
 
     @PostMapping("/attempts/{id}/resume")

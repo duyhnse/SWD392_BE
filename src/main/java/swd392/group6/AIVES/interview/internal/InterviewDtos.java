@@ -17,7 +17,7 @@ final class InterviewDtos {
      */
     record AttemptState(UUID attemptId, String examTitle, String status, String endReason, int stateVersion,
                         Instant serverTime, Instant deadlineAt, int remainingSec, Progress progress, CurrentTurn currentTurn,
-                        Notice notice, boolean showQuestionText, int silenceWarningSec) {
+                        Notice notice, boolean showQuestionText, int silenceWarningSec, String cancelReason) {
     }
 
     /** {@code threadIndex} 1-based; {@code threadRemainingSec} = answering time left for this main question (D46). */
@@ -53,6 +53,7 @@ final class InterviewDtos {
                        int followupIndex, int maxFollowups, int threadRemainingSec, String currentTurnType,
                        String currentTurnStatus, String currentQuestionText, Instant lastSeenAt, boolean online,
                        Instant disconnectedSince, int disconnectCount, int frozenSecTotal, Integer lastProcessingMs,
-                       int turnCount, int recordingChunks, Instant lastRecordingAt, int eventCount) {
+                       int turnCount, int recordingChunks, Instant lastRecordingAt, int eventCount,
+                       String cancelReason, Instant cameraFrameAt, Instant screenFrameAt) {
     }
 }
