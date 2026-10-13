@@ -64,7 +64,7 @@ class AdminUserController {
     @PostMapping
     public ResponseEntity<UserResponseDTO> create(@Valid @RequestBody CreateUserRequest request) {
         User user = provisioning.create(new NewAccount(request.username(), request.fullName(), request.email(),
-                request.studentCode(), request.role()));
+                request.studentCode(), request.role(), request.password(), null));
         return ResponseEntity.status(HttpStatus.CREATED).body(UserResponseDTO.fromEntity(user));
     }
 

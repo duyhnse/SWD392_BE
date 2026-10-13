@@ -6,9 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.common.ApiException;
 
-import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -21,16 +19,16 @@ import java.util.regex.Pattern;
 class AccountProvisioningService implements UserApi {
 
     private static final Pattern EMAIL = Pattern.compile("[^@\\s]+@[^@\\s]+\\.[^@\\s]+");
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SettingsService settings;
 
     @Override
     @Transactional
     public List<ProvisionResult> ensureStudents(List<NewAccount> students) {
         return provision(students.stream()
-                .map(s -> new NewAccount(s.username(), s.fullName(), s.email(), s.studentCode(), Role.STUDENT))
+                .map(s -> new NewAccount(s.username(), s.fullName(), s.email(), s.studentCode(), Role.STUDENT, s.password(), null))
                 .toList());
     }
 
@@ -112,6 +110,10 @@ class AccountProvisioningService implements UserApi {
         if (code != null && (!seenCodes.add(code) || userRepository.existsByStudentCode(code))) {
             return error("STUDENT_CODE_ALREADY_EXISTS", "student_code", "Student code is already used");
         }
+        String password = raw.password() == null || raw.password().isBlank() ? settings.defaultPassword() : raw.password();
+        if (password.length() < PasswordRules.MIN_PASSWORD || password.length() > PasswordRules.MAX_PASSWORD) {
+            return error("INVALID_PASSWORD", "password", "Password must be 8–100 characters");
+        }
 
         User user = userRepository.save(User.builder()
                 .username(username)
@@ -119,7 +121,9 @@ class AccountProvisioningService implements UserApi {
                 .email(email)
                 .studentCode(code)
                 .roleId(role.getId())
-                .hashedPassword(passwordEncoder.encode(randomSecret())) // real password lives in the university system; here: Forgot password (§3.4)
+                .hashedPassword(passwordEncoder.encode(password))
+                .active(raw.active() == null || raw.active())
+                .mustChangePassword(true) // someone else chose it (D62)
                 .build());
         return new ProvisionResult(user.getUserId(), true, null, null, null);
     }
@@ -128,9 +132,4 @@ class AccountProvisioningService implements UserApi {
         return new ProvisionResult(null, false, code, field, message);
     }
 
-    private static String randomSecret() {
-        byte[] bytes = new byte[32];
-        RANDOM.nextBytes(bytes);
-        return Base64.getEncoder().encodeToString(bytes);
-    }
 }

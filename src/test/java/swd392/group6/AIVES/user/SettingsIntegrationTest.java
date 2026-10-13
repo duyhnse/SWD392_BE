@@ -47,7 +47,8 @@ class SettingsIntegrationTest {
     void adminListsSeededSettings() throws Exception {
         mockMvc.perform(get("/api/v1/admin/settings").header("Authorization", adminAuth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(12))
+                .andExpect(jsonPath("$.length()").value(13))
+                .andExpect(jsonPath("$[?(@.key=='account.default_password')].value").exists())
                 .andExpect(jsonPath("$[?(@.key=='exam.seconds.ANALYZE')].value").value("300"))
                 .andExpect(jsonPath("$[?(@.key=='stt.provider')].description").isNotEmpty())
                 .andExpect(jsonPath("$[?(@.key=='stt.language.vi')].value").value("vi"))

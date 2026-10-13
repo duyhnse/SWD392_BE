@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.common.ApiException;
+import swd392.group6.AIVES.common.CsvTemplates;
 import swd392.group6.AIVES.common.DryRun;
 import swd392.group6.AIVES.exam.ExamDtos.AddStudentsReport;
 import swd392.group6.AIVES.exam.ExamDtos.ImportReport;
@@ -136,7 +137,7 @@ class ExamStudentService {
         refresher.refreshDue();
         requireRosterEditable(access.write(examId, user));
 
-        record Row(int row, String code, String username, String fullName, String email) {
+        record Row(int row, String code, String username, String fullName, String email, String password) {
             boolean creates() {
                 return notBlank(username) && notBlank(fullName) && notBlank(email);
             }
@@ -146,7 +147,7 @@ class ExamStudentService {
              CSVParser parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true)
                      .setIgnoreEmptyLines(true).setTrim(true).get().parse(reader)) {
             Map<String, Integer> header = new HashMap<>();
-            parser.getHeaderMap().forEach((name, index) -> header.put(name.trim().toLowerCase(Locale.ROOT), index));
+            parser.getHeaderMap().forEach((name, index) -> header.putIfAbsent(CsvTemplates.columnName(name), index));
             if (!header.containsKey("student_code") && !header.containsKey("username")) {
                 throw invalidFile("Header must contain student_code (or username); add username, full_name, email to create missing accounts");
             }
@@ -155,7 +156,8 @@ class ExamStudentService {
                     throw invalidFile("A file may contain at most " + MAX_IMPORT_ROWS + " rows");
                 }
                 Row r = new Row((int) record.getRecordNumber() + 1, value(record, header, "student_code"),
-                        value(record, header, "username"), value(record, header, "full_name"), value(record, header, "email"));
+                        value(record, header, "username"), value(record, header, "full_name"), value(record, header, "email"),
+                        value(record, header, "password"));
                 if (notBlank(r.code()) || notBlank(r.username()) || notBlank(r.fullName()) || notBlank(r.email())) {
                     rows.add(r);
                 }
@@ -172,7 +174,7 @@ class ExamStudentService {
 
         List<Row> creating = rows.stream().filter(Row::creates).toList();
         List<ProvisionResult> results = userApi.ensureStudents(creating.stream()
-                .map(r -> NewAccount.student(r.username(), r.fullName(), r.email(), r.code())).toList());
+                .map(r -> NewAccount.student(r.username(), r.fullName(), r.email(), r.code(), r.password())).toList());
         for (int i = 0; i < results.size(); i++) {
             ProvisionResult result = results.get(i);
             Row r = creating.get(i);
@@ -224,9 +226,14 @@ class ExamStudentService {
         return s != null && !s.isBlank();
     }
 
-    /** Class list template: header only, so importing an untouched template adds nobody. */
+    /** Class list template (15 §5.7, D62): row 1 = column names + what to write + what a blank cell means. */
     static byte[] template() {
-        return "\uFEFFstudent_code,username,full_name,email\n".getBytes(StandardCharsets.UTF_8);
+        return CsvTemplates.csv(List.of(
+                "student_code (MSSV — bắt buộc; sinh viên đã có tài khoản chỉ cần cột này)",
+                "username (chỉ điền khi sinh viên chưa có tài khoản — tên đăng nhập, duy nhất, 3–50 ký tự a-z 0-9 . - _)",
+                "full_name (chỉ điền khi chưa có tài khoản — họ tên)",
+                "email (chỉ điền khi chưa có tài khoản — duy nhất, dùng để đặt lại mật khẩu)",
+                "password (chỉ dùng khi tạo tài khoản mới, 8–100 ký tự — trống = mật khẩu mặc định ở Cấu hình; phải đổi ở lần đăng nhập đầu)"));
     }
 
     /**

@@ -64,6 +64,7 @@ public class UserService {
         }
         user.setHashedPassword(passwordEncoder.encode(request.newPassword()));
         user.setPasswordChangedAt(clock.instant());
+        user.setMustChangePassword(false);
         // Every other device is signed out; this one continues in a fresh session on the same device (D24, D38).
         LoginContext here = sessionService.find(currentSessionId)
                 .map(s -> new LoginContext(s.getDeviceId(), s.getUserAgent(), s.getIpAddress(), true))

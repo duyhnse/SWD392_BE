@@ -59,6 +59,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             JwtAuthenticationFilter jwtAuthFilter,
+            PasswordChangeFilter passwordChangeFilter,
             AuthenticationProvider authenticationProvider
     ) throws Exception {
         http
@@ -88,7 +89,8 @@ public class SecurityConfig {
                                 writeError(response, 403, "FORBIDDEN", "You do not have permission to perform this action"))
                 )
                 .authenticationProvider(authenticationProvider)
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(passwordChangeFilter, JwtAuthenticationFilter.class);
 
         return http.build();
     }

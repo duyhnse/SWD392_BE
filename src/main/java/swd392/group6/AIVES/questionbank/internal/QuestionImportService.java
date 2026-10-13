@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import swd392.group6.AIVES.common.ApiException;
+import swd392.group6.AIVES.common.CsvTemplates;
 import swd392.group6.AIVES.common.DryRun;
 import swd392.group6.AIVES.common.Language;
 import swd392.group6.AIVES.questionbank.BloomLevel;
@@ -187,34 +188,37 @@ public class QuestionImportService {
     }
 
     /**
-     * The template (04 §8). CSV: the header only. XLSX: the header on the first sheet (the one that is imported) and
-     * a "Hướng dẫn" sheet explaining every column, with this course's topic / rubric names when given. Nothing in it is
-     * imported by accident.
+     * The template (04 §8, D62): one header row, no examples. Each header cell = column name + what to write + what a
+     * blank cell means; with {@code courseId} the topic / rubric cells list this course's names. Same row in CSV and XLSX.
      */
     @Transactional(readOnly = true)
     public byte[] template(String format, UUID courseId, User user) {
-        List<String> topics = List.of();
-        List<String> rubricNames = List.of();
+        String topics = "";
+        String rubricNames = "";
         if (courseId != null) {
             access.readCourse(courseId, user);
-            topics = jdbc.queryForList("select name from topics where course_id = ? order by sort_order, name", String.class, courseId);
-            rubricNames = jdbc.queryForList("select name from rubrics where course_id = ? order by name", String.class, courseId);
+            topics = String.join(", ", jdbc.queryForList(
+                    "select name from topics where course_id = ? order by sort_order, name", String.class, courseId));
+            rubricNames = String.join(", ", jdbc.queryForList(
+                    "select name from rubrics where course_id = ? order by name", String.class, courseId));
         }
+        List<String> header = headerCells(topics, rubricNames);
         try {
-            return "xlsx".equalsIgnoreCase(format) ? xlsx(topics, rubricNames) : csv(List.of(COLUMNS));
+            return "xlsx".equalsIgnoreCase(format) ? xlsx(header) : CsvTemplates.csv(header);
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
     }
 
-    private static final List<List<String>> GUIDE = List.of(
-            List.of("Cột", "Bắt buộc", "Cách điền"),
-            List.of("topic", "Có", "Tên một topic của môn (không phân biệt hoa thường)."),
-            List.of("content", "Có", "Nội dung câu hỏi mở, 10–2000 ký tự."),
-            List.of("reference_answer", "Không (cần để công bố)", "Các ý chính, mỗi ý một dòng bắt đầu bằng \"-\". Tối đa 4000 ký tự."),
-            List.of("bloom_level", "Không (cần để công bố)", "REMEMBER / UNDERSTAND / APPLY / ANALYZE, hoặc NHO / HIEU / VAN_DUNG / PHAN_TICH."),
-            List.of("language", "Không", "VI hoặc EN; để trống = ngôn ngữ của môn."),
-            List.of("rubric_name", "Không (cần để công bố)", "Tên một rubric của môn."));
+    static List<String> headerCells(String topics, String rubricNames) {
+        return List.of(
+                "topic (bắt buộc — tên một topic của môn, không phân biệt hoa thường" + (topics.isEmpty() ? "" : ": " + topics) + ")",
+                "content (bắt buộc — câu hỏi mở, 10–2000 ký tự)",
+                "reference_answer (cần để công bố — các ý chính, mỗi ý một dòng bắt đầu bằng \"-\", tối đa 4000 ký tự; trống = chưa có)",
+                "bloom_level (cần để công bố — REMEMBER / UNDERSTAND / APPLY / ANALYZE hoặc NHO / HIEU / VAN_DUNG / PHAN_TICH; trống = chưa chọn)",
+                "language (VI / EN — trống = ngôn ngữ của môn)",
+                "rubric_name (cần để công bố — tên một rubric của môn" + (rubricNames.isEmpty() ? "" : ": " + rubricNames) + "; trống = chưa gắn)");
+    }
 
     static List<Line> readCsv(byte[] data) throws IOException {
         String text = new String(data, StandardCharsets.UTF_8);
@@ -279,8 +283,8 @@ public class QuestionImportService {
     private static Map<String, String> headers(List<String> names) {
         Map<String, String> map = new LinkedHashMap<>();
         for (String n : names) {
-            String column = n == null ? "" : n.strip().toLowerCase(Locale.ROOT).replace(' ', '_');
-            if (COLUMNS.contains(column)) {
+            String column = CsvTemplates.columnName(n);
+            if (COLUMNS.contains(column) && !map.containsValue(column)) {
                 map.put(n, column);
             }
         }
@@ -300,40 +304,25 @@ public class QuestionImportService {
         }
     }
 
-    private static byte[] csv(List<List<String>> rows) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        out.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF}); // BOM so Excel opens UTF-8 correctly
-        try (CSVPrinter printer = new CSVPrinter(new OutputStreamWriter(out, StandardCharsets.UTF_8), CSVFormat.DEFAULT)) {
-            for (List<String> row : rows) {
-                printer.printRecord(row);
-            }
-        }
-        return out.toByteArray();
-    }
 
-    private static byte[] xlsx(List<String> topics, List<String> rubricNames) throws IOException {
+    private static byte[] xlsx(List<String> header) throws IOException {
         try (XSSFWorkbook book = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = book.createSheet("questions");
-            Row header = sheet.createRow(0);
-            for (int c = 0; c < COLUMNS.size(); c++) {
-                header.createCell(c).setCellValue(COLUMNS.get(c));
-                sheet.setColumnWidth(c, c == 1 || c == 2 ? 60 * 256 : 18 * 256);
+            org.apache.poi.ss.usermodel.CellStyle wrap = book.createCellStyle();
+            wrap.setWrapText(true);
+            wrap.setVerticalAlignment(org.apache.poi.ss.usermodel.VerticalAlignment.TOP);
+            org.apache.poi.ss.usermodel.Font bold = book.createFont();
+            bold.setBold(true);
+            wrap.setFont(bold);
+            Row row = sheet.createRow(0);
+            row.setHeightInPoints(90);
+            for (int c = 0; c < header.size(); c++) {
+                org.apache.poi.ss.usermodel.Cell cell = row.createCell(c);
+                cell.setCellValue(header.get(c));
+                cell.setCellStyle(wrap);
+                sheet.setColumnWidth(c, (c == 1 || c == 2 ? 50 : 28) * 256);
             }
-            Sheet guide = book.createSheet("Hướng dẫn");
-            int r = 0;
-            for (List<String> line : GUIDE) {
-                Row row = guide.createRow(r++);
-                for (int c = 0; c < line.size(); c++) {
-                    row.createCell(c).setCellValue(line.get(c));
-                }
-            }
-            r++;
-            guide.createRow(r++).createCell(0).setCellValue("Topic của môn: " + (topics.isEmpty() ? "—" : String.join(", ", topics)));
-            guide.createRow(r++).createCell(0).setCellValue("Rubric của môn: " + (rubricNames.isEmpty() ? "—" : String.join(", ", rubricNames)));
-            guide.createRow(r).createCell(0).setCellValue("Chỉ sheet đầu tiên (questions) được nhập; mỗi dòng một câu hỏi, dòng 1 là tiêu đề.");
-            guide.setColumnWidth(0, 22 * 256);
-            guide.setColumnWidth(1, 24 * 256);
-            guide.setColumnWidth(2, 90 * 256);
+            sheet.createFreezePane(0, 1);
             book.write(out);
             return out.toByteArray();
         }

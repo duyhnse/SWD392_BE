@@ -25,7 +25,8 @@ class SettingsService implements SettingsApi {
 
     static final Set<String> KNOWN_KEYS = Set.of("default_language", "stt.provider", "stt.language.vi",
             "stt.language.en", "tts.provider", "tts.voice.vi", "tts.voice.en", "exam.seconds.REMEMBER",
-            "exam.seconds.UNDERSTAND", "exam.seconds.APPLY", "exam.seconds.ANALYZE", "exam.seconds.ANY");
+            "exam.seconds.UNDERSTAND", "exam.seconds.APPLY", "exam.seconds.ANALYZE", "exam.seconds.ANY",
+            "account.default_password");
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -92,6 +93,11 @@ class SettingsService implements SettingsApi {
                 .orElse(Language.VI);
     }
 
+    /** D62: initial password of accounts created by an admin / import when none is given. */
+    String defaultPassword() {
+        return value("account.default_password").filter(v -> v.length() >= PasswordRules.MIN_PASSWORD).orElse("Aives@2026");
+    }
+
     private static void validate(String key, JsonNode value) {
         if (!KNOWN_KEYS.contains(key)) {
             throw ApiException.unprocessable("UNKNOWN_SETTING", "Unknown setting: " + key);
@@ -101,6 +107,12 @@ class SettingsService implements SettingsApi {
         }
         if (key.equals("default_language") && !Set.of("VI", "EN").contains(value.asString())) {
             throw ApiException.unprocessable("INVALID_SETTING_VALUE", "default_language must be VI or EN");
+        }
+        if (key.equals("account.default_password")) {
+            String p = value.asString();
+            if (p.length() < PasswordRules.MIN_PASSWORD || p.length() > PasswordRules.MAX_PASSWORD) {
+                throw ApiException.unprocessable("INVALID_SETTING_VALUE", "The default password must be 8–100 characters");
+            }
         }
         if (key.startsWith("exam.seconds.")) {
             int seconds;

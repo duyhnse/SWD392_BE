@@ -5,6 +5,7 @@ import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import swd392.group6.AIVES.common.CsvTemplates;
 import swd392.group6.AIVES.common.DryRun;
 import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.user.AdminUserDtos.ImportReport;
@@ -48,7 +49,7 @@ class UserCsvImporter {
                      .setIgnoreEmptyLines(true).setTrim(true).get().parse(reader)) {
             Map<String, Integer> header = lowerCaseHeader(parser.getHeaderMap());
             if (!header.keySet().containsAll(REQUIRED)) {
-                throw invalidFile("Header must contain: username, full_name, email (optional: student_code, role)");
+                throw invalidFile("Header must contain: username, full_name, email (optional: role, student_code, password, active)");
             }
             for (CSVRecord record : parser) {
                 int row = (int) record.getRecordNumber() + 1; // +1: the header is row 1, as in a spreadsheet
@@ -65,8 +66,16 @@ class UserCsvImporter {
                         continue;
                     }
                 }
+                Boolean active;
+                try {
+                    active = CsvTemplates.bool(value(record, header, "active"));
+                } catch (IllegalArgumentException e) {
+                    errors.add(new RowError(row, "active", "INVALID_ACTIVE", "active must be TRUE or FALSE (blank = TRUE)"));
+                    continue;
+                }
                 accounts.add(new NewAccount(value(record, header, "username"), value(record, header, "full_name"),
-                        value(record, header, "email"), value(record, header, "student_code"), role));
+                        value(record, header, "email"), value(record, header, "student_code"), role,
+                        value(record, header, "password"), active));
                 rowNumbers.add(row);
             }
         } catch (IOException | IllegalArgumentException | IllegalStateException e) {
@@ -92,14 +101,21 @@ class UserCsvImporter {
         return new ImportReport(total, created, existing, errors);
     }
 
-    /** Account import template (14 §3.4): header only, so importing an untouched template creates nobody. */
+    /** Account import template (14 §3.4, D62): row 1 = column names + what to write + what a blank cell means. */
     static byte[] template() {
-        return "\uFEFFusername,full_name,email,student_code,role\n".getBytes(StandardCharsets.UTF_8);
+        return CsvTemplates.csv(List.of(
+                "username (bắt buộc — tên đăng nhập, duy nhất, 3–50 ký tự a-z 0-9 . - _; username đã có thì giữ nguyên, không ghi đè)",
+                "full_name (bắt buộc với tài khoản mới — họ tên, tối đa 100 ký tự)",
+                "email (bắt buộc với tài khoản mới — duy nhất, dùng để gửi link đặt lại mật khẩu)",
+                "role (STUDENT / LECTURER / ADMIN — trống = STUDENT)",
+                "student_code (MSSV — bắt buộc khi role là STUDENT, để trống với LECTURER / ADMIN)",
+                "password (8–100 ký tự — trống = mật khẩu mặc định ở trang Cấu hình; người dùng phải đổi ở lần đăng nhập đầu)",
+                "active (TRUE / FALSE — trống = TRUE)"));
     }
 
     private static Map<String, Integer> lowerCaseHeader(Map<String, Integer> header) {
         Map<String, Integer> lower = new java.util.HashMap<>();
-        header.forEach((name, index) -> lower.put(name.trim().toLowerCase(Locale.ROOT), index));
+        header.forEach((name, index) -> lower.putIfAbsent(CsvTemplates.columnName(name), index));
         return lower;
     }
 

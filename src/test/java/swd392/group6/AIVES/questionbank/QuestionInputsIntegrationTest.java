@@ -286,10 +286,12 @@ class QuestionInputsIntegrationTest {
                 .andExpect(header().string("Content-Disposition", containsString("aives-question-template.xlsx")))
                 .andReturn().getResponse().getContentAsByteArray();
         try (XSSFWorkbook book = new XSSFWorkbook(new ByteArrayInputStream(template))) {
-            // header only on the imported sheet; the guide sheet names this course's topics
-            assertThat(book.getSheetAt(0).getRow(0).getCell(0).getStringCellValue()).isEqualTo("topic");
+            // one header row that explains each column (D62) and names this course's topics; no example rows
+            assertThat(book.getSheetAt(0).getRow(0).getCell(0).getStringCellValue())
+                    .startsWith("topic (bắt buộc").contains("Architecture");
+            assertThat(book.getSheetAt(0).getRow(0).getCell(4).getStringCellValue()).contains("trống = ngôn ngữ của môn");
             assertThat((Object) book.getSheetAt(0).getRow(1)).isNull();
-            assertThat(book.getSheet("Hướng dẫn").getRow(8).getCell(0).getStringCellValue()).contains("Architecture");
+            assertThat(book.getNumberOfSheets()).isOne();
         }
         ResultHolder r = importFile("untouched.xlsx", template);
         assertThat((Integer) r.read("$.total")).isZero();
