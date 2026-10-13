@@ -39,7 +39,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * HTTP adapter for every AI port, talking to the AI node over the tailnet ({@code application.ai.mode=node},
+ * The only adapter for the AI ports: node 1 talks to the AI node over HTTP (tailnet or local network, D63;
  * contract {@code SWD_Docs/api/ai-node.openapi.yaml}). Field names on the wire are snake_case.
  */
 @Slf4j
