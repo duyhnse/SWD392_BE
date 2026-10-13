@@ -55,7 +55,7 @@ class AiNodeClientTest {
         });
         server.start();
         client = new AiNodeClient(new AiNodeProperties("http://127.0.0.1:" + server.getAddress().getPort(), "node-token",
-                "secret", "http://node1:8081", Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofMinutes(1)), 3);
+                "secret", "http://node1:8081", Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofMinutes(1)));
     }
 
     @AfterEach
@@ -75,7 +75,7 @@ class AiNodeClientTest {
                  "follow_up_audio":{"audio_base64":"%s","content_type":"audio/mpeg","duration_ms":800}}""".formatted(audio)});
 
         AnswerResult r = client.processAnswer(new AnswerRequest("turn-7", Language.VI, new byte[] {1, 2, 3}, "audio/webm",
-                List.of("SOLID"), "Main?", "- A", List.of(new PriorTurn("MAIN", "Main?", "trước")), "Main?", 0, 2, true, null));
+                List.of("SOLID"), "Main?", "- A", List.of(new PriorTurn("MAIN", "Main?", "trước")), "Main?", 0, 2, true));
 
         assertThat(r.transcript().text()).isEqualTo("em nghĩ là");
         assertThat(r.transcript().latencyMs()).isEqualTo(900);
@@ -97,7 +97,7 @@ class AiNodeClientTest {
         responses.put("POST /v1/interview/process-answer", new Object[]{200, """
                 {"transcript":{"text":"abc"},"analysis":null,"analysis_error":{"code":"LLM_TIMEOUT","message":"8s"}}"""});
         AnswerResult r = client.processAnswer(new AnswerRequest("t", Language.EN, new byte[] {1}, "audio/webm", List.of(),
-                "Q", "", List.of(), "Q", 0, 1, false, null));
+                "Q", "", List.of(), "Q", 0, 1, false));
         assertThat(r.analysis()).isNull();
         assertThat(r.analysisError()).isEqualTo("LLM_TIMEOUT");
         assertThat(r.transcript().text()).isEqualTo("abc");
@@ -107,9 +107,6 @@ class AiNodeClientTest {
     void nodeErrorsBecomeAiUnavailable() {
         responses.put("POST /v1/tts", new Object[]{503, "{\"code\":\"AI_PROVIDER_UNAVAILABLE\"}"});
         assertThatThrownBy(() -> client.synthesize("Xin chào", Language.VI)).isInstanceOf(AiUnavailableException.class);
-        responses.put("POST /v1/embeddings", new Object[]{200, "{\"vectors\":[[0.1,0.2]]}"});
-        assertThatThrownBy(() -> client.embed(List.of("x"))).isInstanceOf(AiUnavailableException.class)
-                .hasMessageContaining("dimension");
     }
 
     @Test

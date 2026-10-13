@@ -1,14 +1,12 @@
 package swd392.group6.AIVES.questionbank.internal;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.ai.AiJobService;
 import swd392.group6.AIVES.ai.AiJobType;
-import swd392.group6.AIVES.ai.EmbeddingPort;
 import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.common.Language;
 import swd392.group6.AIVES.questionbank.BloomLevel;
@@ -33,9 +31,9 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * AI draft generation from course materials (04 §9.2, C3). Node 1 does the retrieval (pgvector over the selected
- * INDEXED materials); the AI node only writes drafts ({@code GENERATE_QUESTIONS}, contract 16 §4.1). The lecturer
- * picks the topic (D42). Nothing generated is ever published automatically (BR-Q4).
+ * AI draft generation from course materials (04 §9.2, C3). Node 1 checks the request, sends {@code GENERATE_QUESTIONS}
+ * with the material ids and stores the drafts it gets back; retrieval, prompting and retries are the AI node's (D63).
+ * The lecturer picks the topic (D42). Nothing generated is ever published automatically (BR-Q4).
  */
 @Service
 @RequiredArgsConstructor
@@ -48,26 +46,13 @@ public class QuestionGenerationService {
 
     private final NamedParameterJdbcTemplate jdbc;
     private final ContentAccess access;
-    private final EmbeddingPort embeddings;
     private final AiJobService aiJobs;
     private final QuestionRepository questions;
     private final QuestionSourceRepository sources;
     private final NotificationApi notifications;
     private final Clock clock;
 
-    @Value("${application.rag.top-k:8}")
-    private int topK;
 
-    /** Mock embeddings are bag-of-words, so their scores are far lower than a real model's (see application.yaml). */
-    @Value("${application.rag.min-similarity:0.05}")
-    private double minSimilarity;
-
-    @Value("${application.rag.min-relevant-chunks:1}")
-    private int minRelevantChunks;
-
-    /** One retrieved chunk, as sent to the AI node and kept for the citations. */
-    record Retrieved(UUID chunkId, UUID materialId, String materialName, String location, String content, double similarity) {
-    }
 
     public GenerationDto start(UUID courseId, GenerationRequest r, User user) {
         access.writeCourse(courseId, user);
@@ -99,13 +84,6 @@ public class QuestionGenerationService {
                         .addValue("n", r.count()).addValue("b", JSON.writeValueAsString(blooms)).addValue("f", focus)
                         .addValue("lang", language.name()).addValue("now", Timestamp.from(now)));
 
-        String query = String.join(" ", topic.get("name").toString(),
-                topic.get("description") == null ? "" : topic.get("description").toString(), focus == null ? "" : focus);
-        List<Retrieved> chunks = retrieve(query, materialIds).stream().filter(c -> c.similarity() >= minSimilarity).toList();
-        if (chunks.size() < minRelevantChunks) {
-            finish(id, "NO_CONTEXT", 0, "Selected materials do not cover this topic", null);
-            return get(id, user);
-        }
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("language", language.name());
         input.put("course", Map.of("code", course.get("code"), "name", course.get("name")));
@@ -117,9 +95,7 @@ public class QuestionGenerationService {
                         select content from questions where topic_id = :t and status = 'PUBLISHED' order by published_at desc
                         limit :n""", new MapSqlParameterSource("t", r.topicId()).addValue("n", MAX_EXISTING_TITLES),
                 String.class));
-        input.put("chunks", chunks.stream().map(c -> Map.of("id", c.chunkId().toString(), "material_name", c.materialName(),
-                "location", c.location(), "content", c.content())).toList());
-        input.put("attempt", 1);
+        input.put("material_ids", materialIds);
         jdbc.update("update ai_generation_requests set status = 'RUNNING' where generation_request_id = :id",
                 new MapSqlParameterSource("id", id));
         aiJobs.enqueue(AiJobType.GENERATE_QUESTIONS, JOB_SUBJECT, id, input);
@@ -141,47 +117,39 @@ public class QuestionGenerationService {
     }
 
     /**
-     * Result of a {@code GENERATE_QUESTIONS} job (called by {@link AiResultListener}). E5: an invalid answer is retried
-     * once with a repair hint; a second invalid answer fails the whole batch and writes nothing.
+     * Result of a {@code GENERATE_QUESTIONS} job (called by {@link AiResultListener}). {@code NO_CONTEXT} from the AI
+     * node = the materials do not cover the topic (E1); anything else that is not a valid answer fails the request and
+     * writes nothing (E4, E5 — the node already retried).
      */
-    void onJobFinished(UUID requestId, String jobStatus, JsonNode request, JsonNode result, String errorCode, String errorMessage) {
+    void onJobFinished(UUID requestId, String jobStatus, JsonNode result, String errorCode, String errorMessage) {
         Map<String, Object> req = jdbc.queryForList("""
-                        select status, course_id, topic_id, requested_by, requested_count, language
+                        select status, course_id, topic_id, requested_by, requested_count, language, material_ids::text
                         from ai_generation_requests where generation_request_id = :id for update""",
                 new MapSqlParameterSource("id", requestId)).stream().findFirst().orElse(null);
         if (req == null || !"RUNNING".equals(req.get("status"))) {
             return;
         }
         UUID owner = (UUID) req.get("requested_by");
-        if (!"SUCCEEDED".equals(jobStatus)) {
-            finish(requestId, "FAILED", 0, "AI generation failed: " + (errorMessage != null ? errorMessage : errorCode), null);
-            notify(owner, requestId, (UUID) req.get("course_id"), "FAILED", 0);
+        UUID courseId = (UUID) req.get("course_id");
+        if ("NO_CONTEXT".equals(errorCode)) {
+            finish(requestId, "NO_CONTEXT", 0, "Selected materials do not cover this topic", null);
+            notify(owner, requestId, courseId, "NO_CONTEXT", 0);
             return;
         }
-        Map<String, Retrieved> provided = new LinkedHashMap<>();
-        for (JsonNode c : request.path("chunks")) {
-            provided.put(c.path("id").asString(), null);
-        }
-        String problem = validate(result, provided.keySet(), (Integer) req.get("requested_count"));
+        Set<String> materials = new HashSet<>();
+        JSON.readTree((String) req.get("material_ids")).forEach(n -> materials.add(n.asString()));
+        String problem = !"SUCCEEDED".equals(jobStatus) ? "AI generation failed: " + (errorMessage != null ? errorMessage : errorCode)
+                : validate(result, materials, (Integer) req.get("requested_count"));
         if (problem != null) {
-            if (request.path("attempt").asInt(1) < 2) {
-                Map<String, Object> retry = JSON.convertValue(request, Map.class);
-                retry.put("attempt", 2);
-                retry.put("repair", "The previous answer was rejected: " + problem
-                        + ". Answer again with valid JSON exactly as the schema says.");
-                aiJobs.enqueue(AiJobType.GENERATE_QUESTIONS, JOB_SUBJECT, requestId, retry);
-            } else {
-                finish(requestId, "FAILED", 0, "The AI answer was invalid twice (" + problem + "); no drafts were saved", null);
-                notify(owner, requestId, (UUID) req.get("course_id"), "FAILED", 0);
-            }
+            finish(requestId, "FAILED", 0, problem.length() > 1000 ? problem.substring(0, 1000) : problem, null);
+            notify(owner, requestId, courseId, "FAILED", 0);
             return;
         }
-        Map<UUID, Retrieved> chunks = chunkInfo(provided.keySet());
         Instant now = clock.instant();
         int saved = 0;
         for (JsonNode g : result.path("questions")) {
             Question q = new Question();
-            q.setCourseId((UUID) req.get("course_id"));
+            q.setCourseId(courseId);
             q.setTopicId((UUID) req.get("topic_id"));
             q.setContent(g.path("content").asString().strip());
             q.setReferenceAnswer(g.path("reference_answer").asString().strip());
@@ -200,27 +168,27 @@ public class QuestionGenerationService {
             q = questions.saveAndFlush(q);
             jdbc.update("update questions set ai_suggested_rubric = cast(:r as jsonb) where question_id = :q",
                     new MapSqlParameterSource("r", JSON.writeValueAsString(g.path("rubric"))).addValue("q", q.getId()));
-            for (JsonNode cid : g.path("source_chunk_ids")) {
-                Retrieved c = chunks.get(UUID.fromString(cid.asString()));
-                if (c == null) {
-                    continue;
-                }
+            for (JsonNode src : g.path("sources")) {
                 QuestionSource s = new QuestionSource();
                 s.setQuestionId(q.getId());
-                s.setMaterialId(c.materialId());
-                s.setChunkId(c.chunkId());
-                s.setLocationLabel(c.location());
-                s.setExcerpt(c.content().length() > 600 ? c.content().substring(0, 600) + "…" : c.content());
+                s.setMaterialId(UUID.fromString(src.path("material_id").asString()));
+                s.setLocationLabel(truncate(src.path("location_label").asString("—"), 100));
+                String excerpt = src.path("excerpt").asString(null);
+                s.setExcerpt(excerpt == null ? null : truncate(excerpt, 1000));
                 sources.save(s);
             }
             saved++;
         }
         finish(requestId, "SUCCEEDED", saved, null, result.path("model").asString(null));
-        notify(owner, requestId, (UUID) req.get("course_id"), "SUCCEEDED", saved);
+        notify(owner, requestId, courseId, "SUCCEEDED", saved);
+    }
+
+    private static String truncate(String s, int max) {
+        return s.length() <= max ? s : s.substring(0, max);
     }
 
     /** null = valid; otherwise what is wrong (04 §9.2 step 6). */
-    static String validate(JsonNode result, Set<String> providedChunkIds, int requested) {
+    static String validate(JsonNode result, Set<String> materialIds, int requested) {
         JsonNode list = result == null ? null : result.path("questions");
         if (list == null || !list.isArray() || list.isEmpty()) {
             return "questions must be a non-empty list";
@@ -246,13 +214,14 @@ public class QuestionGenerationService {
             if (!blooms.contains(q.path("bloom_level").asString(""))) {
                 return "question " + n + ": unknown bloom_level";
             }
-            JsonNode cites = q.path("source_chunk_ids");
+            JsonNode cites = q.path("sources");
             if (!cites.isArray() || cites.isEmpty()) {
-                return "question " + n + ": no source_chunk_ids";
+                return "question " + n + ": no sources";
             }
             for (JsonNode c : cites) {
-                if (!providedChunkIds.contains(c.asString(""))) {
-                    return "question " + n + ": cites a chunk that was not provided";
+                if (!materialIds.contains(c.path("material_id").asString(""))
+                        || c.path("location_label").asString("").isBlank()) {
+                    return "question " + n + ": cites a material that was not selected";
                 }
             }
             String rubricProblem = rubricProblem(q.path("rubric"));
@@ -284,46 +253,8 @@ public class QuestionGenerationService {
         return total.subtract(Rubric.HUNDRED).abs().compareTo(Rubric.WEIGHT_TOLERANCE) > 0 ? "rubric weights do not total 100" : null;
     }
 
-    private List<Retrieved> retrieve(String query, List<UUID> materialIds) {
-        String vector = vectorLiteral(embeddings.embed(List.of(query)).getFirst());
-        return jdbc.query("""
-                        select c.chunk_id, c.material_id, m.file_name, c.location_label, c.content,
-                               1 - (c.embedding <=> cast(:q as vector)) as similarity
-                        from material_chunks c join course_materials m on m.material_id = c.material_id
-                        where c.material_id in (:m) and c.embedding is not null
-                        order by c.embedding <=> cast(:q as vector) limit :k""",
-                new MapSqlParameterSource("q", vector).addValue("m", materialIds).addValue("k", topK),
-                (rs, i) -> new Retrieved(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3),
-                        rs.getString(4), rs.getString(5), rs.getDouble(6)));
-    }
 
-    private Map<UUID, Retrieved> chunkInfo(Set<String> ids) {
-        Map<UUID, Retrieved> result = new LinkedHashMap<>();
-        if (ids.isEmpty()) {
-            return result;
-        }
-        jdbc.query("""
-                        select c.chunk_id, c.material_id, m.file_name, c.location_label, c.content
-                        from material_chunks c join course_materials m on m.material_id = c.material_id
-                        where c.chunk_id in (:ids)""",
-                new MapSqlParameterSource("ids", ids.stream().map(UUID::fromString).toList()), rs -> {
-                    UUID id = rs.getObject(1, UUID.class);
-                    result.put(id, new Retrieved(id, rs.getObject(2, UUID.class), rs.getString(3), rs.getString(4),
-                            rs.getString(5), 0));
-                });
-        return result;
-    }
 
-    static String vectorLiteral(float[] v) {
-        StringBuilder sb = new StringBuilder("[");
-        for (int i = 0; i < v.length; i++) {
-            if (i > 0) {
-                sb.append(',');
-            }
-            sb.append(v[i]);
-        }
-        return sb.append(']').toString();
-    }
 
     private void finish(UUID id, String status, int generated, String message, String model) {
         jdbc.update("""

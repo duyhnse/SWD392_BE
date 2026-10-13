@@ -27,7 +27,7 @@ class AdminSettingsController {
         return settingsService.list();
     }
 
-    /** Body {@code {"settings": {"stt.provider": "mock", ...}}}; unknown keys → 422 UNKNOWN_SETTING. */
+    /** Body {@code {"settings": {"exam.seconds.APPLY": "240", ...}}}; unknown keys → 422 UNKNOWN_SETTING. */
     @PutMapping
     public List<SettingResponse> update(@AuthenticationPrincipal User currentUser, @RequestBody UpdateSettingsRequest request) {
         return settingsService.update(request, currentUser.getUserId());

@@ -8,8 +8,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.beans.factory.annotation.Value;
 import swd392.group6.AIVES.ai.AiJobService;
+import swd392.group6.AIVES.ai.AiMaterialIndexPort;
 import swd392.group6.AIVES.ai.AiJobType;
 import swd392.group6.AIVES.ai.node.AiNodeFileLinks;
 import swd392.group6.AIVES.common.ApiException;
@@ -27,8 +27,8 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Course materials: upload / list / download / delete, and indexing for RAG (04 §9.1): upload or re-index sends an
- * {@code INDEX_MATERIAL} job to the AI node (mock by default); {@link AiResultListener} stores the chunks.
+ * Course materials: upload / list / download / delete. Upload or re-index sends an {@code INDEX_MATERIAL} job; the
+ * AI node parses, chunks, embeds and keeps the index (D63); {@link AiResultListener} records INDEXED / FAILED.
  */
 @Service
 @RequiredArgsConstructor
@@ -55,12 +55,7 @@ public class MaterialService {
     private final Clock clock;
     private final AiJobService aiJobs;
     private final AiNodeFileLinks fileLinks;
-
-    @Value("${application.rag.chunk-size-tokens:350}")
-    private int chunkSizeTokens;
-
-    @Value("${application.rag.chunk-overlap-tokens:50}")
-    private int chunkOverlapTokens;
+    private final AiMaterialIndexPort aiIndex;
 
     @Transactional(readOnly = true)
     public List<MaterialDto> list(UUID courseId, User user) {
@@ -127,7 +122,6 @@ public class MaterialService {
         if (m.getStatus() == MaterialStatus.PROCESSING) {
             throw ApiException.conflict("MATERIAL_PROCESSING", "The material is being indexed right now");
         }
-        jdbc.update("delete from material_chunks where material_id = ?", materialId);
         startIndexing(m);
         return toDto(materials.saveAndFlush(m));
     }
@@ -140,8 +134,7 @@ public class MaterialService {
         materials.flush();
         aiJobs.enqueue(AiJobType.INDEX_MATERIAL, JOB_SUBJECT, m.getId(), Map.of(
                 "material_id", m.getId(), "file_name", m.getFileName(), "content_type", m.getContentType(),
-                "file_url", fileLinks.create(m.getStorageKey()),
-                "chunking", Map.of("size_tokens", chunkSizeTokens, "overlap_tokens", chunkOverlapTokens)));
+                "file_url", fileLinks.create(m.getStorageKey())));
     }
 
     /** BR-Q12: only when no question cites it. Chunks go with it; the stored object is removed after commit. */
@@ -151,11 +144,13 @@ public class MaterialService {
         if (sources.existsByMaterialId(materialId)) {
             throw ApiException.conflict("MATERIAL_CITED", "Questions cite this material; it cannot be deleted");
         }
-        jdbc.update("delete from material_chunks where material_id = ?", materialId);
         materials.delete(m);
         materials.flush();
         String key = m.getStorageKey();
-        afterCommit(() -> storage.delete(key));
+        afterCommit(() -> {
+            storage.delete(key);
+            aiIndex.deleteMaterial(materialId); // the AI node keeps the index (D63)
+        });
     }
 
     /** Extension decides the type; the declared content type must agree (generic binary types are tolerated). */

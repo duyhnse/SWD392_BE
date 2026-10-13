@@ -9,5 +9,7 @@ application:
   storage:
     provider: memory
   ai-node:
+    # the AI node is replaced by support.FakeAiNode
+    enabled: false
     callback-secret: test-callback-secret
     callback-base-url: http://node1.test:8081

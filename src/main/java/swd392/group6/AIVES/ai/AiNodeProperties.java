@@ -7,10 +7,10 @@ import java.time.Duration;
 /**
  * {@code application.ai-node.*} — how node 1 reaches the AI node over Tailscale and how the node calls back (16 §2).
  *
- * @param baseUrl         e.g. {@code http://aives-ai:8000} (MagicDNS name on the tailnet); used in {@code node} mode
+ * @param baseUrl         e.g. {@code http://aives-ai:8000} or {@code http://100.x.y.z:8000} over Tailscale; blank = AI unavailable
  * @param token           bearer token node 1 → AI node
  * @param callbackSecret  HMAC key the AI node signs callbacks with (and node 1 signs file links with); blank = a random
- *                        key for this process (fine in mock mode; node mode needs the shared value)
+ *                        key for this process (links still work; callbacks from a node need the shared value)
  * @param callbackBaseUrl how the AI node reaches node 1, e.g. {@code http://aives-web:8081}
  * @param jobTimeout      a SUBMITTED job without result after this is polled, then TIMED_OUT after 3× this
  */
@@ -19,8 +19,7 @@ public record AiNodeProperties(String baseUrl, String token, String callbackSecr
                                Duration connectTimeout, Duration processAnswerTimeout, Duration jobTimeout) {
 
     public AiNodeProperties {
-        // Signed file links are made in every mode (mock too). Without a configured secret, use a random one for this
-        // process: links stay valid while it runs. In node mode the AI node must share the configured secret.
+        // Without a configured secret use a random one for this process, so making a signed file link never fails.
         if (callbackSecret == null || callbackSecret.isBlank()) {
             byte[] random = new byte[32];
             new java.security.SecureRandom().nextBytes(random);

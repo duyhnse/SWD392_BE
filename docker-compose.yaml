@@ -50,7 +50,6 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
-      AI_MODE: ${AI_MODE:-mock}
       AI_NODE_URL: ${AI_NODE_URL:-}
       AI_NODE_TOKEN: ${AI_NODE_TOKEN:-}
       AI_NODE_CALLBACK_SECRET: ${AI_NODE_CALLBACK_SECRET:-}
@@ -63,9 +62,6 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      # RAG tuning (04 §9): about 0.3 with real embeddings; 0.05 suits the mock bag-of-words ones
-      RAG_MIN_SIMILARITY: ${RAG_MIN_SIMILARITY:-0.05}
-      RAG_TOP_K: ${RAG_TOP_K:-8}
     ports:
       # 127.0.0.1 = only Caddy reaches it. With the AI node over Tailscale, set BACKEND_BIND to node 1's tailnet IPv4
       # so the node can call back and fetch signed file links (16 §5); /internal/* is never public through Caddy.

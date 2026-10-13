@@ -1,11 +1,6 @@
 package swd392.group6.AIVES.questionbank;
 
 import com.jayway.jsonpath.JsonPath;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
-import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,10 +9,10 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import swd392.group6.AIVES.questionbank.QuestionBankFixture.Actor;
 import swd392.group6.AIVES.questionbank.QuestionBankFixture.Bank;
+import swd392.group6.AIVES.support.FakeAiNode;
 import swd392.group6.AIVES.support.IntegrationTest;
 import swd392.group6.AIVES.support.TestUsers;
 
-import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
@@ -41,11 +36,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @IntegrationTest
 class QuestionInputsIntegrationTest {
 
-    private static final String PDF = "application/pdf";
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private TestUsers users;
+    @Autowired private FakeAiNode aiNode;
 
     private QuestionBankFixture fx;
     private Actor lecturer;
@@ -58,62 +53,43 @@ class QuestionInputsIntegrationTest {
         bank = fx.bank(lecturer);
     }
 
-    // ------------------------------------------------------------------ materials & indexing
+    // ------------------------------------------------------------------ materials & indexing (AI node = FakeAiNode)
 
-    static byte[] pdf(String... pages) throws Exception {
-        try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            for (String text : pages) {
-                PDPage page = new PDPage();
-                doc.addPage(page);
-                try (PDPageContentStream cs = new PDPageContentStream(doc, page)) {
-                    cs.beginText();
-                    cs.setFont(new PDType1Font(Standard14Fonts.FontName.HELVETICA), 11);
-                    cs.newLineAtOffset(40, 740);
-                    for (String line : text.split("\n")) {
-                        cs.showText(line);
-                        cs.newLineAtOffset(0, -14);
-                    }
-                    cs.endText();
-                }
-            }
-            doc.save(out);
-            return out.toByteArray();
-        }
-    }
+    static final byte[] PDF = "%PDF-1.7 slides".getBytes(StandardCharsets.UTF_8);
 
     private UUID upload(String name, byte[] data) throws Exception {
         return QuestionBankFixture.id(fx.perform(lecturer, multipart("/api/v1/courses/" + bank.courseId() + "/materials")
-                .file(new MockMultipartFile("file", name, PDF, data))).andExpect(status().isCreated()));
+                .file(new MockMultipartFile("file", name, PDF_TYPE, data))).andExpect(status().isCreated()));
     }
 
-    private UUID architectureSlides() throws Exception {
-        return upload("architecture.pdf", pdf(
-                "Architecture styles. A modular monolith is one deployable unit.\nModules talk through interfaces.",
-                "Architecture trade-offs. Microservices scale each service alone.\nThey add network latency and operations work."));
-    }
+    private static final String PDF_TYPE = "application/pdf";
 
     @Test
-    void uploadIndexesTheFilePageByPage_9_1() throws Exception {
-        UUID id = architectureSlides();
+    void uploadSendsTheFileToTheAiNodeAndRecordsTheResult_9_1() throws Exception {
+        UUID id = upload("slides.pdf", PDF);
         fx.perform(lecturer, get("/api/v1/materials/" + id))
                 .andExpect(jsonPath("$.status").value("INDEXED"))
                 .andExpect(jsonPath("$.pageCount").value(2))
                 .andExpect(jsonPath("$.indexedAt").exists());
-        assertThat(jdbc.queryForList("select location_label from material_chunks where material_id = ? order by chunk_index",
-                String.class, id)).containsExactly("Page 1", "Page 2");
+        String request = jdbc.queryForObject("select request::text from ai_jobs where subject_id = ? and job_type = 'INDEX_MATERIAL'",
+                String.class, id);
+        assertThat(request).contains("\"file_url\"").contains("/internal/ai-node/files?key=").doesNotContain("chunking");
         assertThat(jdbc.queryForObject("select count(*) from notifications where user_id = ? and type = 'MATERIAL_INDEXED'",
                 Integer.class, lecturer.id())).isOne();
+
+        fx.perform(lecturer, org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete("/api/v1/materials/" + id))
+                .andExpect(status().isNoContent());
+        assertThat(aiNode.deletedMaterials).contains(id);   // the AI node drops its index of the material (D63)
     }
 
     @Test
-    void unreadableFileFails_andCanBeReindexed_E4() throws Exception {
-        UUID id = upload("broken.pdf", "%PDF-1.7 not really".getBytes(StandardCharsets.UTF_8));
+    void indexingErrorsFromTheAiNodeAreShown_andCanBeRetried_E4() throws Exception {
+        UUID id = upload("broken.pdf", PDF);
         fx.perform(lecturer, get("/api/v1/materials/" + id))
                 .andExpect(jsonPath("$.status").value("FAILED"))
                 .andExpect(jsonPath("$.errorMessage", startsWith("UNSUPPORTED_FILE")));
-        UUID blank = upload("scan.pdf", pdf(""));
-        fx.perform(lecturer, get("/api/v1/materials/" + blank))
-                .andExpect(jsonPath("$.status").value("FAILED"))
+        UUID scan = upload("scan.pdf", PDF);
+        fx.perform(lecturer, get("/api/v1/materials/" + scan))
                 .andExpect(jsonPath("$.errorMessage", startsWith("NO_TEXT_LAYER")));
 
         fx.perform(lecturer, post("/api/v1/materials/" + id + "/reindex")).andExpect(status().isOk());
@@ -122,7 +98,7 @@ class QuestionInputsIntegrationTest {
         fx.perform(fx.lecturer(), post("/api/v1/materials/" + id + "/reindex")).andExpect(status().isNotFound());
     }
 
-    // ------------------------------------------------------------------ AI generation
+    // ------------------------------------------------------------------ AI generation (retrieval + LLM = AI node)
 
     private String generation(UUID topic, List<UUID> materials, int count, String blooms, String focus) {
         return "{\"topicId\":\"" + topic + "\",\"materialIds\":[" + String.join(",", materials.stream().map(m -> "\"" + m + "\"").toList())
@@ -135,15 +111,17 @@ class QuestionInputsIntegrationTest {
     }
 
     @Test
-    void generationWritesDraftsWithCitations_andKeepsTheAiOriginal_AC_Q6() throws Exception {
-        UUID material = architectureSlides();
-        UUID topic = fx.topic(lecturer, bank.courseId(), "Microservices trade-offs");
-        UUID request = generate(topic, List.of(material), 2, "\"APPLY\",\"ANALYZE\"", "latency of microservices");
+    void generationStoresCitedDrafts_andKeepsTheAiOriginal_AC_Q6() throws Exception {
+        UUID material = upload("slides.pdf", PDF);
+        UUID topic = fx.topic(lecturer, bank.courseId(), "Đạo hàm");
+        UUID request = generate(topic, List.of(material), 2, "\"APPLY\",\"ANALYZE\"", "quy tắc lũy thừa");
+        String sent = jdbc.queryForObject("select request::text from ai_jobs where subject_id = ?", String.class, request);
+        assertThat(sent).contains("\"material_ids\"").contains(material.toString()).doesNotContain("\"chunks\"");
 
         fx.perform(lecturer, get("/api/v1/question-generations/" + request))
                 .andExpect(jsonPath("$.status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$.generatedCount").value(2))
-                .andExpect(jsonPath("$.topicName").value("Microservices trade-offs"));
+                .andExpect(jsonPath("$.topicName").value("Đạo hàm"));
         String list = QuestionBankFixture.body(fx.perform(lecturer, get("/api/v1/courses/" + bank.courseId() + "/questions")
                         .param("generationRequestId", request.toString()))
                 .andExpect(jsonPath("$.total").value(2))
@@ -152,7 +130,8 @@ class QuestionInputsIntegrationTest {
         UUID q = UUID.fromString(JsonPath.read(list, "$.items[0].id"));
         String original = QuestionBankFixture.read(fx.perform(lecturer, get("/api/v1/questions/" + q))
                 .andExpect(jsonPath("$.sources[0].locationLabel", startsWith("Page ")))
-                .andExpect(jsonPath("$.sources[0].materialName").value("architecture.pdf"))
+                .andExpect(jsonPath("$.sources[0].materialName").value("slides.pdf"))
+                .andExpect(jsonPath("$.sources[0].excerpt", startsWith("Đoạn trích")))
                 .andExpect(jsonPath("$.ai.suggestedRubric.criteria", hasSize(2)))
                 .andExpect(jsonPath("$.rubric").doesNotExist()), "$.ai.originalContent");
 
@@ -169,49 +148,39 @@ class QuestionInputsIntegrationTest {
                 .andExpect(jsonPath("$.rubric.totalWeight").value(100.0));
         fx.json(lecturer, post("/api/v1/questions/publish"), "{\"questionIds\":[\"" + q + "\"]}")
                 .andExpect(jsonPath("$.published", hasSize(1)));
-        fx.perform(lecturer, post("/api/v1/questions/" + bank.topicId() + "/rubric/from-suggestion"))
-                .andExpect(status().isNotFound());
         UUID manual = fx.question(lecturer, bank.courseId(), QuestionBankFixture.completeQuestion(bank.topicId(), bank.rubricId(), "Manual"));
         fx.perform(lecturer, post("/api/v1/questions/" + manual + "/rubric/from-suggestion"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("NO_AI_RUBRIC"));
     }
 
     @Test
-    void unrelatedMaterialsGiveNoContext_AC_Q5() throws Exception {
-        UUID material = architectureSlides();
-        UUID topic = fx.topic(lecturer, bank.courseId(), "Kanji radicals");
-        UUID request = generate(topic, List.of(material), 3, "\"REMEMBER\"", null);
-        fx.perform(lecturer, get("/api/v1/question-generations/" + request))
-                .andExpect(jsonPath("$.status").value("NO_CONTEXT"))
-                .andExpect(jsonPath("$.generatedCount").value(0));
-        assertThat(jdbc.queryForObject("select count(*) from questions where generation_request_id = ?", Integer.class, request)).isZero();
-    }
-
-    @Test
-    void invalidAiOutputTwiceFailsTheWholeBatch_AC_Q7_andLlmDownKeepsManualWorking_AC_Q12() throws Exception {
-        UUID material = architectureSlides();
-        UUID topic = fx.topic(lecturer, bank.courseId(), "Microservices");
-        UUID invalid = generate(topic, List.of(material), 2, "\"APPLY\"", "microservices #mock-invalid");
-        fx.perform(lecturer, get("/api/v1/question-generations/" + invalid))
-                .andExpect(jsonPath("$.status").value("FAILED"))
-                .andExpect(jsonPath("$.message", containsString("invalid twice")));
-        assertThat(jdbc.queryForObject("select count(*) from ai_jobs where subject_id = ?", Integer.class, invalid)).isEqualTo(2);
-        assertThat(jdbc.queryForObject("select count(*) from questions where generation_request_id = ?", Integer.class, invalid)).isZero();
-
-        UUID down = generate(topic, List.of(material), 1, "\"APPLY\"", "microservices #mock-fail");
-        fx.perform(lecturer, get("/api/v1/question-generations/" + down)).andExpect(jsonPath("$.status").value("FAILED"));
+    void noContextFailuresAndBadAnswersWriteNothing_AC_Q5_Q7_Q12() throws Exception {
+        UUID material = upload("slides.pdf", PDF);
+        UUID topic = fx.topic(lecturer, bank.courseId(), "Kanji");
+        UUID none = generate(topic, List.of(material), 3, "\"REMEMBER\"", "#no-context");
+        fx.perform(lecturer, get("/api/v1/question-generations/" + none))
+                .andExpect(jsonPath("$.status").value("NO_CONTEXT")).andExpect(jsonPath("$.generatedCount").value(0));
+        UUID failed = generate(topic, List.of(material), 2, "\"APPLY\"", "#fail");
+        fx.perform(lecturer, get("/api/v1/question-generations/" + failed))
+                .andExpect(jsonPath("$.status").value("FAILED")).andExpect(jsonPath("$.message", containsString("invalid twice")));
+        UUID cheat = generate(topic, List.of(material), 1, "\"APPLY\"", "#bad-citation");
+        fx.perform(lecturer, get("/api/v1/question-generations/" + cheat))
+                .andExpect(jsonPath("$.status").value("FAILED")).andExpect(jsonPath("$.message", containsString("not selected")));
+        assertThat(jdbc.queryForObject("select count(*) from questions where generation_request_id in (?, ?, ?)",
+                Integer.class, none, failed, cheat)).isZero();
+        // with the AI unusable, manual entry still works (AC-Q12)
         fx.question(lecturer, bank.courseId(), QuestionBankFixture.completeQuestion(bank.topicId(), bank.rubricId(), "Still works"));
         fx.perform(lecturer, get("/api/v1/courses/" + bank.courseId() + "/question-generations"))
-                .andExpect(jsonPath("$", hasSize(2)));
+                .andExpect(jsonPath("$", hasSize(3)));
     }
 
     @Test
     void generationRequestIsValidated() throws Exception {
-        UUID broken = upload("broken.pdf", "nope".getBytes(StandardCharsets.UTF_8));
+        UUID broken = upload("broken.pdf", PDF);
         String url = "/api/v1/courses/" + bank.courseId() + "/question-generations";
         fx.json(lecturer, post(url), generation(bank.topicId(), List.of(broken), 2, "\"APPLY\"", null))
                 .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("MATERIAL_NOT_INDEXED"));
-        UUID good = architectureSlides();
+        UUID good = upload("slides.pdf", PDF);
         fx.json(lecturer, post(url), generation(bank.topicId(), List.of(good), 21, "\"APPLY\"", null))
                 .andExpect(status().isBadRequest());
         fx.json(lecturer, post(url), generation(bank.topicId(), List.of(good), 2, "", null))

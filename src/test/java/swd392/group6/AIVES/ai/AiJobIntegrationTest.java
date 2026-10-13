@@ -45,7 +45,7 @@ class AiJobIntegrationTest {
     @Autowired private StoragePort storage;
 
     @Test
-    void jobIsSentAfterCommitAndTheMockFinishesItAtOnce() {
+    void jobIsSentAfterCommitAndTheNodeAnswerIsStored() {
         UUID subject = UUID.randomUUID();
         Map<String, Object> input = Map.of(
                 "rubric", Map.of("criteria", List.of(Map.of("criterion_id", "c1", "max_score", 10))),
@@ -58,7 +58,7 @@ class AiJobIntegrationTest {
 
         AiJobService.AiJob job = jobs.find(jobId).orElseThrow();
         assertThat(job.status()).isEqualTo("SUCCEEDED");
-        assertThat(job.result().path("criteria").get(0).path("score").asDouble()).isEqualTo(1.25); // 10 words / 80 × 10
+        assertThat(job.result().path("feedback").asString()).isEqualTo("fake");   // support.FakeAiNode answered
         assertThat(job.finishedAt()).isNotNull();
         assertThat(events.stream(AiJobFinishedEvent.class))
                 .anySatisfy(e -> {

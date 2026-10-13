@@ -47,22 +47,21 @@ class SettingsIntegrationTest {
     void adminListsSeededSettings() throws Exception {
         mockMvc.perform(get("/api/v1/admin/settings").header("Authorization", adminAuth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(13))
+                .andExpect(jsonPath("$.length()").value(7))   // business settings only; AI ones belong to the AI node (D63)
                 .andExpect(jsonPath("$[?(@.key=='account.default_password')].value").exists())
                 .andExpect(jsonPath("$[?(@.key=='exam.seconds.ANALYZE')].value").value("300"))
-                .andExpect(jsonPath("$[?(@.key=='stt.provider')].description").isNotEmpty())
-                .andExpect(jsonPath("$[?(@.key=='stt.language.vi')].value").value("vi"))
+                .andExpect(jsonPath("$[?(@.key=='stt.provider')]").isEmpty())
                 .andExpect(jsonPath("$[0].updatedAt").isNotEmpty());
     }
 
     @Test
     void adminUpdatesSettingsAndDefaultLanguageAppliesToNewCourses() throws Exception {
         try {
-            putSettings("{\"settings\":{\"tts.voice.en\":\"en-US-AriaNeural\",\"default_language\":\"EN\"}}");
+            putSettings("{\"settings\":{\"exam.seconds.ANY\":\"200\",\"default_language\":\"EN\"}}");
             mockMvc.perform(get("/api/v1/admin/settings").header("Authorization", adminAuth))
-                    .andExpect(jsonPath("$[?(@.key=='tts.voice.en')].value").value("en-US-AriaNeural"))
+                    .andExpect(jsonPath("$[?(@.key=='exam.seconds.ANY')].value").value("200"))
                     .andExpect(jsonPath("$[?(@.key=='default_language')].value").value("EN"));
-            assertThat(jdbc.queryForObject("select updated_by from system_settings where setting_key = 'tts.voice.en'",
+            assertThat(jdbc.queryForObject("select updated_by from system_settings where setting_key = 'exam.seconds.ANY'",
                     java.util.UUID.class)).isEqualTo(admin.getUserId());
 
             String code = "SET" + unique().toUpperCase().substring(0, 6);
@@ -71,26 +70,26 @@ class SettingsIntegrationTest {
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.defaultLanguage").value("EN"));
         } finally {
-            putSettings("{\"settings\":{\"tts.voice.en\":\"\",\"default_language\":\"VI\"}}");
+            putSettings("{\"settings\":{\"exam.seconds.ANY\":\"180\",\"default_language\":\"VI\"}}");
         }
     }
 
     @Test
     void unknownKeyIsRejectedAndNothingIsSaved() throws Exception {
         mockMvc.perform(put("/api/v1/admin/settings").header("Authorization", adminAuth).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"settings\":{\"stt.provider\":\"openai\",\"llm.secret\":\"x\"}}"))
+                        .content("{\"settings\":{\"exam.seconds.ANY\":\"200\",\"stt.provider\":\"openai\"}}"))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("UNKNOWN_SETTING"));
         mockMvc.perform(get("/api/v1/admin/settings").header("Authorization", adminAuth))
-                .andExpect(jsonPath("$[?(@.key=='stt.provider')].value").value("mock"));
+                .andExpect(jsonPath("$[?(@.key=='exam.seconds.ANY')].value").value("180"));
     }
 
     @Test
     void invalidValuesAreRejected() throws Exception {
         for (String body : new String[]{
                 "{\"settings\":{\"default_language\":\"FR\"}}",
-                "{\"settings\":{\"stt.provider\":42}}",
-                "{\"settings\":{\"stt.provider\":null}}", "{\"settings\":{\"exam.seconds.APPLY\":\"10\"}}",
+                "{\"settings\":{\"exam.seconds.ANY\":42}}",
+                "{\"settings\":{\"exam.seconds.ANY\":null}}", "{\"settings\":{\"exam.seconds.APPLY\":\"10\"}}",
                 "{\"settings\":{\"exam.seconds.APPLY\":\"abc\"}}"}) {
             mockMvc.perform(put("/api/v1/admin/settings").header("Authorization", adminAuth)
                             .contentType(MediaType.APPLICATION_JSON).content(body))

@@ -66,8 +66,8 @@ class MaterialsIntegrationTest {
 
         fx.perform(lecturer, get("/api/v1/materials/" + id))
                 .andExpect(status().isOk())
-                // not a real PDF: the (mock) AI node cannot read it, so indexing fails (04 E4)
-                .andExpect(jsonPath("$.status").value("FAILED"))
+                // indexed by the AI node (support.FakeAiNode)
+                .andExpect(jsonPath("$.status").value("INDEXED"))
                 .andExpect(jsonPath("$.fileName").value("Topic 3 slides.pdf"))
                 .andExpect(jsonPath("$.contentType").value(PDF))
                 .andExpect(jsonPath("$.sizeBytes").value(data.length))

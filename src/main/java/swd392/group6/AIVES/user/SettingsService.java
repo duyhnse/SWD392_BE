@@ -23,8 +23,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 class SettingsService implements SettingsApi {
 
-    static final Set<String> KNOWN_KEYS = Set.of("default_language", "stt.provider", "stt.language.vi",
-            "stt.language.en", "tts.provider", "tts.voice.vi", "tts.voice.en", "exam.seconds.REMEMBER",
+    /** Business settings only: AI providers, voices and STT languages are the AI node's configuration (D63). */
+    static final Set<String> KNOWN_KEYS = Set.of("default_language", "exam.seconds.REMEMBER",
             "exam.seconds.UNDERSTAND", "exam.seconds.APPLY", "exam.seconds.ANALYZE", "exam.seconds.ANY",
             "account.default_password");
 

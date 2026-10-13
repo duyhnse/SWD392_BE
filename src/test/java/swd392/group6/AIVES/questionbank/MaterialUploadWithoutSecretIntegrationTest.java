@@ -34,7 +34,7 @@ class MaterialUploadWithoutSecretIntegrationTest {
         fx.assign(courseId, lecturer);
         UUID id = QuestionBankFixture.id(fx.perform(lecturer, multipart("/api/v1/courses/" + courseId + "/materials")
                         .file(new MockMultipartFile("file", "slides.pdf", "application/pdf",
-                                QuestionInputsIntegrationTest.pdf("Derivatives. The derivative of x squared is 2x."))))
+                                QuestionInputsIntegrationTest.PDF)))
                 .andExpect(status().isCreated()));
         fx.perform(lecturer, get("/api/v1/materials/" + id)).andExpect(jsonPath("$.status").value("INDEXED"));
     }

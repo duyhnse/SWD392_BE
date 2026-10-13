@@ -9,7 +9,7 @@ import java.util.UUID;
 public interface AiJobPort {
 
     /**
-     * Hands the job over. The node answers later on the callback URL; an adapter that can finish at once (mock)
+     * Hands the job over. The node answers later on the callback URL; an adapter that can finish at once (a test double)
      * returns the outcome directly.
      *
      * @throws AiUnavailableException when the node cannot accept the job now (the sweeper retries)

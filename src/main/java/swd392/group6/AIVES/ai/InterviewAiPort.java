@@ -23,12 +23,10 @@ public interface InterviewAiPort {
      * @param requestId      idempotency / log correlation id (the turn id)
      * @param hotwords       course terms for STT (never student data, BR-I8)
      * @param priorTurns     earlier turns of the same thread, oldest first (main question first)
-     * @param mockTranscript dev/test only, ignored by the AI node
      */
     record AnswerRequest(String requestId, Language language, byte[] audio, String audioContentType,
                          List<String> hotwords, String mainQuestion, String referenceAnswer, List<PriorTurn> priorTurns,
-                         String currentQuestionText, int followupsUsed, int maxFollowups, boolean wantFollowUpAudio,
-                         String mockTranscript) {
+                         String currentQuestionText, int followupsUsed, int maxFollowups, boolean wantFollowUpAudio) {
     }
 
     record PriorTurn(String type, String questionText, String transcript) {

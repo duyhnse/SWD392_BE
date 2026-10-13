@@ -10,7 +10,6 @@ import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.ai.AiJobFinishedEvent;
 import swd392.group6.AIVES.ai.AiJobService;
 import swd392.group6.AIVES.ai.AiJobType;
-import swd392.group6.AIVES.ai.EmbeddingPort;
 import swd392.group6.AIVES.user.NotificationApi;
 import tools.jackson.databind.JsonNode;
 
@@ -20,8 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Results of the question bank's AI jobs (contract 16 §4): {@code INDEX_MATERIAL} → chunks + INDEXED / FAILED
- * (04 §9.1), {@code GENERATE_QUESTIONS} → drafts ({@link QuestionGenerationService#onJobFinished}). Runs after the
+ * Results of the question bank's AI jobs (contract 16 §4): {@code INDEX_MATERIAL} → INDEXED / FAILED (04 §9.1), {@code GENERATE_QUESTIONS} → drafts ({@link QuestionGenerationService#onJobFinished}). Runs after the
  * job row is stored, in its own transaction; a result for something deleted meanwhile is ignored.
  */
 @Slf4j
@@ -31,12 +29,11 @@ class AiResultListener {
 
     private final AiJobService aiJobs;
     private final JdbcTemplate jdbc;
-    private final EmbeddingPort embeddings;
     private final QuestionGenerationService generations;
     private final NotificationApi notifications;
     private final Clock clock;
 
-    /** REQUIRES_NEW: the mock finishes jobs from the caller's afterCommit, where the old transaction is still bound. */
+    /** REQUIRES_NEW: a job can finish inside the caller's afterCommit, where the old transaction is still bound. */
     @EventListener
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void onFinished(AiJobFinishedEvent event) {
@@ -46,7 +43,7 @@ class AiResultListener {
         } else if (event.type() == AiJobType.GENERATE_QUESTIONS
                 && QuestionGenerationService.JOB_SUBJECT.equals(event.subjectType())) {
             aiJobs.find(event.jobId()).ifPresent(job -> generations.onJobFinished(event.subjectId(), job.status(),
-                    job.request(), job.result(), job.errorCode(), job.errorMessage()));
+                    job.result(), job.errorCode(), job.errorMessage()));
         }
     }
 
@@ -56,51 +53,23 @@ class AiResultListener {
         if (row == null || !"PROCESSING".equals(row.get("status"))) {
             return;
         }
-        String problem = "SUCCEEDED".equals(status) ? chunkProblem(result) : (errorCode != null ? errorCode : "FAILED")
-                + (errorMessage != null ? ": " + errorMessage : "");
-        Timestamp now = Timestamp.from(clock.instant());
-        if (problem == null) {
-            jdbc.update("delete from material_chunks where material_id = ?", materialId);
-            for (JsonNode c : result.path("chunks")) {
-                StringBuilder vector = new StringBuilder("[");
-                for (JsonNode x : c.path("embedding")) {
-                    vector.append(vector.length() > 1 ? "," : "").append(x.asDouble());
-                }
-                jdbc.update("""
-                                insert into material_chunks (chunk_id, material_id, chunk_index, content, location_label,
-                                                             page_from, page_to, token_count, embedding)
-                                values (?, ?, ?, ?, ?, ?, ?, ?, cast(? as vector))""",
-                        UUID.randomUUID(), materialId, c.path("chunk_index").asInt(), c.path("content").asString(),
-                        truncate(c.path("location_label").asString("—"), 100), intOrNull(c.path("page_from")),
-                        intOrNull(c.path("page_to")), intOrNull(c.path("token_count")), vector.append(']').toString());
-            }
+        boolean ok = "SUCCEEDED".equals(status) && result != null && result.path("chunk_count").asInt(0) > 0;
+        String problem = ok ? null : "SUCCEEDED".equals(status) ? "NO_TEXT_LAYER: no text was found in the file"
+                : (errorCode != null ? errorCode : "FAILED") + (errorMessage != null ? ": " + errorMessage : "");
+        if (ok) {
             jdbc.update("""
                             update course_materials set status = 'INDEXED', page_count = ?, error_message = null, indexed_at = ?
-                            where material_id = ?""", intOrNull(result.path("page_count")), now, materialId);
+                            where material_id = ?""", intOrNull(result.path("page_count")),
+                    Timestamp.from(clock.instant()), materialId);
         } else {
             jdbc.update("update course_materials set status = 'FAILED', error_message = ? where material_id = ?",
                     truncate(problem, 1000), materialId);
         }
-        boolean ok = problem == null;
         notifications.notify((UUID) row.get("uploaded_by"), "MATERIAL_INDEXED",
                 (ok ? "Đã xử lý xong tài liệu " : "Không xử lý được tài liệu ") + row.get("file_name"),
                 ok ? "Có thể dùng tài liệu này để AI tạo câu hỏi." : problem,
                 Map.of("materialId", materialId.toString(), "courseId", row.get("course_id").toString(),
                         "status", ok ? "INDEXED" : "FAILED"));
-    }
-
-    /** null = usable: at least one chunk, each with text and an embedding of the configured dimension. */
-    private String chunkProblem(JsonNode result) {
-        JsonNode chunks = result == null ? null : result.path("chunks");
-        if (chunks == null || !chunks.isArray() || chunks.isEmpty()) {
-            return "NO_TEXT_LAYER: no text was found in the file";
-        }
-        for (JsonNode c : chunks) {
-            if (c.path("content").asString("").isBlank() || c.path("embedding").size() != embeddings.dimension()) {
-                return "INVALID_RESULT: a chunk has no text or a wrong embedding dimension";
-            }
-        }
-        return null;
     }
 
     private static Integer intOrNull(JsonNode n) {

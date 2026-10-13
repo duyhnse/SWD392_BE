@@ -16,7 +16,7 @@ import swd392.group6.AIVES.ai.AiJobPort;
 import swd392.group6.AIVES.ai.AiJobType;
 import swd392.group6.AIVES.ai.AiNodeProperties;
 import swd392.group6.AIVES.ai.AiUnavailableException;
-import swd392.group6.AIVES.ai.EmbeddingPort;
+import swd392.group6.AIVES.ai.AiMaterialIndexPort;
 import swd392.group6.AIVES.ai.InterviewAiPort;
 import swd392.group6.AIVES.ai.SpeechToTextPort;
 import swd392.group6.AIVES.ai.SpeechToTextRequest;
@@ -43,25 +43,25 @@ import java.util.function.Supplier;
  * contract {@code SWD_Docs/api/ai-node.openapi.yaml}). Field names on the wire are snake_case.
  */
 @Slf4j
-public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSpeechPort, EmbeddingPort, AiJobPort {
+public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSpeechPort, AiJobPort, AiMaterialIndexPort {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final RestClient http;
     private final RestClient answerHttp;
-    private final int dimension;
 
-    public AiNodeClient(AiNodeProperties properties, int dimension) {
+    public AiNodeClient(AiNodeProperties properties) {
         this.http = client(properties, Duration.ofSeconds(15));
         this.answerHttp = client(properties, properties.processAnswerTimeout());
-        this.dimension = dimension;
     }
 
     private static RestClient client(AiNodeProperties p, Duration readTimeout) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(p.connectTimeout());
         factory.setReadTimeout(readTimeout);
-        return RestClient.builder().baseUrl(p.baseUrl()).requestFactory(factory)
+        // Not configured: every call fails as "AI node unavailable"; node 1 keeps working, AI features wait.
+        String base = p.baseUrl() == null || p.baseUrl().isBlank() ? "http://ai-node.not-configured.invalid" : p.baseUrl();
+        return RestClient.builder().baseUrl(base).requestFactory(factory)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + p.token()).build();
     }
 
@@ -136,32 +136,16 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
         return audio;
     }
 
-    // ---- embeddings (16 §3.5) --------------------------------------------------------------------------------
+    // ---- material index (16 §4.1, D63) ----------------------------------------------------------------------
 
     @Override
-    public List<float[]> embed(List<String> texts) {
-        JsonNode body = call(() -> http.post().uri("/v1/embeddings").contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("inputs", texts, "purpose", "DOCUMENT")).retrieve().body(JsonNode.class));
-        List<float[]> vectors = new ArrayList<>();
-        for (JsonNode v : body.path("vectors")) {
-            float[] f = new float[v.size()];
-            for (int i = 0; i < f.length; i++) {
-                f[i] = (float) v.get(i).asDouble();
-            }
-            if (f.length != dimension) {
-                throw new AiUnavailableException("Embedding dimension " + f.length + " ≠ configured " + dimension);
-            }
-            vectors.add(f);
+    public void deleteMaterial(UUID materialId) {
+        try {
+            http.delete().uri("/v1/materials/{id}", materialId).retrieve().toBodilessEntity();
+        } catch (RestClientException e) {
+            log.warn("AI node did not drop material {} from its index: {}", materialId, e.getMessage());
         }
-        return vectors;
     }
-
-    @Override
-    public int dimension() {
-        return dimension;
-    }
-
-    // ---- jobs (16 §4) ----------------------------------------------------------------------------------------
 
     @Override
     public Optional<AiJobOutcome> submit(UUID jobId, AiJobType type, JsonNode input, String callbackUrl) {
