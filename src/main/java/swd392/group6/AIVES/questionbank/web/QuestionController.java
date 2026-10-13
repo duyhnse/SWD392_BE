@@ -65,16 +65,12 @@ class QuestionController {
     }
 
     @GetMapping("/question-import-template")
-    public ResponseEntity<byte[]> importTemplate(@RequestParam(defaultValue = "xlsx") String format,
-                                                 @RequestParam(required = false) UUID courseId,
-                                                 @AuthenticationPrincipal User user) {
-        boolean xlsx = !"csv".equalsIgnoreCase(format);
+    public ResponseEntity<byte[]> importTemplate() {
         return ResponseEntity.ok()
-                .contentType(xlsx ? MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                        : new MediaType("text", "csv", java.nio.charset.StandardCharsets.UTF_8))
+                .contentType(new MediaType("text", "csv", java.nio.charset.StandardCharsets.UTF_8))
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                        .filename(xlsx ? "aives-question-template.xlsx" : "aives-question-template.csv").build().toString())
-                .body(importService.template(xlsx ? "xlsx" : "csv", courseId, user));
+                        .filename("aives-question-template.csv").build().toString())
+                .body(importService.template());
     }
 
     // ---- AI generation (04 §9.2) ----

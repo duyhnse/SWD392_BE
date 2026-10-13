@@ -229,10 +229,10 @@ class ExamStudentService {
     /** Class list template (15 §5.7, D62): row 1 = column names + what to write + what a blank cell means. */
     static byte[] template() {
         return CsvTemplates.csv(List.of(
-                "student_code (MSSV — bắt buộc; sinh viên đã có tài khoản chỉ cần cột này)",
-                "username (chỉ điền khi sinh viên chưa có tài khoản — tên đăng nhập, duy nhất, 3–50 ký tự a-z 0-9 . - _)",
-                "full_name (chỉ điền khi chưa có tài khoản — họ tên)",
-                "email (chỉ điền khi chưa có tài khoản — duy nhất, dùng để đặt lại mật khẩu)",
+                "student_code (MSSV — bắt buộc; sinh viên đã có tài khoản chỉ cần cột này; vd. SV0001)",
+                "username (chỉ điền khi sinh viên chưa có tài khoản — tên đăng nhập, duy nhất, 3–50 ký tự a-z 0-9 . - _; vd. annv)",
+                "full_name (chỉ điền khi chưa có tài khoản — họ tên; vd. Nguyễn Văn An)",
+                "email (chỉ điền khi chưa có tài khoản — duy nhất, dùng để đặt lại mật khẩu; vd. annv@school.edu.vn)",
                 "password (chỉ dùng khi tạo tài khoản mới, 8–100 ký tự — trống = mật khẩu mặc định ở Cấu hình; phải đổi ở lần đăng nhập đầu)"));
     }
 

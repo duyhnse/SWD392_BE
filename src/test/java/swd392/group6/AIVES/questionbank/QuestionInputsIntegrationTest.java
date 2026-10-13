@@ -6,7 +6,6 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +17,6 @@ import swd392.group6.AIVES.questionbank.QuestionBankFixture.Bank;
 import swd392.group6.AIVES.support.IntegrationTest;
 import swd392.group6.AIVES.support.TestUsers;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -279,27 +277,23 @@ class QuestionInputsIntegrationTest {
     }
 
     @Test
-    void importAcceptsTheXlsxTemplate_andRejectsUnreadableFiles() throws Exception {
-        byte[] template = fx.perform(lecturer, get("/api/v1/question-import-template")
-                        .param("format", "xlsx").param("courseId", bank.courseId().toString()))
+    void importAcceptsTheCsvTemplate_andRejectsOtherFiles() throws Exception {
+        byte[] template = fx.perform(lecturer, get("/api/v1/question-import-template"))
                 .andExpect(status().isOk())
-                .andExpect(header().string("Content-Disposition", containsString("aives-question-template.xlsx")))
+                .andExpect(header().string("Content-Type", containsString("text/csv")))
+                .andExpect(header().string("Content-Disposition", containsString("aives-question-template.csv")))
                 .andReturn().getResponse().getContentAsByteArray();
-        try (XSSFWorkbook book = new XSSFWorkbook(new ByteArrayInputStream(template))) {
-            // one header row that explains each column (D62) and names this course's topics; no example rows
-            assertThat(book.getSheetAt(0).getRow(0).getCell(0).getStringCellValue())
-                    .startsWith("topic (bắt buộc").contains("Architecture");
-            assertThat(book.getSheetAt(0).getRow(0).getCell(4).getStringCellValue()).contains("trống = ngôn ngữ của môn");
-            assertThat((Object) book.getSheetAt(0).getRow(1)).isNull();
-            assertThat(book.getNumberOfSheets()).isOne();
-        }
-        ResultHolder r = importFile("untouched.xlsx", template);
-        assertThat((Integer) r.read("$.total")).isZero();
-        assertThat((Integer) r.read("$.errors.length()")).isZero();
+        String header = new String(template, StandardCharsets.UTF_8);
+        // one header row: column + help + blank default + a generic example; never a real course's data (D62)
+        assertThat(header).contains("topic (bắt buộc").contains("vd. Đạo hàm").contains("trống = ngôn ngữ của môn")
+                .doesNotContain("Architecture");
+        assertThat(header.strip().lines()).hasSize(1);
+        ResultHolder untouched = importFile("untouched.csv", template);
+        assertThat((Integer) untouched.read("$.total")).isZero();
+        ResultHolder filled = importFile("filled.csv", (header.stripTrailing() + "\nArchitecture,Đạo hàm của x² là gì?,,HIEU,,\n")
+                .getBytes(StandardCharsets.UTF_8));
+        assertThat((Integer) filled.read("$.imported")).isOne();
 
-        fx.perform(lecturer, get("/api/v1/question-import-template").param("format", "csv"))
-                .andExpect(status().isOk())
-                .andExpect(header().string("Content-Type", containsString("text/csv")));
         String url = "/api/v1/courses/" + bank.courseId() + "/questions/import";
         fx.perform(lecturer, multipart(url).file(new MockMultipartFile("file", "x.csv", "text/csv",
                         "a,b\n1,2\n".getBytes(StandardCharsets.UTF_8))))
@@ -307,7 +301,7 @@ class QuestionInputsIntegrationTest {
         fx.perform(lecturer, multipart(url).file(new MockMultipartFile("file", "x.txt", "text/plain", new byte[] {1})))
                 .andExpect(status().isUnsupportedMediaType());
         fx.perform(lecturer, multipart(url).file(new MockMultipartFile("file", "x.xlsx", "application/octet-stream", new byte[] {1, 2})))
-                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("IMPORT_UNREADABLE"));
+                .andExpect(status().isUnsupportedMediaType()).andExpect(jsonPath("$.code").value("IMPORT_TYPE_UNSUPPORTED"));
         StringBuilder big = new StringBuilder("topic,content\n");
         for (int i = 0; i < 501; i++) {
             big.append("Architecture,Question number ").append(i).append(" is long enough\n");
