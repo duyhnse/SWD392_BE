@@ -68,6 +68,7 @@ class InterviewService {
     /** Upload / network allowance after the answer limit (05 §6). */
     static final int ANSWER_GRACE_SEC = 15;
     static final int MIN_ANSWER_LIMIT_SEC = 10;
+    static final int RECORDING_SLACK_SEC = 3;
     static final long MAX_AUDIO_BYTES = 10L * 1024 * 1024;
     private static final Map<String, String> AUDIO_TYPES = Map.of("audio/webm", "webm", "video/webm", "webm",
             "audio/mp4", "m4a", "video/mp4", "m4a", "audio/ogg", "ogg", "audio/mpeg", "mp3", "audio/wav", "wav",
@@ -414,6 +415,10 @@ class InterviewService {
         AttemptQuestionInfo q = question(attemptId, t.attemptQuestionId());
         int limit = answerLimit(exam, q);
         long counted = Duration.between(t.askedAt().plusMillis(audioMs(t)), now).toMillis();
+        if (durationSec != null && durationSec >= 0) {
+            // never more than the recorded answer (+ upload slack): listening again or browser speech is not answering (D46)
+            counted = Math.min(counted, (durationSec + RECORDING_SLACK_SEC) * 1000L);
+        }
         int countedMs = (int) Math.max(0, Math.min(counted, limit * 1000L));
         String key = "attempts/%s/turns/%03d-%s.%s".formatted(attemptId, t.turnOrder(), turnId, AUDIO_TYPES.get(type));
         storage.put(key, audio, type);

@@ -332,6 +332,16 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
     }
 
     @Test
+    void replayingTheQuestionIsNotCharged_D46() throws Exception {
+        Started s = start(1);
+        String t1 = turnId(state(s));
+        clock.advance(Duration.ofSeconds(62)); // listened again, then answered for 20 s (the clip says so)
+        answered(s, t1, LONG);
+        assertThat(jdbc.queryForObject("select answer_counted_ms from exam_turns where turn_id = ?", Integer.class,
+                UUID.fromString(t1))).isEqualTo(23_000);
+    }
+
+    @Test
     void repostingTheSameAnswerIsIdempotent_AC_I13() throws Exception {
         Started s = start(2);
         String t1 = turnId(state(s));
