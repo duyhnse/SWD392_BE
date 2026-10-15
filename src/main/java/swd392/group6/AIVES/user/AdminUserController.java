@@ -1,17 +1,18 @@
 package swd392.group6.AIVES.user;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -23,9 +24,11 @@ import swd392.group6.AIVES.common.PageResponse;
 import swd392.group6.AIVES.user.AdminUserDtos.CreateUserRequest;
 import swd392.group6.AIVES.user.AdminUserDtos.ImportReport;
 import swd392.group6.AIVES.user.AdminUserDtos.UpdateUserRequest;
+import swd392.group6.AIVES.user.AdminUserDtos.UserDetail;
 import swd392.group6.AIVES.user.UserApi.NewAccount;
 
 import java.io.IOException;
+import java.util.Map;
 import java.util.UUID;
 
 /** Account administration, ADMIN only (14_AUTH_AND_ACCOUNTS.md §3.4, §5). */
@@ -37,20 +40,25 @@ class AdminUserController {
 
     private static final long MAX_IMPORT_BYTES = 2 * 1024 * 1024;
 
-    private final UserRepository userRepository;
     private final AccountProvisioningService provisioning;
     private final UserCsvImporter importer;
+    private final AdminUserService adminUsers;
+    private final AvatarService avatarService;
+    private final PasswordResetService passwordReset;
 
     @GetMapping
-    @Transactional(readOnly = true)
     public PageResponse<UserResponseDTO> list(@RequestParam(required = false) String q,
                                               @RequestParam(required = false) Role role,
+                                              @RequestParam(required = false) Boolean active,
                                               @RequestParam(defaultValue = "0") int page,
                                               @RequestParam(defaultValue = "20") int size) {
-        String query = q == null || q.isBlank() ? null : PasswordRules.normalize(q);
-        var result = userRepository.search(query, role == null ? null : role.getId(),
-                PageRequest.of(Math.max(page, 0), Math.clamp(size, 1, 100), Sort.by("username")));
-        return PageResponse.of(result, UserResponseDTO::fromEntity);
+        return adminUsers.list(q, role, active, page, size);
+    }
+
+    /** Profile + role details: assigned courses (lecturer) or number of lượt thi (student). */
+    @GetMapping("/{id}")
+    public UserDetail get(@PathVariable UUID id) {
+        return adminUsers.detail(id);
     }
 
     @PostMapping
@@ -61,31 +69,33 @@ class AdminUserController {
     }
 
     @PatchMapping("/{id}")
-    @Transactional
-    public UserResponseDTO update(@PathVariable UUID id, @Valid @RequestBody UpdateUserRequest request) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> ApiException.notFound("USER_NOT_FOUND", "User not found"));
-        if (request.fullName() != null && !request.fullName().isBlank()) {
-            user.setFullName(request.fullName().trim());
-        }
-        if (request.email() != null && !request.email().isBlank()) {
-            String email = PasswordRules.normalize(request.email());
-            if (!email.equals(user.getEmail()) && userRepository.existsByEmail(email)) {
-                throw ApiException.conflict("EMAIL_ALREADY_REGISTERED", "Email is already used by another account");
-            }
-            user.setEmail(email);
-        }
-        if (request.studentCode() != null) {
-            String code = request.studentCode().isBlank() ? null : request.studentCode().trim().toUpperCase();
-            if (code != null && !code.equals(user.getStudentCode()) && userRepository.existsByStudentCode(code)) {
-                throw ApiException.conflict("STUDENT_CODE_ALREADY_EXISTS", "Student code is already used");
-            }
-            user.setStudentCode(code);
-        }
-        if (request.active() != null) {
-            user.setActive(request.active());
-        }
-        return UserResponseDTO.fromEntity(user);
+    public UserResponseDTO update(@AuthenticationPrincipal User currentUser, @PathVariable UUID id,
+                                  @Valid @RequestBody UpdateUserRequest request) {
+        return adminUsers.update(id, request, currentUser);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@AuthenticationPrincipal User currentUser, @PathVariable UUID id) {
+        adminUsers.delete(id, currentUser);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Mails the user a one-time reset link (same mail as Forgot password). */
+    @PostMapping("/{id}/password-reset")
+    public ResponseEntity<Void> sendPasswordReset(@PathVariable UUID id, HttpServletRequest http) {
+        passwordReset.sendResetLinkFor(adminUsers.load(id), http.getRemoteAddr());
+        return ResponseEntity.accepted().build();
+    }
+
+    @PutMapping(path = "/{id}/avatar", consumes = "multipart/form-data")
+    public Map<String, String> uploadAvatar(@PathVariable UUID id, @RequestPart("file") MultipartFile file) {
+        return Map.of("avatarUrl", avatarService.replace(id, file));
+    }
+
+    @DeleteMapping("/{id}/avatar")
+    public ResponseEntity<Void> deleteAvatar(@PathVariable UUID id) {
+        avatarService.remove(id);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping(path = "/import", consumes = "multipart/form-data")

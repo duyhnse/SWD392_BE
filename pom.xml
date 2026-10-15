@@ -19,6 +19,7 @@
         <spring-modulith.version>2.1.1</spring-modulith.version>
         <springdoc.version>3.1.1</springdoc.version>
         <commons-csv.version>1.14.1</commons-csv.version>
+        <twelvemonkeys.version>3.15.3</twelvemonkeys.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -59,6 +60,17 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+        <!-- WebP decoding for profile pictures (ImageIO plugin, registered through SPI) -->
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-webp</artifactId>
+            <version>${twelvemonkeys.version}</version>
+        </dependency>
+        <!-- Verifies Firebase/Google ID tokens for Google account linking (JWT + JWKS) -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-jose</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>

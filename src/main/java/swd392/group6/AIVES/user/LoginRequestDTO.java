@@ -21,4 +21,11 @@ public class LoginRequestDTO {
 
     @NotBlank(message = "Password is required")
     private String password;
+
+    /** Random id kept by the browser; the same browser re-logging in is not asked to sign out "the other device". */
+    @Size(max = 64)
+    private String deviceId;
+
+    /** The user confirmed signing out the session on the other device (D38). */
+    private Boolean force;
 }

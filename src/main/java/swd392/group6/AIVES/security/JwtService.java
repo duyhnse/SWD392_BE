@@ -61,6 +61,11 @@ public class JwtService {
                 .compact();
     }
 
+    /** Login session id (D38), or null for tokens without one. */
+    public String extractSessionId(String token) {
+        return extractClaim(token, claims -> claims.get("sid", String.class));
+    }
+
     public long getExpirationTime() {
         return jwtExpiration;
     }

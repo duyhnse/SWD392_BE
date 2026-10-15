@@ -25,7 +25,7 @@ class AuthFlowIntegrationTest {
     @Autowired private UserRepository userRepository;
 
     private static String loginBody(String username, String password) {
-        return "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}";
+        return "{\"username\":\"" + username + "\",\"password\":\"" + password + "\",\"deviceId\":\"" + TestUsers.DEVICE + "\"}";
     }
 
     @Test
@@ -131,6 +131,12 @@ class AuthFlowIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("CURRENT_PASSWORD_INCORRECT"));
 
+        mockMvc.perform(put("/api/v1/users/me/password").header("Authorization", "Bearer " + oldToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"" + PASSWORD + "\",\"newPassword\":\"" + PASSWORD + "\"}"))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("PASSWORD_UNCHANGED"));
+
         String json = mockMvc.perform(put("/api/v1/users/me/password").header("Authorization", "Bearer " + oldToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"currentPassword\":\"" + PASSWORD + "\",\"newPassword\":\"BrandNewPass1\"}"))
@@ -141,7 +147,8 @@ class AuthFlowIntegrationTest {
         mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + oldToken))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + newToken))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.passwordChangedAt").isNotEmpty());
         TestUsers.login(mockMvc, user.getUsername(), "BrandNewPass1");
     }
 }

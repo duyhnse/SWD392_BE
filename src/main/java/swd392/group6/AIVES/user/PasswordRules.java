@@ -9,6 +9,13 @@ final class PasswordRules {
     static final int MIN_PASSWORD = 8;
     static final int MAX_PASSWORD = 100;
     static final Pattern USERNAME = Pattern.compile("[a-z0-9._-]{3,50}");
+    /** Student code (MSSV), stored uppercase, e.g. SE180180. Required for STUDENT accounts (D40). */
+    static final Pattern STUDENT_CODE = Pattern.compile("[A-Z0-9]{2,20}");
+
+    /** Uppercased student code, or null when blank. */
+    static String normalizeStudentCode(String code) {
+        return code == null || code.isBlank() ? null : code.trim().toUpperCase(Locale.ROOT);
+    }
 
     private PasswordRules() {
     }

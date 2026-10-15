@@ -69,12 +69,19 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/actuator/health/**").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/avatars/**").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((request, response, e) ->
-                                writeError(response, 401, "UNAUTHORIZED", "Authentication required"))
+                        .authenticationEntryPoint((request, response, e) -> {
+                            if ("SESSION_REVOKED".equals(request.getAttribute(AuthAttributes.ERROR_CODE))) {
+                                writeError(response, 401, "SESSION_REVOKED",
+                                        "This session has ended: the account was signed in on another device or signed out");
+                            } else {
+                                writeError(response, 401, "UNAUTHORIZED", "Authentication required");
+                            }
+                        })
                         .accessDeniedHandler((request, response, e) ->
                                 writeError(response, 403, "FORBIDDEN", "You do not have permission to perform this action"))
                 )

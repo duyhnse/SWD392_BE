@@ -13,6 +13,7 @@ import java.util.UUID;
 @Repository
 public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByUsername(String username);
+    Optional<User> findByGoogleSubject(String googleSubject);
     Optional<User> findByEmail(String email);
     boolean existsByUsername(String username);
     boolean existsByEmail(String email);
@@ -21,11 +22,13 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("""
             select u from User u
             where (:roleId is null or u.roleId = :roleId)
+              and (:active is null or u.active = :active)
               and (:q is null
                    or lower(u.username) like concat('%', :q, '%')
                    or lower(u.fullName) like concat('%', :q, '%')
                    or lower(u.email) like concat('%', :q, '%')
                    or lower(coalesce(u.studentCode, '')) like concat('%', :q, '%'))
             """)
-    Page<User> search(@Param("q") String q, @Param("roleId") Short roleId, Pageable pageable);
+    Page<User> search(@Param("q") String q, @Param("roleId") Short roleId, @Param("active") Boolean active,
+                      Pageable pageable);
 }

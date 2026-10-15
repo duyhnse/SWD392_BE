@@ -35,6 +35,28 @@ class AdminUsersIntegrationTest {
         return TestUsers.login(mockMvc, users.create(Role.ADMIN).getUsername(), PASSWORD);
     }
 
+    private static String code() {
+        return "SE" + UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
+    }
+
+    @Test
+    void studentsNeedAStudentCode_D40() throws Exception {
+        String u = unique();
+        var result = userApi.ensureStudents(List.of(NewAccount.student(u, "Không Mã", u + "@fpt.edu.vn", " ")));
+        assertThat(result.getFirst().errorCode()).isEqualTo("STUDENT_CODE_REQUIRED");
+        mockMvc.perform(post("/api/v1/admin/users").header("Authorization", "Bearer " + adminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + u + "\",\"fullName\":\"X\",\"email\":\"" + u + "@a.vn\",\"role\":\"STUDENT\"}"))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("STUDENT_CODE_REQUIRED"));
+        // A lecturer never has one: a code sent for a lecturer is ignored.
+        mockMvc.perform(post("/api/v1/admin/users").header("Authorization", "Bearer " + adminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + u + "\",\"fullName\":\"X\",\"email\":\"" + u + "@a.vn\",\"role\":\"LECTURER\",\"studentCode\":\"SE111\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.studentCode").doesNotExist());
+    }
+
     private static String unique() {
         return "s" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
     }
@@ -71,11 +93,11 @@ class AdminUsersIntegrationTest {
         User existing = users.create(Role.STUDENT);
         String a = unique(), b = unique(), c = unique();
         String csv = "username,full_name,email,student_code\n"
-                + a + ",Nguyễn Văn A," + a + "@fpt.edu.vn,\n"
-                + b + ",Trần Thị B," + b + "@fpt.edu.vn,\n"
-                + existing.getUsername() + "," + existing.getFullName() + "," + existing.getEmail() + ",\n"
-                + "bad," + "No Email,not-an-email,\n"
-                + c + ",Lê C," + c + "@fpt.edu.vn,\n";
+                + a + ",Nguyễn Văn A," + a + "@fpt.edu.vn," + code() + "\n"
+                + b + ",Trần Thị B," + b + "@fpt.edu.vn," + code() + "\n"
+                + existing.getUsername() + "," + existing.getFullName() + "," + existing.getEmail() + "," + existing.getStudentCode() + "\n"
+                + "bad," + "No Email,not-an-email," + code() + "\n"
+                + c + ",Lê C," + c + "@fpt.edu.vn," + code() + "\n";
 
         mockMvc.perform(multipart("/api/v1/admin/users/import")
                         .file(new MockMultipartFile("file", "users.csv", "text/csv", csv.getBytes(StandardCharsets.UTF_8)))
@@ -125,7 +147,7 @@ class AdminUsersIntegrationTest {
     @Test
     void ensureStudentsIsIdempotent_AC_A9() {
         String u = unique();
-        List<NewAccount> list = List.of(NewAccount.student(u, "Phạm D", u + "@fpt.edu.vn", null));
+        List<NewAccount> list = List.of(NewAccount.student(u, "Phạm D", u + "@fpt.edu.vn", code()));
 
         var first = userApi.ensureStudents(list);
         var second = userApi.ensureStudents(list);
