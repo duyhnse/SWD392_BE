@@ -128,6 +128,12 @@ class JdbcQuestionBankApi implements QuestionBankApi {
     }
 
     @Override
+    public List<String> courseTerms(UUID courseId) {
+        return jdbc.queryForList("select term from course_terms where course_id = :c order by term",
+                new MapSqlParameterSource("c", courseId), String.class);
+    }
+
+    @Override
     @Transactional
     public void lockForExam(Collection<UUID> questionIds, Collection<UUID> rubricIds) {
         if (!questionIds.isEmpty()) {

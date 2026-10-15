@@ -20,7 +20,8 @@ class JdbcExamApi implements ExamApi {
 
     private static final String ATTEMPT_SELECT = """
             select a.attempt_id, a.viva_exam_id, a.course_id, a.student_id, a.examiner_id, a.status, a.end_reason,
-                   a.started_at, a.deadline_at, a.ended_at, a.disconnect_count, a.frozen_sec_total, v.seq_no
+                   a.started_at, a.deadline_at, a.ended_at, a.disconnect_count, a.frozen_sec_total, v.seq_no,
+                   a.last_seen_at, a.disconnected_since, a.cancel_reason
             from exam_attempts a
             left join viva_exam_students v on v.viva_exam_id = a.viva_exam_id and v.student_id = a.student_id""";
 
@@ -28,7 +29,8 @@ class JdbcExamApi implements ExamApi {
             rs.getObject(2, UUID.class), rs.getObject(3, UUID.class), rs.getObject(4, UUID.class),
             rs.getObject(5, UUID.class), rs.getString(6), rs.getString(7), instant(rs.getTimestamp(8)),
             instant(rs.getTimestamp(9)), instant(rs.getTimestamp(10)), rs.getInt(11), rs.getInt(12),
-            (Integer) rs.getObject(13));
+            (Integer) rs.getObject(13), instant(rs.getTimestamp(14)), instant(rs.getTimestamp(15)),
+            rs.getString(16));
 
     private final JdbcTemplate jdbc;
 
@@ -59,6 +61,12 @@ class JdbcExamApi implements ExamApi {
     }
 
     @Override
+    public List<UUID> runningAttemptIds() {
+        return jdbc.queryForList("select attempt_id from exam_attempts where status in ('IN_PROGRESS', 'INTERRUPTED')",
+                UUID.class);
+    }
+
+    @Override
     public List<AttemptInfo> listAttempts(UUID vivaExamId) {
         return jdbc.query(ATTEMPT_SELECT + " where a.viva_exam_id = ? order by v.seq_no nulls last, a.started_at",
                 ATTEMPT, vivaExamId);
@@ -69,11 +77,12 @@ class JdbcExamApi implements ExamApi {
         return jdbc.query("""
                         select attempt_question_id, question_id, order_no, status, topic_name, bloom_level,
                                language, content, reference_answer, rubric_snapshot::text, time_budget_sec, time_used_sec,
-                               void_reason
+                               void_reason, started_at
                         from attempt_questions where attempt_id = ? order by order_no, status = 'VOIDED' desc""",
                 (rs, i) -> new AttemptQuestionInfo(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getInt(3),
                         rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7), rs.getString(8),
-                        rs.getString(9), rs.getString(10), rs.getInt(11), rs.getInt(12), rs.getString(13)), attemptId);
+                        rs.getString(9), rs.getString(10), rs.getInt(11), rs.getInt(12), rs.getString(13),
+                        instant(rs.getTimestamp(14))), attemptId);
     }
 
     private static Instant instant(Timestamp ts) {

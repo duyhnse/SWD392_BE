@@ -63,7 +63,9 @@ class AttemptRecordingService {
         }
         Instant now = clock.instant();
         boolean running = "IN_PROGRESS".equals(attempt.status()) || "INTERRUPTED".equals(attempt.status());
-        boolean justEnded = "COMPLETED".equals(attempt.status()) && attempt.endedAt() != null
+        // the last chunks arrive after the end — also after a void, when they are the evidence (D65)
+        boolean justEnded = ("COMPLETED".equals(attempt.status()) || "CANCELLED".equals(attempt.status()))
+                && attempt.endedAt() != null
                 && !now.isAfter(attempt.endedAt().plus(UPLOAD_AFTER_END));
         if (!running && !justEnded) {
             throw ApiException.conflict("ATTEMPT_NOT_RECORDING", "Recordings can only be uploaded while the attempt runs");

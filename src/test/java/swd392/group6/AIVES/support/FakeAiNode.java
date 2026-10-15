@@ -4,9 +4,18 @@ import org.springframework.boot.test.context.TestConfiguration;
 import swd392.group6.AIVES.ai.AiJobPort;
 import swd392.group6.AIVES.ai.AiJobType;
 import swd392.group6.AIVES.ai.AiMaterialIndexPort;
+import swd392.group6.AIVES.ai.AiUnavailableException;
+import swd392.group6.AIVES.ai.InterviewAiPort;
+import swd392.group6.AIVES.ai.SpeechToTextPort;
+import swd392.group6.AIVES.ai.SpeechToTextRequest;
+import swd392.group6.AIVES.ai.SynthesizedAudio;
+import swd392.group6.AIVES.ai.TextToSpeechPort;
+import swd392.group6.AIVES.ai.Transcript;
+import swd392.group6.AIVES.common.Language;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -21,10 +30,59 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * "#no-context", "#fail" or "#bad-citation" answers NO_CONTEXT, a failed LLM, or a draft citing another material.
  */
 @TestConfiguration(proxyBeanMethods = false)
-public class FakeAiNode implements AiJobPort, AiMaterialIndexPort {
+public class FakeAiNode implements AiJobPort, AiMaterialIndexPort, InterviewAiPort, SpeechToTextPort, TextToSpeechPort {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     public final List<UUID> deletedMaterials = new CopyOnWriteArrayList<>();
+    /** Requests seen by process-answer (WF3 tests check what was skipped, e.g. AC-I5). */
+    public final List<AnswerRequest> answerRequests = new CopyOnWriteArrayList<>();
+    public volatile boolean ttsBroken;
+
+    // ---- interview (16 §3): the answer clip is plain UTF-8 text = the transcript --------------------------------
+    // "#stt-fail": no transcript at all · "#ai-fail": process-answer fails, STT alone works · "không biết": wrong ·
+    // fewer than 15 words: partial with a follow-up · otherwise complete.
+
+    @Override
+    public AnswerResult processAnswer(AnswerRequest request) {
+        answerRequests.add(request);
+        String text = new String(request.audio(), StandardCharsets.UTF_8);
+        if (text.contains("#stt-fail") || text.contains("#ai-fail")) {
+            throw new AiUnavailableException("fake AI node: process-answer down");
+        }
+        Transcript transcript = new Transcript(text, "fake-stt", 5);
+        Analysis analysis;
+        boolean shortAnswer = text.trim().split("\\s+").length < 15;
+        if (text.contains("không biết")) {
+            analysis = new Analysis("INSUFFICIENT", List.of(), List.of("ý 1"), false, false, false, true, 0, List.of(),
+                    null, "fake: does not know", "fake-llm");
+        } else if (shortAnswer) {
+            analysis = new Analysis("PARTIAL", List.of(), List.of("ý 1"), false, false, false, false, 0, List.of(),
+                    "Em giải thích rõ hơn ý 1 được không?", "fake: short", "fake-llm");
+        } else {
+            analysis = new Analysis("COMPLETE", List.of("ý 1"), List.of(), false, false, false, false, 0, List.of(),
+                    null, "fake: complete", "fake-llm");
+        }
+        SynthesizedAudio audio = analysis.followUpQuestion() == null || ttsBroken ? null
+                : new SynthesizedAudio("fake follow-up audio".getBytes(StandardCharsets.UTF_8), "audio/mpeg", 1500);
+        return new AnswerResult(transcript, analysis, audio, null);
+    }
+
+    @Override
+    public Transcript transcribe(SpeechToTextRequest request) {
+        String text = new String(request.audio(), StandardCharsets.UTF_8);
+        if (text.contains("#stt-fail")) {
+            throw new AiUnavailableException("fake AI node: STT down");
+        }
+        return new Transcript(text, "fake-stt", 5);
+    }
+
+    @Override
+    public SynthesizedAudio synthesize(String text, Language language) {
+        if (ttsBroken) {
+            throw new AiUnavailableException("fake AI node: TTS down");
+        }
+        return new SynthesizedAudio(("tts:" + language + ":" + text).getBytes(StandardCharsets.UTF_8), "audio/mpeg", 2000);
+    }
 
     @Override
     public Optional<AiJobOutcome> submit(UUID jobId, AiJobType type, JsonNode input, String callbackUrl) {
