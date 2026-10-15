@@ -2,6 +2,8 @@ package swd392.group6.AIVES.questionbank.internal;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -38,11 +40,11 @@ public final class QuestionBankDtos {
 
     // ---- Rubrics ----
 
-    public record CriterionRequest(@NotBlank @Size(max = 150) String name, String description,
+    public record CriterionRequest(@NotBlank @Size(max = 150) String name, @Size(max = 1000) String description,
                                    @NotNull BigDecimal maxScore, @NotNull BigDecimal weightPercent, Integer sortOrder) {
     }
 
-    public record RubricRequest(@NotBlank @Size(max = 150) String name, String description,
+    public record RubricRequest(@NotBlank @Size(max = 150) String name, @Size(max = 1000) String description,
                                 @NotNull @Valid List<CriterionRequest> criteria) {
     }
 
@@ -53,7 +55,7 @@ public final class QuestionBankDtos {
                                int sortOrder) {
     }
 
-    public record RubricDto(UUID id, UUID courseId, String name, String description,
+    public record RubricDto(UUID id, long no, UUID courseId, String name, String description,
                             @JsonProperty("isLocked") boolean isLocked, BigDecimal totalWeight, long questionCount,
                             List<CriterionDto> criteria, UUID createdBy, Instant createdAt, Instant updatedAt) {
     }
@@ -92,7 +94,7 @@ public final class QuestionBankDtos {
                             String excerpt) {
     }
 
-    public record QuestionDto(UUID id, UUID courseId, UUID topicId, String topicName, String content,
+    public record QuestionDto(UUID id, long no, UUID courseId, UUID topicId, String topicName, String content,
                               String referenceAnswer, BloomLevel bloomLevel, Language language,
                               QuestionStatus status, QuestionOrigin origin, QuestionRubricDto rubric, AiDto ai,
                               List<SourceDto> sources, @JsonProperty("isLocked") boolean isLocked, UUID ownerId,
@@ -100,15 +102,37 @@ public final class QuestionBankDtos {
                               UUID publishedBy, Instant publishedAt, Instant discardedAt) {
     }
 
-    public record QuestionSummaryDto(UUID id, UUID courseId, UUID topicId, String topicName, String content,
-                                     BloomLevel bloomLevel, Language language, QuestionStatus status,
+    public record QuestionSummaryDto(UUID id, long no, UUID courseId, UUID topicId, String topicName,
+                                     String content, BloomLevel bloomLevel, Language language, QuestionStatus status,
                                      QuestionOrigin origin, UUID rubricId, String rubricName,
                                      @JsonProperty("isLocked") boolean isLocked, UUID ownerId, Integer version,
                                      Instant createdAt, Instant updatedAt, Instant publishedAt) {
     }
 
     public record QuestionFilter(List<QuestionStatus> status, List<UUID> topicId, List<BloomLevel> bloomLevel,
-                                 List<QuestionOrigin> origin, String q) {
+                                 List<QuestionOrigin> origin, String q, UUID generationRequestId) {
+    }
+
+    // ---- AI generation (04 §9.2) ----
+
+    public record GenerationRequest(@NotNull UUID topicId, @NotEmpty @Size(max = 20) List<@NotNull UUID> materialIds,
+                                    @NotNull @Min(1) @Max(20) Integer count,
+                                    @NotEmpty List<@NotNull BloomLevel> bloomLevels,
+                                    @Size(max = 1000) String focusText, Language language) {
+    }
+
+    public record GenerationDto(UUID id, UUID courseId, UUID topicId, String topicName, List<UUID> materialIds,
+                                int requestedCount, List<BloomLevel> bloomLevels, String focusText, Language language,
+                                String status, int generatedCount, String message, UUID requestedBy,
+                                Instant createdAt, Instant finishedAt) {
+    }
+
+    // ---- Import (04 §8) ----
+
+    public record ImportRowError(int row, String column, String code, String message) {
+    }
+
+    public record ImportReport(int total, int imported, List<UUID> questionIds, List<ImportRowError> errors) {
     }
 
     // ---- Materials ----

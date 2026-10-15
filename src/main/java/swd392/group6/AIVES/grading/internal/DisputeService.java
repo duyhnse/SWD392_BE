@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.exam.ExamApi;
 import swd392.group6.AIVES.exam.ExamApi.ExamInfo;
-import swd392.group6.AIVES.exam.ExamApi.SessionInfo;
+import swd392.group6.AIVES.exam.ExamApi.AttemptInfo;
 import swd392.group6.AIVES.grading.internal.GradingDtos.CreateDisputeRequest;
 import swd392.group6.AIVES.grading.internal.GradingDtos.DisputeDto;
 import swd392.group6.AIVES.grading.internal.GradingDtos.StudentRef;
@@ -87,8 +87,8 @@ class DisputeService {
     @Transactional(readOnly = true)
     public List<DisputeDto> forExam(UUID vivaExamId, User user) {
         support.requireExamRead(vivaExamId, user);
-        List<UUID> sessionIds = support.sessionsOfExam(vivaExamId).stream().map(GradingSupport.SessionRow::sessionId).toList();
-        List<UUID> evaluationIds = evaluations.findBySessionIdIn(sessionIds).stream()
+        List<UUID> attemptIds = support.attemptsOfExam(vivaExamId).stream().map(GradingSupport.AttemptRow::attemptId).toList();
+        List<UUID> evaluationIds = evaluations.findByAttemptIdIn(attemptIds).stream()
                 .map(GradeEvaluation::getEvaluationId).toList();
         return evaluationIds.isEmpty() ? List.of()
                 : toDtos(disputes.findByEvaluationIdInOrderByCreatedAtDesc(evaluationIds));
@@ -161,17 +161,17 @@ class DisputeService {
                 .collect(Collectors.toMap(GradeEvaluation::getEvaluationId, Function.identity()));
         Map<UUID, GradingSupport.Student> students = support.students(
                 rows.stream().map(GradeDispute::getStudentId).collect(Collectors.toSet()));
-        Map<UUID, SessionInfo> sessions = new HashMap<>();
+        Map<UUID, AttemptInfo> attempts = new HashMap<>();
         Map<UUID, ExamInfo> exams = new HashMap<>();
         return rows.stream().map(d -> {
             GradeEvaluation evaluation = evaluationById.get(d.getEvaluationId());
-            SessionInfo session = sessions.computeIfAbsent(evaluation.getSessionId(),
-                    id -> examApi.getSession(id).orElse(null));
-            ExamInfo exam = session == null ? null
-                    : exams.computeIfAbsent(session.vivaExamId(), id -> examApi.getExam(id).orElse(null));
+            AttemptInfo attempt = attempts.computeIfAbsent(evaluation.getAttemptId(),
+                    id -> examApi.getAttempt(id).orElse(null));
+            ExamInfo exam = attempt == null ? null
+                    : exams.computeIfAbsent(attempt.vivaExamId(), id -> examApi.getExam(id).orElse(null));
             GradingSupport.Student student = students.getOrDefault(d.getStudentId(),
                     new GradingSupport.Student(d.getStudentId(), null, null));
-            return new DisputeDto(d.getDisputeId(), d.getEvaluationId(), evaluation.getSessionId(),
+            return new DisputeDto(d.getDisputeId(), d.getEvaluationId(), evaluation.getAttemptId(),
                     exam == null ? null : exam.vivaExamId(), exam == null ? null : exam.title(),
                     new StudentRef(student.id(), student.fullName(), student.studentCode()), d.getReason(),
                     GradingJson.uuids(d.getQuestionGradeIds()), d.getStatus().name(), d.getResolution(),

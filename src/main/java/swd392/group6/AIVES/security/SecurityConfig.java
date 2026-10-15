@@ -59,6 +59,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             JwtAuthenticationFilter jwtAuthFilter,
+            PasswordChangeFilter passwordChangeFilter,
             AuthenticationProvider authenticationProvider
     ) throws Exception {
         http
@@ -71,6 +72,8 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health/**").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/avatars/**").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+                        // AI node → node 1: HMAC-signed callbacks and signed file links, checked in the controller (16 §5)
+                        .requestMatchers("/internal/ai-node/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(ex -> ex
@@ -86,7 +89,8 @@ public class SecurityConfig {
                                 writeError(response, 403, "FORBIDDEN", "You do not have permission to perform this action"))
                 )
                 .authenticationProvider(authenticationProvider)
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(passwordChangeFilter, JwtAuthenticationFilter.class);
 
         return http.build();
     }

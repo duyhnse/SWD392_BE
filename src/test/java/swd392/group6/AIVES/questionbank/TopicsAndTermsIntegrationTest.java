@@ -108,6 +108,38 @@ class TopicsAndTermsIntegrationTest {
     }
 
     @Test
+    void movingQuestionsEmptiesATopicSoItCanBeDeleted_D54() throws Exception {
+        UUID from = fx.topic(lecturer, courseId, "Old");
+        UUID to = fx.topic(lecturer, courseId, "New");
+        UUID rubric = fx.rubric(lecturer, courseId, "R", 100);
+        UUID q1 = fx.question(lecturer, courseId, completeQuestion(from, rubric, "What is coupling?"));
+        fx.question(lecturer, courseId, completeQuestion(from, rubric, "What is cohesion?"));
+        UUID otherCourse = fx.course("VI");
+        fx.assign(otherCourse, lecturer);
+        UUID foreign = fx.topic(lecturer, otherCourse, "Foreign");
+
+        fx.json(lecturer, post("/api/v1/topics/" + from + "/move-questions"), "{\"targetTopicId\":\"" + foreign + "\"}")
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("TOPIC_NOT_IN_COURSE"));
+        fx.json(lecturer, post("/api/v1/topics/" + from + "/move-questions"), "{\"targetTopicId\":\"" + to + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.moved").value(2));
+        fx.perform(lecturer, get("/api/v1/questions/" + q1)).andExpect(jsonPath("$.topicName").value("New"));
+        fx.perform(lecturer, delete("/api/v1/topics/" + from)).andExpect(status().isNoContent());
+    }
+
+    @Test
+    void archivedCourseIsReadOnly_D54() throws Exception {
+        UUID topic = fx.topic(lecturer, courseId, "Kept");
+        jdbc.update("update courses set is_active = false where course_id = ?", courseId);
+        fx.perform(lecturer, get("/api/v1/courses/" + courseId + "/topics")).andExpect(status().isOk());
+        fx.json(lecturer, post("/api/v1/courses/" + courseId + "/topics"), "{\"name\":\"X\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COURSE_ARCHIVED"));
+        fx.perform(lecturer, delete("/api/v1/topics/" + topic)).andExpect(status().isConflict());
+    }
+
+    @Test
     void unknownTopicIs404() throws Exception {
         fx.perform(lecturer, delete("/api/v1/topics/" + UUID.randomUUID()))
                 .andExpect(status().isNotFound())

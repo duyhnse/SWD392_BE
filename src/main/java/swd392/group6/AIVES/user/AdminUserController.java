@@ -64,7 +64,7 @@ class AdminUserController {
     @PostMapping
     public ResponseEntity<UserResponseDTO> create(@Valid @RequestBody CreateUserRequest request) {
         User user = provisioning.create(new NewAccount(request.username(), request.fullName(), request.email(),
-                request.studentCode(), request.role()));
+                request.studentCode(), request.role(), request.password(), null));
         return ResponseEntity.status(HttpStatus.CREATED).body(UserResponseDTO.fromEntity(user));
     }
 
@@ -99,10 +99,20 @@ class AdminUserController {
     }
 
     @PostMapping(path = "/import", consumes = "multipart/form-data")
-    public ImportReport importUsers(@RequestPart("file") MultipartFile file) throws IOException {
+    public ImportReport importUsers(@RequestPart("file") MultipartFile file,
+                                    @RequestParam(defaultValue = "false") boolean dryRun) throws IOException {
         if (file.isEmpty() || file.getSize() > MAX_IMPORT_BYTES) {
             throw ApiException.unprocessable("IMPORT_FILE_INVALID", "Upload a CSV file of at most 2 MB");
         }
-        return importer.importCsv(file.getInputStream(), true);
+        return importer.importCsv(file.getInputStream(), true, dryRun);
+    }
+
+    @GetMapping("/import-template")
+    public ResponseEntity<byte[]> importTemplate() {
+        return ResponseEntity.ok()
+                .contentType(new org.springframework.http.MediaType("text", "csv", java.nio.charset.StandardCharsets.UTF_8))
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                        org.springframework.http.ContentDisposition.attachment().filename("aives-accounts-template.csv").build().toString())
+                .body(UserCsvImporter.template());
     }
 }

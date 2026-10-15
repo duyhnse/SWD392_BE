@@ -21,7 +21,8 @@ final class AdminUserDtos {
             @NotBlank(message = "Full name is required") @Size(max = 100) String fullName,
             @NotBlank(message = "Email is required") @Email(message = "Email format is invalid") @Size(max = 100) String email,
             @NotNull(message = "Role is required") Role role,
-            @Size(max = 20) String studentCode // required when role = STUDENT (D40)
+            @Size(max = 20) String studentCode, // required when role = STUDENT (D40)
+            @Size(max = 100) String password // blank = account.default_password; changed at the first login (D62)
     ) {
     }
 
@@ -41,7 +42,7 @@ final class AdminUserDtos {
      * {@code GET /admin/users/{id}}: the profile plus role details — assigned courses for a lecturer,
      * number of lượt thi for a student (null when not applicable).
      */
-    record UserDetail(@JsonUnwrapped UserResponseDTO user, List<CourseRef> courses, Long examSessionCount) {
+    record UserDetail(@JsonUnwrapped UserResponseDTO user, List<CourseRef> courses, Long examAttemptCount) {
     }
 
     record LecturerSummary(UUID userId, String username, String fullName, String email, boolean active,

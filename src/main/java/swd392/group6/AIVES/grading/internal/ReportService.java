@@ -9,7 +9,6 @@ import swd392.group6.AIVES.grading.internal.GradingDtos.Bin;
 import swd392.group6.AIVES.grading.internal.GradingDtos.QuestionStats;
 import swd392.group6.AIVES.grading.internal.GradingDtos.ReportDto;
 import swd392.group6.AIVES.grading.internal.GradingDtos.ScoreStats;
-import swd392.group6.AIVES.questionbank.QuestionBankApi;
 import swd392.group6.AIVES.user.User;
 
 import java.io.ByteArrayOutputStream;
@@ -39,29 +38,30 @@ class ReportService {
     private static final byte[] UTF8_BOM = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
     private static final List<String> STAGES =
             List.of("UPCOMING", "AVAILABLE", "IN_PROGRESS", "INTERRUPTED", "COMPLETED", "MISSED", "CANCELLED");
-    private static final List<String> STATUSES =
-            List.of("SCHEDULED", "IN_PROGRESS", "INTERRUPTED", "COMPLETED", "CANCELLED");
+    private static final List<String> STATUSES = List.of("IN_PROGRESS", "INTERRUPTED", "COMPLETED", "CANCELLED");
 
     private final GradingSupport support;
     private final GradeEvaluationRepository evaluations;
     private final QuestionGradeRepository grades;
-    private final QuestionBankApi questionBankApi;
     private final Clock clock;
 
     public ReportDto report(UUID vivaExamId, User user) {
         ExamInfo exam = support.requireExamRead(vivaExamId, user);
-        List<GradingSupport.SessionRow> sessions = support.sessionsOfExam(vivaExamId);
+        List<GradingSupport.AttemptRow> attempts = support.attemptsOfExam(vivaExamId);
+        List<GradingSupport.RosterRow> roster = support.rosterOfExam(vivaExamId);
         Instant now = clock.instant();
 
         Map<String, Integer> byStatus = zeroCounts(STATUSES);
-        Map<String, Integer> byStage = zeroCounts(STAGES);
-        for (GradingSupport.SessionRow s : sessions) {
+        for (GradingSupport.AttemptRow s : attempts) {
             byStatus.merge(s.status(), 1, Integer::sum);
-            byStage.merge(stage(s, exam, now), 1, Integer::sum);
+        }
+        Map<String, Integer> byStage = zeroCounts(STAGES);
+        for (GradingSupport.RosterRow r : roster) {
+            byStage.merge(stage(r.attemptStatus(), exam, now), 1, Integer::sum);
         }
 
-        List<GradeEvaluation> evals = evaluations.findBySessionIdIn(
-                sessions.stream().map(GradingSupport.SessionRow::sessionId).toList());
+        List<GradeEvaluation> evals = evaluations.findByAttemptIdIn(
+                attempts.stream().map(GradingSupport.AttemptRow::attemptId).toList());
         List<BigDecimal> totals = evals.stream().filter(e -> e.getStatus() == EvaluationStatus.CONFIRMED)
                 .map(GradeEvaluation::getFinalTotalScore).filter(Objects::nonNull).toList();
         ScoreStats stats = new ScoreStats(totals.size(), ScoreCalculator.mean(totals), ScoreCalculator.median(totals),
@@ -80,9 +80,11 @@ class ReportService {
         List<QuestionStats> hardest = questions.stream().filter(q -> q.gradedCount() > 0)
                 .sorted(Comparator.comparing(QuestionStats::averageFinalScore).thenComparing(q -> q.questionId().toString()))
                 .limit(5).toList();
-        return new ReportDto(vivaExamId, exam.title(), sessions.size(), byStatus, byStage, evals.size(),
+        Integer passed = exam.passScore() == null ? null
+                : (int) totals.stream().filter(t -> t.compareTo(exam.passScore()) >= 0).count();
+        return new ReportDto(vivaExamId, exam.title(), roster.size(), attempts.size(), byStatus, byStage, evals.size(),
                 (int) evals.stream().filter(e -> e.getStatus() == EvaluationStatus.CONFIRMED).count(), stats,
-                distribution, questions, hardest);
+                exam.passScore(), passed, distribution, questions, hardest);
     }
 
     /**
@@ -90,20 +92,20 @@ class ReportService {
      * CONFIRMED evaluations the average thread final score and the share of finals ≥ 7.
      */
     private List<QuestionStats> questionStats(UUID vivaExamId) {
-        record Row(UUID questionId, boolean asked, BigDecimal finalScore) {
+        record Row(UUID questionId, String content, boolean asked, BigDecimal finalScore) {
         }
         List<Row> rows = support.jdbc().query("""
-                        select sq.question_id,
-                               exists (select 1 from exam_turns t where t.session_question_id = sq.session_question_id) as asked,
+                        select sq.question_id, sq.content,
+                               exists (select 1 from exam_turns t where t.attempt_question_id = sq.attempt_question_id) as asked,
                                case when ge.status = 'CONFIRMED' then qg.final_score end as final_score
-                        from exam_sessions s
-                        join session_questions sq on sq.session_id = s.session_id
-                        left join grade_evaluations ge on ge.session_id = s.session_id
+                        from exam_attempts s
+                        join attempt_questions sq on sq.attempt_id = s.attempt_id
+                        left join grade_evaluations ge on ge.attempt_id = s.attempt_id
                         left join question_grades qg on qg.evaluation_id = ge.evaluation_id
-                                                     and qg.session_question_id = sq.session_question_id
-                        where s.viva_exam_id = :exam and s.status = 'COMPLETED'""",
+                                                     and qg.attempt_question_id = sq.attempt_question_id
+                        where s.viva_exam_id = :exam and s.status = 'COMPLETED' and sq.status <> 'VOIDED'""",
                 new MapSqlParameterSource("exam", vivaExamId),
-                (rs, i) -> new Row(rs.getObject(1, UUID.class), rs.getBoolean(2), rs.getBigDecimal(3)));
+                (rs, i) -> new Row(rs.getObject(1, UUID.class), rs.getString(2), rs.getBoolean(3), rs.getBigDecimal(4)));
         Map<UUID, List<Row>> byQuestion = rows.stream()
                 .collect(Collectors.groupingBy(Row::questionId, LinkedHashMap::new, Collectors.toList()));
         List<QuestionStats> result = new ArrayList<>();
@@ -112,7 +114,7 @@ class ReportService {
             long good = finals.stream().filter(f -> f.compareTo(GOOD_ANSWER) >= 0).count();
             BigDecimal rate = finals.isEmpty() ? null
                     : BigDecimal.valueOf(good).divide(BigDecimal.valueOf(finals.size()), 4, RoundingMode.HALF_UP);
-            String content = questionBankApi.getQuestion(questionId).map(QuestionBankApi.QuestionInfo::content).orElse(null);
+            String content = list.getFirst().content(); // wording as asked (snapshot, D49)
             result.add(new QuestionStats(questionId, content, (int) list.stream().filter(Row::asked).count(),
                     finals.size(), ScoreCalculator.mean(finals), rate));
         });
@@ -125,39 +127,27 @@ class ReportService {
     public byte[] exportCsv(UUID vivaExamId, User user) {
         ExamInfo exam = support.requireExamRead(vivaExamId, user);
         Instant now = clock.instant();
-        record StudentRow(UUID studentId, String fullName, String studentCode, UUID sessionId, String status,
-                          String cancelReason) {
-        }
-        List<StudentRow> students = support.jdbc().query("""
-                        select u.user_id, u.full_name, u.student_code, s.session_id, s.status, s.cancel_reason
-                        from viva_exam_students vs
-                        join users u on u.user_id = vs.student_id
-                        left join exam_sessions s on s.viva_exam_id = vs.viva_exam_id and s.student_id = vs.student_id
-                        where vs.viva_exam_id = :exam
-                        order by vs.seq_no, u.student_code nulls last""",
-                new MapSqlParameterSource("exam", vivaExamId),
-                (rs, i) -> new StudentRow(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3),
-                        rs.getObject(4, UUID.class), rs.getString(5), rs.getString(6)));
+        List<GradingSupport.RosterRow> students = support.rosterOfExam(vivaExamId);
 
         // thread order numbers and final scores of every lượt thi of the exam
-        Map<UUID, Integer> orderBySessionQuestion = new HashMap<>();
+        Map<UUID, Integer> orderByAttemptQuestion = new HashMap<>();
         Integer maxOrder = support.jdbc().query("""
-                        select sq.session_question_id, sq.order_no from session_questions sq
-                        join exam_sessions s on s.session_id = sq.session_id where s.viva_exam_id = :exam""",
+                        select sq.attempt_question_id, sq.order_no from attempt_questions sq
+                        join exam_attempts s on s.attempt_id = sq.attempt_id where s.viva_exam_id = :exam""",
                 new MapSqlParameterSource("exam", vivaExamId), rs -> {
                     int max = 0;
                     while (rs.next()) {
-                        orderBySessionQuestion.put(rs.getObject(1, UUID.class), rs.getInt(2));
+                        orderByAttemptQuestion.put(rs.getObject(1, UUID.class), rs.getInt(2));
                         max = Math.max(max, rs.getInt(2));
                     }
                     return max;
                 });
         int questionCount = Math.max(exam.mainQuestionCount(), maxOrder == null ? 0 : maxOrder);
 
-        Map<UUID, GradeEvaluation> evaluationBySession = evaluations.findBySessionIdIn(students.stream()
-                        .map(StudentRow::sessionId).filter(Objects::nonNull).toList()).stream()
-                .collect(Collectors.toMap(GradeEvaluation::getSessionId, Function.identity()));
-        List<UUID> confirmedIds = evaluationBySession.values().stream()
+        Map<UUID, GradeEvaluation> evaluationByAttempt = evaluations.findByAttemptIdIn(students.stream()
+                        .map(GradingSupport.RosterRow::attemptId).filter(Objects::nonNull).toList()).stream()
+                .collect(Collectors.toMap(GradeEvaluation::getAttemptId, Function.identity()));
+        List<UUID> confirmedIds = evaluationByAttempt.values().stream()
                 .filter(e -> e.getStatus() == EvaluationStatus.CONFIRMED).map(GradeEvaluation::getEvaluationId).toList();
         Map<UUID, List<QuestionGrade>> gradesByEvaluation = confirmedIds.isEmpty() ? Map.of()
                 : grades.findByEvaluationIdIn(confirmedIds).stream()
@@ -169,11 +159,14 @@ class ReportService {
             header.add("Câu " + i);
         }
         header.add("Tổng");
+        if (exam.passScore() != null) {
+            header.add("Kết quả");
+        }
         header.add("Ghi chú");
         appendLine(csv, header);
 
         int stt = 0;
-        for (StudentRow s : students) {
+        for (GradingSupport.RosterRow s : students) {
             List<String> cells = new ArrayList<>();
             cells.add(String.valueOf(++stt));
             cells.add(nullToEmpty(s.studentCode()));
@@ -181,12 +174,9 @@ class ReportService {
             String[] scores = new String[questionCount];
             String total = "";
             List<String> notes = new ArrayList<>();
-            GradeEvaluation evaluation = s.sessionId() == null ? null : evaluationBySession.get(s.sessionId());
-            if (s.sessionId() == null) {
-                notes.add("Chưa tạo lượt thi");
-            } else if (!"COMPLETED".equals(s.status())) {
-                notes.add(stageLabel(stage(new GradingSupport.SessionRow(s.sessionId(), s.studentId(), s.fullName(),
-                        s.studentCode(), s.status(), s.cancelReason(), null), exam, now)));
+            GradeEvaluation evaluation = s.attemptId() == null ? null : evaluationByAttempt.get(s.attemptId());
+            if (!"COMPLETED".equals(s.attemptStatus())) {
+                notes.add(stageLabel(stage(s.attemptStatus(), exam, now)));
             } else if (evaluation == null) {
                 notes.add("Chưa chấm");
             } else if (evaluation.getStatus() == EvaluationStatus.DISPUTED) {
@@ -196,7 +186,7 @@ class ReportService {
             } else {
                 List<Integer> excluded = new ArrayList<>();
                 for (QuestionGrade g : gradesByEvaluation.getOrDefault(evaluation.getEvaluationId(), List.of())) {
-                    int order = orderBySessionQuestion.getOrDefault(g.getSessionQuestionId(), 0);
+                    int order = orderByAttemptQuestion.getOrDefault(g.getAttemptQuestionId(), 0);
                     if (order < 1 || order > questionCount) {
                         continue;
                     }
@@ -219,6 +209,11 @@ class ReportService {
                 cells.add(score == null ? "" : score);
             }
             cells.add(total);
+            if (exam.passScore() != null) {
+                cells.add(evaluation == null || evaluation.getStatus() != EvaluationStatus.CONFIRMED
+                        || evaluation.getFinalTotalScore() == null ? ""
+                        : evaluation.getFinalTotalScore().compareTo(exam.passScore()) >= 0 ? "Đạt" : "Không đạt");
+            }
             cells.add(String.join("; ", notes));
             appendLine(csv, cells);
         }
@@ -228,17 +223,18 @@ class ReportService {
         return out.toByteArray();
     }
 
-    /** Derived stage of a lượt thi (15 §2.2). */
-    static String stage(GradingSupport.SessionRow s, ExamInfo exam, Instant now) {
-        return switch (s.status()) {
-            case "SCHEDULED" -> {
-                boolean open = "OPEN".equals(exam.status()) || ("READY".equals(exam.status())
-                        && !now.isBefore(exam.windowStart()) && !now.isAfter(exam.windowEnd()));
-                yield open && !now.isBefore(exam.windowStart()) ? "AVAILABLE" : "UPCOMING";
-            }
-            case "CANCELLED" -> "NO_SHOW".equals(s.cancelReason()) ? "MISSED" : "CANCELLED";
-            default -> s.status();
-        };
+    /** Derived stage of a roster student (15 §2.2, D48) — same rule as the exam module's ExamStage. */
+    static String stage(String attemptStatus, ExamInfo exam, Instant now) {
+        if (attemptStatus != null) {
+            return attemptStatus;
+        }
+        if ("CANCELLED".equals(exam.status())) {
+            return "CANCELLED";
+        }
+        if ("CLOSED".equals(exam.status()) || now.isAfter(exam.checkinClosesAt())) {
+            return "MISSED";
+        }
+        return "OPEN".equals(exam.status()) && !now.isBefore(exam.checkinOpensAt()) ? "AVAILABLE" : "UPCOMING";
     }
 
     private static String stageLabel(String stage) {

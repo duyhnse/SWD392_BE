@@ -80,19 +80,24 @@ class ReportIntegrationTest {
         grading.create(sChi.sessionId());
 
         dung = fx.student("Đỗ Dung");
-        fx.session(examId, course, dung, "CANCELLED", "NO_SHOW", List.of(q1, q3), List.of("PENDING", "PENDING"));
+        fx.session(examId, course, dung, "NO_SHOW", null, List.of(q1, q3), List.of("PENDING", "PENDING"));
+        // Check-in has closed: Dung, who never checked in, is MISSED (D48)
+        jdbc.update("update viva_exams set status = 'CLOSED', checkin_closes_at = now() - interval '1 minute' where viva_exam_id = ?",
+                examId);
     }
 
     @Test
     void reportComputesCountsStatisticsAndHardestQuestions() throws Exception {
         mockMvc.perform(get("/api/v1/viva-exams/{id}/report", examId).header("Authorization", lecturerToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalSessions").value(4))
-                .andExpect(jsonPath("$.sessionsByStatus.COMPLETED").value(3))
-                .andExpect(jsonPath("$.sessionsByStatus.CANCELLED").value(1))
-                .andExpect(jsonPath("$.sessionsByStage.COMPLETED").value(3))
-                .andExpect(jsonPath("$.sessionsByStage.MISSED").value(1))
-                .andExpect(jsonPath("$.sessionsByStage.UPCOMING").value(0))
+                .andExpect(jsonPath("$.rosterSize").value(4))
+                .andExpect(jsonPath("$.totalAttempts").value(3))
+                .andExpect(jsonPath("$.attemptsByStatus.COMPLETED").value(3))
+                .andExpect(jsonPath("$.attemptsByStatus.CANCELLED").value(0))
+                .andExpect(jsonPath("$.studentsByStage.COMPLETED").value(3))
+                .andExpect(jsonPath("$.studentsByStage.MISSED").value(1))
+                .andExpect(jsonPath("$.studentsByStage.UPCOMING").value(0))
+                .andExpect(jsonPath("$.passScore").doesNotExist())
                 .andExpect(jsonPath("$.evaluatedCount").value(3))
                 .andExpect(jsonPath("$.confirmedCount").value(2))
                 .andExpect(jsonPath("$.finalTotals.count").value(2))
@@ -126,6 +131,23 @@ class ReportIntegrationTest {
         mockMvc.perform(get("/api/v1/viva-exams/{id}/report", UUID.randomUUID()).header("Authorization", lecturerToken))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("VIVA_EXAM_NOT_FOUND"));
+    }
+
+    @Test
+    void passMarkOfTheTemplateCountsPassedStudentsAndAddsAResultColumn() throws Exception {
+        jdbc.update("""
+                update exam_templates set pass_score = 5 where exam_template_id =
+                  (select exam_template_id from viva_exams where viva_exam_id = ?)""", examId);
+        mockMvc.perform(get("/api/v1/viva-exams/{id}/report", examId).header("Authorization", lecturerToken))
+                .andExpect(jsonPath("$.passScore").value(5.0))
+                .andExpect(jsonPath("$.passedCount").value(1));
+        String csv = mockMvc.perform(get("/api/v1/viva-exams/{id}/export", examId).header("Authorization", lecturerToken))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        List<String> lines = csv.substring(1).lines().toList();
+        assertThat(lines.get(0)).isEqualTo("STT,MSSV,Họ tên,Câu 1,Câu 2,Tổng,Kết quả,Ghi chú");
+        assertThat(lines.get(1)).endsWith(",8.40,Đạt,");
+        assertThat(lines.get(2)).endsWith(",4.50,Không đạt,");
+        assertThat(lines.get(4)).endsWith(",,,,,Vắng thi");
     }
 
     @Test

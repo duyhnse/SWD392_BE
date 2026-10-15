@@ -68,7 +68,7 @@ class EvaluationIntegrationTest {
     }
 
     private String createEvaluation(UUID sessionId) throws Exception {
-        String json = mockMvc.perform(post("/api/v1/sessions/{id}/evaluation", sessionId).header("Authorization", lecturerToken))
+        String json = mockMvc.perform(post("/api/v1/attempts/{id}/evaluation", sessionId).header("Authorization", lecturerToken))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return JsonPath.read(json, "$.id");
     }
@@ -105,7 +105,7 @@ class EvaluationIntegrationTest {
         fx.turn(s, 3, q.get(3), null, 0, "TRANSCRIPTION_FAILED", null, 20, null);
         fx.turn(s, 4, q.get(4), null, 0, "NO_ANSWER", null, null, null);
 
-        String json = mockMvc.perform(post("/api/v1/sessions/{id}/evaluation", s.sessionId()).header("Authorization", lecturerToken))
+        String json = mockMvc.perform(post("/api/v1/attempts/{id}/evaluation", s.sessionId()).header("Authorization", lecturerToken))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("AWAITING_REVIEW"))
                 .andExpect(jsonPath("$.student.studentCode").value(student.getStudentCode()))
@@ -135,10 +135,10 @@ class EvaluationIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         String id = JsonPath.read(json, "$.id");
 
-        mockMvc.perform(post("/api/v1/sessions/{id}/evaluation", s.sessionId()).header("Authorization", lecturerToken))
+        mockMvc.perform(post("/api/v1/attempts/{id}/evaluation", s.sessionId()).header("Authorization", lecturerToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id));
-        assertThat(jdbc.queryForObject("select count(*) from grade_evaluations where session_id = ?", Integer.class,
+        assertThat(jdbc.queryForObject("select count(*) from grade_evaluations where attempt_id = ?", Integer.class,
                 s.sessionId())).isEqualTo(1);
         assertThat(jdbc.queryForObject("""
                 select count(*) from criterion_scores cs join question_grades qg on qg.question_grade_id = cs.question_grade_id
@@ -149,19 +149,19 @@ class EvaluationIntegrationTest {
     void creationRequiresCompletedSessionAndRubric() throws Exception {
         UUID q = fx.question(course, rubric.rubricId(), "q");
         SessionFx running = fx.session(examId, course, fx.student("B"), "IN_PROGRESS", null, List.of(q), List.of("IN_PROGRESS"));
-        mockMvc.perform(post("/api/v1/sessions/{id}/evaluation", running.sessionId()).header("Authorization", lecturerToken))
+        mockMvc.perform(post("/api/v1/attempts/{id}/evaluation", running.sessionId()).header("Authorization", lecturerToken))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("SESSION_NOT_COMPLETED"));
+                .andExpect(jsonPath("$.code").value("ATTEMPT_NOT_COMPLETED"));
 
         UUID noRubric = fx.question(course, null, "no rubric");
         SessionFx s = fx.completedSession(examId, course, fx.student("C"), List.of(noRubric));
-        mockMvc.perform(post("/api/v1/sessions/{id}/evaluation", s.sessionId()).header("Authorization", lecturerToken))
+        mockMvc.perform(post("/api/v1/attempts/{id}/evaluation", s.sessionId()).header("Authorization", lecturerToken))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("RUBRIC_MISSING"));
 
-        mockMvc.perform(post("/api/v1/sessions/{id}/evaluation", UUID.randomUUID()).header("Authorization", lecturerToken))
+        mockMvc.perform(post("/api/v1/attempts/{id}/evaluation", UUID.randomUUID()).header("Authorization", lecturerToken))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"));
+                .andExpect(jsonPath("$.code").value("ATTEMPT_NOT_FOUND"));
     }
 
     @Test
@@ -292,11 +292,11 @@ class EvaluationIntegrationTest {
         jdbc.update("""
                 update criterion_scores cs set ai_score = case when cs.criterion_id = ? then 8 else 5 end, ai_justification = 'ok'
                 from question_grades qg where qg.question_grade_id = cs.question_grade_id and qg.evaluation_id = ?::uuid
-                and qg.session_question_id = ?""", rubric.criterionIds().get(0), id, s.sessionQuestionIds().get(0));
+                and qg.attempt_question_id = ?""", rubric.criterionIds().get(0), id, s.sessionQuestionIds().get(0));
         jdbc.update("""
                 update question_grades set status = 'AI_SCORED', ai_score = 6.80, ai_error = null,
                        ai_strengths = '["clear"]'::jsonb, ai_feedback = 'Good'
-                where evaluation_id = ?::uuid and session_question_id = ?""", id, s.sessionQuestionIds().get(0));
+                where evaluation_id = ?::uuid and attempt_question_id = ?""", id, s.sessionQuestionIds().get(0));
         String json = evaluationJson(id);
         String g2 = JsonPath.read(json, "$.threads[1].gradeId");
 
@@ -322,7 +322,7 @@ class EvaluationIntegrationTest {
         SessionFx graded = twoThreadSession(fx.student("G"));
         String id = createEvaluation(graded.sessionId());
         UUID q = fx.question(course, rubric.rubricId(), "q");
-        fx.session(examId, course, fx.student("H"), "CANCELLED", "NO_SHOW", List.of(q), List.of("PENDING"));
+        fx.session(examId, course, fx.student("H"), "NO_SHOW", null, List.of(q), List.of("PENDING"));
 
         mockMvc.perform(get("/api/v1/viva-exams/{id}/evaluations", examId).header("Authorization", lecturerToken))
                 .andExpect(status().isOk())
@@ -331,7 +331,7 @@ class EvaluationIntegrationTest {
                 .andExpect(jsonPath("$.items[0].evaluationStatus").value("AWAITING_REVIEW"))
                 .andExpect(jsonPath("$.items[0].aiFailedThreads").value(2))
                 .andExpect(jsonPath("$.items[0].student.fullName").value("G"))
-                .andExpect(jsonPath("$.items[1].sessionStatus").value("CANCELLED"))
+                .andExpect(jsonPath("$.items[1].attemptStatus").doesNotExist())
                 .andExpect(jsonPath("$.items[1].evaluationId").doesNotExist());
     }
 
@@ -348,7 +348,7 @@ class EvaluationIntegrationTest {
         // students: 403 on every lecturer endpoint (AC-G8)
         mockMvc.perform(get("/api/v1/evaluations/{id}", id).header("Authorization", studentToken))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(post("/api/v1/sessions/{id}/evaluation", s.sessionId()).header("Authorization", studentToken))
+        mockMvc.perform(post("/api/v1/attempts/{id}/evaluation", s.sessionId()).header("Authorization", studentToken))
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/v1/viva-exams/{id}/report", examId).header("Authorization", studentToken))
                 .andExpect(status().isForbidden());

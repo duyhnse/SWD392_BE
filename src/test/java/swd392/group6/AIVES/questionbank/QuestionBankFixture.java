@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
+import swd392.group6.AIVES.support.ExamRows;
 import swd392.group6.AIVES.support.TestUsers;
 import swd392.group6.AIVES.user.Role;
 import swd392.group6.AIVES.user.User;
@@ -139,25 +140,28 @@ class QuestionBankFixture {
                 questionId);
     }
 
-    /** Puts the question into a lượt thi with the given session status. */
-    void assignToSession(UUID courseId, UUID questionId, Actor examiner, String sessionStatus) {
-        UUID examId = UUID.randomUUID();
-        Instant start = Instant.now().plus(1, ChronoUnit.DAYS);
-        jdbc.update("""
-                        insert into viva_exams (viva_exam_id, course_id, title, created_by, examiner_id, window_start, window_end,
-                            language, main_question_count, max_followups_per_question, time_limit_per_student_sec)
-                        values (?, ?, 'Viva', ?, ?, ?, ?, 'VI', 1, 1, 600)""",
-                examId, courseId, examiner.id(), examiner.id(), Timestamp.from(start),
-                Timestamp.from(start.plus(2, ChronoUnit.HOURS)));
+    /** Puts the question into an attempt with the given status (drawn at check-in, D48). */
+    void assignToSession(UUID courseId, UUID questionId, Actor examiner, String attemptStatus) {
+        Instant now = Instant.now();
+        UUID examId = ExamRows.exam(jdbc, courseId, examiner.id(), 1, now.minus(1, ChronoUnit.HOURS),
+                now.plus(2, ChronoUnit.HOURS), "OPEN");
         User student = users.create(Role.STUDENT);
-        UUID sessionId = UUID.randomUUID();
+        UUID attempt = ExamRows.attempt(jdbc, examId, student.getUserId(), attemptStatus, now.minus(10, ChronoUnit.MINUTES),
+                "COMPLETED".equals(attemptStatus) ? now : null);
+        ExamRows.attemptQuestion(jdbc, attempt, questionId, 1, "PENDING");
+    }
+
+    /** Puts the question into the SELECTED pool of a published buổi thi's template. */
+    void selectInPublishedExam(UUID courseId, UUID questionId, Actor examiner) {
+        Instant now = Instant.now();
+        UUID examId = ExamRows.exam(jdbc, courseId, examiner.id(), 1, now.plus(1, ChronoUnit.DAYS),
+                now.plus(2, ChronoUnit.DAYS), "READY");
         jdbc.update("""
-                        insert into exam_sessions (session_id, viva_exam_id, course_id, student_id, examiner_id, status, cancel_reason)
-                        values (?, ?, ?, ?, ?, ?, ?)""",
-                sessionId, examId, courseId, student.getUserId(), examiner.id(), sessionStatus,
-                "CANCELLED".equals(sessionStatus) ? "NO_SHOW" : null);
-        jdbc.update("insert into session_questions (session_question_id, session_id, question_id, order_no) values (?, ?, ?, 1)",
-                UUID.randomUUID(), sessionId, questionId);
+                update exam_templates set question_pool_mode = 'SELECTED'
+                where exam_template_id = (select exam_template_id from viva_exams where viva_exam_id = ?)""", examId);
+        jdbc.update("""
+                insert into exam_template_questions (exam_template_id, question_id)
+                select exam_template_id, ? from viva_exams where viva_exam_id = ?""", questionId, examId);
     }
 
     static String ids(List<UUID> ids) {

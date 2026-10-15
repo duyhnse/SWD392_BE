@@ -58,16 +58,17 @@ class MaterialsIntegrationTest {
     @Test
     void uploadListGetDownloadDelete() throws Exception {
         byte[] data = "%PDF-1.7 slides".getBytes(StandardCharsets.UTF_8);
-        UUID id = upload("Chương 3 slides.pdf", PDF, data);
-        String key = "materials/" + courseId + "/" + id + "/Chương 3 slides.pdf";
+        UUID id = upload("Topic 3 slides.pdf", PDF, data);
+        String key = "materials/" + courseId + "/" + id + "/Topic 3 slides.pdf";
         assertThat(storage.exists(key)).isTrue();
         assertThat(jdbc.queryForObject("select storage_key from course_materials where material_id = ?", String.class, id))
                 .isEqualTo(key);
 
         fx.perform(lecturer, get("/api/v1/materials/" + id))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("UPLOADED"))
-                .andExpect(jsonPath("$.fileName").value("Chương 3 slides.pdf"))
+                // indexed by the AI node (support.FakeAiNode)
+                .andExpect(jsonPath("$.status").value("INDEXED"))
+                .andExpect(jsonPath("$.fileName").value("Topic 3 slides.pdf"))
                 .andExpect(jsonPath("$.contentType").value(PDF))
                 .andExpect(jsonPath("$.sizeBytes").value(data.length))
                 .andExpect(jsonPath("$.uploadedBy").value(lecturer.id().toString()));

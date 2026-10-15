@@ -37,6 +37,9 @@ public class UserResponseDTO {
     /** Last password change (null = never changed in AIVES). */
     private Instant passwordChangedAt;
 
+    /** D62: the FE sends the user to the change-password page; other API calls answer 403 PASSWORD_CHANGE_REQUIRED. */
+    private boolean mustChangePassword;
+
     public static UserResponseDTO fromEntity(User user) {
         if (user == null) {
             return null;
@@ -57,6 +60,7 @@ public class UserResponseDTO {
                 .active(user.isActive())
                 .createdAt(user.getCreatedAt())
                 .passwordChangedAt(user.getPasswordChangedAt())
+                .mustChangePassword(user.isMustChangePassword())
                 .build();
     }
 

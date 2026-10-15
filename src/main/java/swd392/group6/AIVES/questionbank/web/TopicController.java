@@ -1,6 +1,7 @@
 package swd392.group6.AIVES.questionbank.web;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -56,6 +57,16 @@ class TopicController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id, @AuthenticationPrincipal User user) {
         service.delete(id, user);
+    }
+
+    /** Moves all questions to another topic of the course (merge / retire a topic), D54. */
+    @PostMapping("/topics/{id}/move-questions")
+    public TopicService.MoveResult moveQuestions(@PathVariable UUID id, @Valid @RequestBody MoveQuestionsRequest request,
+                                                 @AuthenticationPrincipal User user) {
+        return service.moveQuestions(id, request.targetTopicId(), user);
+    }
+
+    record MoveQuestionsRequest(@NotNull UUID targetTopicId) {
     }
 
     @GetMapping("/courses/{courseId}/terms")

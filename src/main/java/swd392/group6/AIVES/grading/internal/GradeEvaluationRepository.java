@@ -9,7 +9,7 @@ import java.util.UUID;
 
 public interface GradeEvaluationRepository extends JpaRepository<GradeEvaluation, UUID> {
 
-    Optional<GradeEvaluation> findBySessionId(UUID sessionId);
+    Optional<GradeEvaluation> findByAttemptId(UUID attemptId);
 
-    List<GradeEvaluation> findBySessionIdIn(Collection<UUID> sessionIds);
+    List<GradeEvaluation> findByAttemptIdIn(Collection<UUID> attemptIds);
 }

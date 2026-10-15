@@ -1,10 +1,14 @@
 package swd392.group6.AIVES.questionbank.internal;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.common.ApiException;
+import swd392.group6.AIVES.questionbank.PublishedPoolGuard;
+import swd392.group6.AIVES.questionbank.PublishedPoolGuard.PoolChange;
+import swd392.group6.AIVES.questionbank.BloomLevel;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.CreateTopicRequest;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.TermsDto;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.TopicDto;
@@ -38,6 +42,7 @@ public class TopicService {
     private final ContentAccess access;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final ObjectProvider<PublishedPoolGuard> poolGuard;
 
     @Transactional(readOnly = true)
     public List<TopicDto> list(UUID courseId, User user) {
@@ -92,13 +97,39 @@ public class TopicService {
         Topic topic = load(topicId);
         access.write(topic.getCourseId(), user, "TOPIC_NOT_FOUND", "Topic not found");
         Boolean usedElsewhere = jdbc.queryForObject("""
-                select exists(select 1 from viva_exam_blueprint_items where topic_id = ?)
-                    or exists(select 1 from ai_generation_requests where topic_id = ?)""",
-                Boolean.class, topicId, topicId);
+                select exists(select 1 from exam_template_items where topic_id = ?)
+                    or exists(select 1 from ai_generation_requests where topic_id = ?)
+                    or exists(select 1 from attempt_questions where topic_id = ?)""",
+                Boolean.class, topicId, topicId, topicId);
         if (questions.existsByTopicId(topicId) || Boolean.TRUE.equals(usedElsewhere)) {
-            throw ApiException.conflict("TOPIC_IN_USE", "The topic still has questions or is used by an exam blueprint");
+            throw ApiException.conflict("TOPIC_IN_USE",
+                    "The topic still has questions or is used by an exam template or attempt; move its questions first");
         }
         topics.delete(topic);
+    }
+
+    /**
+     * Moves every question of a topic to another topic of the same course (D54) — the way to merge or retire a topic.
+     * Attempts keep the topic name they were taken with (snapshot, D49); template rows that name the topic do not move.
+     */
+    public MoveResult moveQuestions(UUID topicId, UUID targetTopicId, User user) {
+        Topic topic = load(topicId);
+        access.write(topic.getCourseId(), user, "TOPIC_NOT_FOUND", "Topic not found");
+        Topic target = topics.findById(targetTopicId)
+                .filter(t -> t.getCourseId().equals(topic.getCourseId()) && !t.getId().equals(topicId))
+                .orElseThrow(() -> ApiException.unprocessable("TOPIC_NOT_IN_COURSE",
+                        "The target must be another topic of the same course"));
+        List<PoolChange> changes = jdbc.query(
+                "select question_id, bloom_level from questions where topic_id = ? and status = 'PUBLISHED'",
+                (rs, i) -> PoolChange.changed(rs.getObject(1, UUID.class), target.getId(),
+                        rs.getString(2) == null ? null : BloomLevel.valueOf(rs.getString(2))), topicId);
+        poolGuard.ifAvailable(g -> g.check(topic.getCourseId(), changes));
+        int moved = jdbc.update("update questions set topic_id = ?, version = version + 1, updated_at = now() where topic_id = ?",
+                target.getId(), topicId);
+        return new MoveResult(moved, target.getId());
+    }
+
+    public record MoveResult(int moved, UUID targetTopicId) {
     }
 
     @Transactional(readOnly = true)

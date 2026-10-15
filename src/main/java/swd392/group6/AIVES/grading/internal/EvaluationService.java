@@ -6,7 +6,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.common.PageResponse;
-import swd392.group6.AIVES.exam.ExamApi.SessionInfo;
+import swd392.group6.AIVES.exam.ExamApi;
+import swd392.group6.AIVES.exam.ExamApi.AttemptInfo;
 import swd392.group6.AIVES.grading.GradingApi;
 import swd392.group6.AIVES.grading.internal.GradingDtos.ChangeDto;
 import swd392.group6.AIVES.grading.internal.GradingDtos.CriterionDto;
@@ -24,7 +25,7 @@ import swd392.group6.AIVES.grading.internal.GradingDtos.UpdateThreadRequest;
 import swd392.group6.AIVES.grading.internal.GradingSupport.EvaluationContext;
 import swd392.group6.AIVES.interview.InterviewApi;
 import swd392.group6.AIVES.interview.InterviewApi.ThreadInfo;
-import swd392.group6.AIVES.questionbank.QuestionBankApi;
+import swd392.group6.AIVES.questionbank.BloomLevel;
 import swd392.group6.AIVES.user.User;
 
 import java.math.BigDecimal;
@@ -56,28 +57,30 @@ class EvaluationService {
     private final GradeChangeLogRepository changeLog;
     private final GradeDisputeRepository disputes;
     private final InterviewApi interviewApi;
-    private final QuestionBankApi questionBankApi;
+    private final ExamApi examApi;
     private final Clock clock;
 
     record Created(EvaluationDto evaluation, boolean created) {
     }
 
-    public Created create(UUID sessionId, User user) {
-        SessionInfo session = support.requireSession(sessionId);
-        support.requireCourseWrite(session.courseId(), user);
-        GradingApi.CreatedEvaluation result = gradingApi.createEvaluation(sessionId, GradingApi.Mode.MANUAL);
+    public Created create(UUID attemptId, User user) {
+        AttemptInfo attempt = support.requireAttempt(attemptId);
+        support.requireCourseWrite(attempt.courseId(), user);
+        GradingApi.CreatedEvaluation result = gradingApi.createEvaluation(attemptId, GradingApi.Mode.MANUAL);
         GradeEvaluation evaluation = support.requireEvaluation(result.evaluationId());
-        return new Created(toDto(evaluation, session), result.created());
+        return new Created(toDto(evaluation, attempt), result.created());
     }
 
     @Transactional(readOnly = true)
     public PageResponse<EvaluationSummaryDto> listForExam(UUID vivaExamId, User user, int page, int size) {
         support.requireExamRead(vivaExamId, user);
-        List<GradingSupport.SessionRow> sessions = support.sessionsOfExam(vivaExamId);
-        Map<UUID, GradeEvaluation> bySession = evaluations
-                .findBySessionIdIn(sessions.stream().map(GradingSupport.SessionRow::sessionId).toList()).stream()
-                .collect(Collectors.toMap(GradeEvaluation::getSessionId, Function.identity()));
-        List<UUID> evaluationIds = bySession.values().stream().map(GradeEvaluation::getEvaluationId).toList();
+        // Every roster student, also the ones who never checked in (attemptId null, D48).
+        List<GradingSupport.RosterRow> attempts = support.rosterOfExam(vivaExamId);
+        Map<UUID, GradeEvaluation> byAttempt = evaluations
+                .findByAttemptIdIn(attempts.stream().map(GradingSupport.RosterRow::attemptId).filter(Objects::nonNull)
+                        .toList()).stream()
+                .collect(Collectors.toMap(GradeEvaluation::getAttemptId, Function.identity()));
+        List<UUID> evaluationIds = byAttempt.values().stream().map(GradeEvaluation::getEvaluationId).toList();
         Map<UUID, List<QuestionGrade>> gradesByEvaluation = evaluationIds.isEmpty() ? Map.of()
                 : grades.findByEvaluationIdIn(evaluationIds).stream()
                 .collect(Collectors.groupingBy(QuestionGrade::getEvaluationId));
@@ -86,11 +89,11 @@ class EvaluationService {
                 .filter(d -> d.getStatus() == DisputeStatus.OPEN).map(GradeDispute::getEvaluationId)
                 .collect(Collectors.toSet());
 
-        List<EvaluationSummaryDto> rows = sessions.stream().map(s -> {
-            GradeEvaluation e = bySession.get(s.sessionId());
+        List<EvaluationSummaryDto> rows = attempts.stream().map(s -> {
+            GradeEvaluation e = s.attemptId() == null ? null : byAttempt.get(s.attemptId());
             List<QuestionGrade> threads = e == null ? List.of() : gradesByEvaluation.getOrDefault(e.getEvaluationId(), List.of());
-            return new EvaluationSummaryDto(s.sessionId(), new StudentRef(s.studentId(), s.fullName(), s.studentCode()),
-                    s.status(), s.endedAt(), e == null ? null : e.getEvaluationId(), e == null ? null : e.getStatus().name(),
+            return new EvaluationSummaryDto(s.attemptId(), s.attemptNo(), new StudentRef(s.studentId(), s.fullName(), s.studentCode()),
+                    s.attemptStatus(), s.endedAt(), e == null ? null : e.getEvaluationId(), e == null ? null : e.getStatus().name(),
                     e == null ? null : e.getAiTotalScore(), e == null ? null : e.getFinalTotalScore(),
                     (int) threads.stream().filter(g -> g.getStatus() == QuestionGradeStatus.AI_FAILED).count(),
                     (int) threads.stream().filter(g -> g.getStatus() == QuestionGradeStatus.MISSING_DATA).count(),
@@ -102,7 +105,7 @@ class EvaluationService {
     @Transactional(readOnly = true)
     public EvaluationDto get(UUID evaluationId, User user) {
         EvaluationContext ctx = support.evaluationForRead(evaluationId, user);
-        return toDto(ctx.evaluation(), ctx.session());
+        return toDto(ctx.evaluation(), ctx.attempt());
     }
 
     public EvaluationDto updateThread(UUID evaluationId, UUID gradeId, UpdateThreadRequest request, User user) {
@@ -142,7 +145,7 @@ class EvaluationService {
             grade.setIncludeInTotal(request.includeInTotal());
         }
         recompute(grade, criteria, user, now);
-        return save(evaluation, ctx.session(), now);
+        return save(evaluation, ctx.attempt(), now);
     }
 
     public EvaluationDto acceptAi(UUID evaluationId, UUID gradeId, Integer version, User user) {
@@ -154,7 +157,7 @@ class EvaluationService {
         }
         Instant now = clock.instant();
         copyAi(ctx.evaluation(), grade, criteria, user, now);
-        return save(ctx.evaluation(), ctx.session(), now);
+        return save(ctx.evaluation(), ctx.attempt(), now);
     }
 
     public EvaluationDto acceptAllAi(UUID evaluationId, Integer version, User user) {
@@ -168,7 +171,7 @@ class EvaluationService {
                 copyAi(ctx.evaluation(), grade, scores, user, now);
             }
         }
-        return save(ctx.evaluation(), ctx.session(), now);
+        return save(ctx.evaluation(), ctx.attempt(), now);
     }
 
     public EvaluationDto updateEvaluation(UUID evaluationId, UpdateEvaluationRequest request, User user) {
@@ -181,7 +184,7 @@ class EvaluationService {
             log(evaluation, null, null, "evaluation_comment", evaluation.getLecturerComment(), comment, user, now);
             evaluation.setLecturerComment(comment);
         }
-        return save(evaluation, ctx.session(), now);
+        return save(evaluation, ctx.attempt(), now);
     }
 
     public EvaluationDto confirm(UUID evaluationId, Integer version, User user) {
@@ -189,13 +192,13 @@ class EvaluationService {
         GradeEvaluation evaluation = ctx.evaluation();
         List<QuestionGrade> all = grades.findByEvaluationId(evaluationId);
         Map<UUID, List<CriterionScore>> criteria = criteriaOf(all);
-        Map<UUID, Integer> orderNo = orderNumbers(ctx.session().sessionId());
+        Map<UUID, Integer> orderNo = orderNumbers(ctx.attempt().attemptId());
 
         List<IncompleteThread> incomplete = all.stream()
                 .filter(QuestionGrade::isIncludeInTotal)
                 .filter(g -> criteria.getOrDefault(g.getQuestionGradeId(), List.of()).stream()
                         .anyMatch(c -> c.getFinalScore() == null))
-                .map(g -> new IncompleteThread(g.getQuestionGradeId(), orderNo.getOrDefault(g.getSessionQuestionId(), 0)))
+                .map(g -> new IncompleteThread(g.getQuestionGradeId(), orderNo.getOrDefault(g.getAttemptQuestionId(), 0)))
                 .sorted(Comparator.comparingInt(IncompleteThread::orderNo))
                 .toList();
         if (!incomplete.isEmpty()) {
@@ -220,20 +223,20 @@ class EvaluationService {
         evaluation.setFinalTotalScore(total);
         evaluation.setConfirmedBy(user.getUserId());
         evaluation.setConfirmedAt(now);
-        return save(evaluation, ctx.session(), now);
+        return save(evaluation, ctx.attempt(), now);
     }
 
     @Transactional(readOnly = true)
     public List<ChangeDto> history(UUID evaluationId, User user) {
         EvaluationContext ctx = support.evaluationForRead(evaluationId, user);
         List<GradeChangeLog> rows = changeLog.findByEvaluationIdOrderByChangedAtAscChangeIdAsc(evaluationId);
-        Map<UUID, Integer> orderNo = orderNumbers(ctx.session().sessionId());
-        Map<UUID, UUID> gradeToSessionQuestion = grades.findByEvaluationId(evaluationId).stream()
-                .collect(Collectors.toMap(QuestionGrade::getQuestionGradeId, QuestionGrade::getSessionQuestionId));
+        Map<UUID, Integer> orderNo = orderNumbers(ctx.attempt().attemptId());
+        Map<UUID, UUID> gradeToAttemptQuestion = grades.findByEvaluationId(evaluationId).stream()
+                .collect(Collectors.toMap(QuestionGrade::getQuestionGradeId, QuestionGrade::getAttemptQuestionId));
         Map<UUID, GradingSupport.Student> people = support.students(
                 rows.stream().map(GradeChangeLog::getChangedBy).collect(Collectors.toSet()));
         return rows.stream().map(r -> new ChangeDto(r.getChangeId(), r.getQuestionGradeId(),
-                r.getQuestionGradeId() == null ? null : orderNo.get(gradeToSessionQuestion.get(r.getQuestionGradeId())),
+                r.getQuestionGradeId() == null ? null : orderNo.get(gradeToAttemptQuestion.get(r.getQuestionGradeId())),
                 r.getCriterionScoreId(), r.getField(), r.getOldValue(), r.getNewValue(), r.getChangedBy(),
                 people.containsKey(r.getChangedBy()) ? people.get(r.getChangedBy()).fullName() : null,
                 r.getChangedAt())).toList();
@@ -308,14 +311,14 @@ class EvaluationService {
     }
 
     /** Touches the evaluation so its version increases on every write, flushes, and maps the result. */
-    private EvaluationDto save(GradeEvaluation evaluation, SessionInfo session, Instant now) {
+    private EvaluationDto save(GradeEvaluation evaluation, AttemptInfo attempt, Instant now) {
         touch(evaluation, now);
         try {
             evaluations.saveAndFlush(evaluation);
         } catch (ObjectOptimisticLockingFailureException e) {
             throw versionConflict();
         }
-        return toDto(evaluation, session);
+        return toDto(evaluation, attempt);
     }
 
     static void touch(GradeEvaluation evaluation, Instant now) {
@@ -335,22 +338,24 @@ class EvaluationService {
                 .stream().collect(Collectors.groupingBy(CriterionScore::getQuestionGradeId));
     }
 
-    private Map<UUID, Integer> orderNumbers(UUID sessionId) {
+    private Map<UUID, Integer> orderNumbers(UUID attemptId) {
         Map<UUID, Integer> result = new HashMap<>();
-        interviewApi.getThreads(sessionId).forEach(t -> result.put(t.sessionQuestionId(), t.orderNo()));
+        interviewApi.getThreads(attemptId).forEach(t -> result.put(t.attemptQuestionId(), t.orderNo()));
         return result;
     }
 
-    private EvaluationDto toDto(GradeEvaluation evaluation, SessionInfo session) {
+    private EvaluationDto toDto(GradeEvaluation evaluation, AttemptInfo attempt) {
         List<QuestionGrade> all = grades.findByEvaluationId(evaluation.getEvaluationId());
         Map<UUID, List<CriterionScore>> criteria = criteriaOf(all);
-        Map<UUID, ThreadInfo> threads = interviewApi.getThreads(session.sessionId()).stream()
-                .collect(Collectors.toMap(ThreadInfo::sessionQuestionId, Function.identity()));
-        GradingSupport.Student student = support.student(session.studentId());
+        Map<UUID, ExamApi.AttemptQuestionInfo> asked = examApi.getAttemptQuestions(attempt.attemptId()).stream()
+                .collect(Collectors.toMap(ExamApi.AttemptQuestionInfo::attemptQuestionId, Function.identity()));
+        Map<UUID, ThreadInfo> threads = interviewApi.getThreads(attempt.attemptId()).stream()
+                .collect(Collectors.toMap(ThreadInfo::attemptQuestionId, Function.identity()));
+        GradingSupport.Student student = support.student(attempt.studentId());
 
         List<ThreadDto> threadDtos = new ArrayList<>();
         for (QuestionGrade g : all) {
-            ThreadInfo thread = threads.get(g.getSessionQuestionId());
+            ThreadInfo thread = threads.get(g.getAttemptQuestionId());
             GradingJson.Snapshot snapshot = GradingJson.snapshot(g.getRubricSnapshot());
             Map<UUID, CriterionScore> scores = criteria.getOrDefault(g.getQuestionGradeId(), List.of()).stream()
                     .collect(Collectors.toMap(CriterionScore::getCriterionId, Function.identity()));
@@ -363,15 +368,17 @@ class EvaluationService {
                                 s.getMaxScore(), s.getWeightPercent(), s.getAiScore(), s.getAiJustification(),
                                 s.getFinalScore());
                     }).toList();
-            QuestionRef question = questionBankApi.getQuestion(g.getQuestionId())
-                    .map(q -> new QuestionRef(q.questionId(), q.content(), q.referenceAnswer(), q.bloomLevel()))
-                    .orElse(new QuestionRef(g.getQuestionId(), null, null, null));
+            // The wording asked, as snapshotted at check-in (D49) — not today's bank version.
+            ExamApi.AttemptQuestionInfo snap = asked.get(g.getAttemptQuestionId());
+            QuestionRef question = snap == null ? new QuestionRef(g.getQuestionId(), null, null, null)
+                    : new QuestionRef(g.getQuestionId(), snap.content(), snap.referenceAnswer(),
+                    snap.bloomLevel() == null ? null : BloomLevel.valueOf(snap.bloomLevel()));
             List<TurnDto> turns = thread == null ? List.of() : thread.turns().stream()
                     .map(t -> new TurnDto(t.turnId(), t.turnType(), t.followupIndex(), t.questionText(), t.transcript(),
                             t.status(), t.answerAudioKey() == null ? null : "/api/v1/turns/" + t.turnId() + "/answer-audio",
                             t.responseDurationSec(), t.askedAt(), t.followupDecision()))
                     .toList();
-            threadDtos.add(new ThreadDto(g.getQuestionGradeId(), g.getSessionQuestionId(),
+            threadDtos.add(new ThreadDto(g.getQuestionGradeId(), g.getAttemptQuestionId(),
                     thread == null ? 0 : thread.orderNo(), g.getStatus().name(), g.isIncludeInTotal(), question,
                     new RubricRef(snapshot.rubricId(), snapshot.name()), turns, criterionDtos, g.getAiScore(),
                     g.getFinalScore(), GradingJson.strings(g.getAiStrengths()), GradingJson.strings(g.getAiWeaknesses()),
@@ -382,7 +389,7 @@ class EvaluationService {
         List<QuestionGrade> included = all.stream().filter(QuestionGrade::isIncludeInTotal).toList();
         BigDecimal current = included.stream().anyMatch(g -> g.getFinalScore() == null) ? null
                 : ScoreCalculator.mean(included.stream().map(QuestionGrade::getFinalScore).toList());
-        return new EvaluationDto(evaluation.getEvaluationId(), session.sessionId(), session.vivaExamId(),
+        return new EvaluationDto(evaluation.getEvaluationId(), attempt.attemptId(), attempt.vivaExamId(),
                 evaluation.getStatus().name(), evaluation.getVersion(),
                 new StudentRef(student.id(), student.fullName(), student.studentCode()), evaluation.getAiTotalScore(),
                 evaluation.getFinalTotalScore(), current, evaluation.getAiGeneralFeedback(),

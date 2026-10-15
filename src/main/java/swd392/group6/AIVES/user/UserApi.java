@@ -11,16 +11,30 @@ public interface UserApi {
 
     /**
      * Matches students by username and creates the missing ones as STUDENT accounts (stand-in for the
-     * university account sync; they set a password via Forgot password). Idempotent (AC-A9).
+     * university account sync) with the given or the default password, to be changed at the first login (D62).
+     * Idempotent (AC-A9).
      *
      * @return one entry per input row, in order: the student's id or the row's error
      */
     List<ProvisionResult> ensureStudents(List<NewAccount> students);
 
-    record NewAccount(String username, String fullName, String email, String studentCode, Role role) {
+    /**
+     * @param password null / blank = the {@code account.default_password} setting
+     * @param active   null = active
+     */
+    record NewAccount(String username, String fullName, String email, String studentCode, Role role, String password,
+                      Boolean active) {
+
+        public NewAccount(String username, String fullName, String email, String studentCode, Role role) {
+            this(username, fullName, email, studentCode, role, null, null);
+        }
 
         public static NewAccount student(String username, String fullName, String email, String studentCode) {
-            return new NewAccount(username, fullName, email, studentCode, Role.STUDENT);
+            return student(username, fullName, email, studentCode, null);
+        }
+
+        public static NewAccount student(String username, String fullName, String email, String studentCode, String password) {
+            return new NewAccount(username, fullName, email, studentCode, Role.STUDENT, password, null);
         }
     }
 

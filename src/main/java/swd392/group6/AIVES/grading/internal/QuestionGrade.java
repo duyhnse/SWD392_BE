@@ -34,8 +34,8 @@ public class QuestionGrade {
     @Column(name = "evaluation_id", nullable = false, updatable = false)
     private UUID evaluationId;
 
-    @Column(name = "session_question_id", nullable = false, updatable = false)
-    private UUID sessionQuestionId;
+    @Column(name = "attempt_question_id", nullable = false, updatable = false)
+    private UUID attemptQuestionId;
 
     @Column(name = "question_id", nullable = false, updatable = false)
     private UUID questionId;

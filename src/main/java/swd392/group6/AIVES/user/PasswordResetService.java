@@ -80,6 +80,7 @@ class PasswordResetService {
 
         user.setHashedPassword(passwordEncoder.encode(request.newPassword()));
         user.setPasswordChangedAt(now);
+        user.setMustChangePassword(false);
         sessionService.closeAll(user.getUserId(), "PASSWORD_CHANGED");
         tokenRepository.invalidateAllForUser(user.getUserId(), now);
     }

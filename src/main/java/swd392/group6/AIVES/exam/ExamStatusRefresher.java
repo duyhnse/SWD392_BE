@@ -8,12 +8,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Clock;
-import java.util.List;
-import java.util.UUID;
 
 /**
- * Time-driven transitions of buổi thi (BR-E4, BR-E5, 15 §2.1): READY → OPEN once the window started,
- * READY/OPEN → CLOSED once it ended (SCHEDULED lượt thi → CANCELLED / NO_SHOW).
+ * Time-driven transitions of buổi thi (BR-E4, 15 §2.1, D47): READY → OPEN once check-in opened, READY/OPEN → CLOSED
+ * once it closed. Students who never checked in are MISSED by derivation; running attempts are not touched.
  * Run lazily before reads and by {@link ExamScheduler} every minute; idempotent and safe to run concurrently.
  */
 @Slf4j
@@ -27,24 +25,14 @@ class ExamStatusRefresher {
     @Transactional
     public void refreshDue() {
         Timestamp now = Timestamp.from(clock.instant());
-        List<UUID> closed = jdbc.queryForList("""
+        int closed = jdbc.update("""
                 update viva_exams set status = 'CLOSED', version = version + 1, updated_at = ?
-                where status in ('READY', 'OPEN') and window_end < ? returning viva_exam_id""", UUID.class, now, now);
-        for (UUID examId : closed) {
-            markNoShows(examId);
-        }
+                where status in ('READY', 'OPEN') and checkin_closes_at < ?""", now, now);
         int opened = jdbc.update("""
                 update viva_exams set status = 'OPEN', version = version + 1, updated_at = ?
-                where status = 'READY' and window_start <= ? and window_end >= ?""", now, now, now);
-        if (!closed.isEmpty() || opened > 0) {
-            log.info("Exam window refresh: {} opened, {} closed", opened, closed.size());
+                where status = 'READY' and checkin_opens_at <= ? and checkin_closes_at >= ?""", now, now, now);
+        if (closed > 0 || opened > 0) {
+            log.info("Exam check-in refresh: {} opened, {} closed", opened, closed);
         }
-    }
-
-    /** Every lượt thi that never started becomes a no-show; started ones continue to their own deadline. */
-    int markNoShows(UUID examId) {
-        return jdbc.update("""
-                update exam_sessions set status = 'CANCELLED', cancel_reason = 'NO_SHOW'
-                where viva_exam_id = ? and status = 'SCHEDULED'""", examId);
     }
 }

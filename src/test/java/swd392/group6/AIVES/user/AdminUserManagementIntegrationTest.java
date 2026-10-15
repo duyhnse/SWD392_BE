@@ -60,11 +60,11 @@ class AdminUserManagementIntegrationTest {
                 .andExpect(jsonPath("$.avatarUrl").doesNotExist())
                 .andExpect(jsonPath("$.courses.length()").value(1))
                 .andExpect(jsonPath("$.courses[0].courseId").value(course.toString()))
-                .andExpect(jsonPath("$.examSessionCount").doesNotExist());
+                .andExpect(jsonPath("$.examAttemptCount").doesNotExist());
     }
 
     @Test
-    void studentDetailCountsExamSessions() throws Exception {
+    void studentDetailCountsExamAttempts() throws Exception {
         User lecturer = fx.user(Role.LECTURER, "lec" + unique());
         User student = fx.user(Role.STUDENT, "stu" + unique());
         UUID course = fx.course("S" + unique().toUpperCase());
@@ -73,7 +73,7 @@ class AdminUserManagementIntegrationTest {
         mockMvc.perform(get("/api/v1/admin/users/" + student.getUserId()).header("Authorization", adminAuth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.role").value("STUDENT"))
-                .andExpect(jsonPath("$.examSessionCount").value(1))
+                .andExpect(jsonPath("$.examAttemptCount").value(1))
                 .andExpect(jsonPath("$.courses").doesNotExist());
     }
 

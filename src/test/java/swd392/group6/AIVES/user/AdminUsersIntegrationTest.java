@@ -99,6 +99,15 @@ class AdminUsersIntegrationTest {
                 + "bad," + "No Email,not-an-email," + code() + "\n"
                 + c + ",Lê C," + c + "@fpt.edu.vn," + code() + "\n";
 
+        // check first: same report, nothing written
+        mockMvc.perform(multipart("/api/v1/admin/users/import").param("dryRun", "true")
+                        .file(new MockMultipartFile("file", "users.csv", "text/csv", csv.getBytes(StandardCharsets.UTF_8)))
+                        .header("Authorization", "Bearer " + adminToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.created").value(3))
+                .andExpect(jsonPath("$.errors[0].row").value(5));
+        assertThat(userRepository.findByUsername(a)).isEmpty();
+
         mockMvc.perform(multipart("/api/v1/admin/users/import")
                         .file(new MockMultipartFile("file", "users.csv", "text/csv", csv.getBytes(StandardCharsets.UTF_8)))
                         .header("Authorization", "Bearer " + adminToken()))
@@ -110,6 +119,22 @@ class AdminUsersIntegrationTest {
                 .andExpect(jsonPath("$.errors[0].row").value(5))
                 .andExpect(jsonPath("$.errors[0].code").value("INVALID_EMAIL"));
         assertThat(userRepository.findByUsername(a)).map(User::getFullName).contains("Nguyễn Văn A");
+    }
+
+    @Test
+    void importTemplateImportsCleanly() throws Exception {
+        byte[] template = mockMvc.perform(get("/api/v1/admin/users/import-template").header("Authorization", "Bearer " + adminToken()))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Content-Disposition", org.hamcrest.Matchers.containsString("aives-accounts-template.csv")))
+                .andReturn().getResponse().getContentAsByteArray();
+        mockMvc.perform(multipart("/api/v1/admin/users/import").param("dryRun", "true")
+                        .file(new MockMultipartFile("file", "t.csv", "text/csv", template))
+                        .header("Authorization", "Bearer " + adminToken()))
+                .andExpect(status().isOk())
+                // header only: an untouched template creates nobody
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.errors.length()").value(0));
     }
 
     @Test

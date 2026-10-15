@@ -9,6 +9,8 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.common.ApiException;
+import swd392.group6.AIVES.common.CsvTemplates;
+import swd392.group6.AIVES.common.DryRun;
 import swd392.group6.AIVES.exam.ExamDtos.AddStudentsReport;
 import swd392.group6.AIVES.exam.ExamDtos.ImportReport;
 import swd392.group6.AIVES.exam.ExamDtos.ImportRowError;
@@ -64,20 +66,19 @@ class ExamStudentService {
         Instant now = clock.instant();
         return jdbc.query("""
                         select v.student_id, u.username, u.full_name, u.student_code, v.seq_no, v.added_at,
-                               s.session_id, s.status, s.cancel_reason
+                               a.attempt_id, a.status
                         from viva_exam_students v join users u on u.user_id = v.student_id
-                        left join exam_sessions s on s.viva_exam_id = v.viva_exam_id and s.student_id = v.student_id
+                        left join exam_attempts a on a.viva_exam_id = v.viva_exam_id and a.student_id = v.student_id
                         where v.viva_exam_id = :e order by v.seq_no""", ExamQueries.params(examId),
                 (rs, i) -> new StudentView(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3), rs.getString(4),
                         rs.getInt(5), ExamQueries.instant(rs.getTimestamp(6)), rs.getObject(7, UUID.class), rs.getString(8),
-                        rs.getString(8) == null ? null : SessionStage.of(rs.getString(8), rs.getString(9), exam.getStatus(),
-                                exam.getWindowStart(), exam.getWindowEnd(), now)));
+                        ExamStage.of(rs.getString(8), exam.getStatus(), exam.getCheckinOpensAt(),
+                                exam.getCheckinClosesAt(), now)));
     }
 
     AddStudentsReport add(UUID examId, Object studentCodes, Object usernames, User user) {
         refresher.refreshDue();
-        VivaExam exam = access.write(examId, user);
-        VivaExamService.requireDraft(exam);
+        requireRosterEditable(access.write(examId, user));
         return addResolved(examId, tokens(studentCodes, true), tokens(usernames, false), null, user.getUserId());
     }
 
@@ -127,89 +128,148 @@ class ExamStudentService {
         return new AddStudentsReport(added, alreadyInExam, unknown, notStudent, inactive, notInOriginal);
     }
 
-    /** Class list CSV (username, full_name, email, student_code): missing students are created by the user module. */
-    ImportReport importCsv(UUID examId, InputStream input, User user) {
+    /**
+     * Class list CSV (columns {@code student_code, username, full_name, email}, any order). A row with only a student
+     * code (or a username) adds an existing student; a row that also has username, full name and email creates the
+     * account when it is missing (user module). Every problem is reported on its row.
+     */
+    ImportReport importCsv(UUID examId, InputStream input, User user, boolean dryRun) {
         refresher.refreshDue();
-        VivaExam exam = access.write(examId, user);
-        VivaExamService.requireDraft(exam);
+        requireRosterEditable(access.write(examId, user));
 
-        List<NewAccount> accounts = new ArrayList<>();
-        List<Integer> rows = new ArrayList<>();
+        record Row(int row, String code, String username, String fullName, String email, String password) {
+            boolean creates() {
+                return notBlank(username) && notBlank(fullName) && notBlank(email);
+            }
+        }
+        List<Row> rows = new ArrayList<>();
         try (Reader reader = new InputStreamReader(skipBom(input), StandardCharsets.UTF_8);
              CSVParser parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true)
                      .setIgnoreEmptyLines(true).setTrim(true).get().parse(reader)) {
             Map<String, Integer> header = new HashMap<>();
-            parser.getHeaderMap().forEach((name, index) -> header.put(name.trim().toLowerCase(Locale.ROOT), index));
-            if (!header.keySet().containsAll(Set.of("username", "full_name", "email"))) {
-                throw invalidFile("Header must contain: username, full_name, email (optional: student_code)");
+            parser.getHeaderMap().forEach((name, index) -> header.putIfAbsent(CsvTemplates.columnName(name), index));
+            if (!header.containsKey("student_code") && !header.containsKey("username")) {
+                throw invalidFile("Header must contain student_code (or username); add username, full_name, email to create missing accounts");
             }
             for (CSVRecord record : parser) {
-                if (accounts.size() >= MAX_IMPORT_ROWS) {
+                if (rows.size() >= MAX_IMPORT_ROWS) {
                     throw invalidFile("A file may contain at most " + MAX_IMPORT_ROWS + " rows");
                 }
-                accounts.add(NewAccount.student(value(record, header, "username"), value(record, header, "full_name"),
-                        value(record, header, "email"), value(record, header, "student_code")));
-                rows.add((int) record.getRecordNumber() + 1);
+                Row r = new Row((int) record.getRecordNumber() + 1, value(record, header, "student_code"),
+                        value(record, header, "username"), value(record, header, "full_name"), value(record, header, "email"),
+                        value(record, header, "password"));
+                if (notBlank(r.code()) || notBlank(r.username()) || notBlank(r.fullName()) || notBlank(r.email())) {
+                    rows.add(r);
+                }
             }
         } catch (IOException | IllegalArgumentException | IllegalStateException e) {
             throw invalidFile("The file is not a readable UTF-8 CSV");
         }
 
-        List<ProvisionResult> results = userApi.ensureStudents(accounts);
         List<ImportRowError> errors = new ArrayList<>();
-        List<String> usernames = new ArrayList<>();
+        List<StudentRef> added = new ArrayList<>();
+        List<String> alreadyInExam = new ArrayList<>();
+        List<String> notStudent = new ArrayList<>();
         int created = 0;
+
+        List<Row> creating = rows.stream().filter(Row::creates).toList();
+        List<ProvisionResult> results = userApi.ensureStudents(creating.stream()
+                .map(r -> NewAccount.student(r.username(), r.fullName(), r.email(), r.code(), r.password())).toList());
         for (int i = 0; i < results.size(); i++) {
             ProvisionResult result = results.get(i);
+            Row r = creating.get(i);
             if (!result.ok()) {
-                errors.add(new ImportRowError(rows.get(i), result.errorField(), result.errorCode(), result.message()));
+                errors.add(new ImportRowError(r.row(), result.errorField(), result.errorCode(), result.message()));
                 continue;
             }
             if (result.created()) {
                 created++;
             }
-            String username = accounts.get(i).username().trim().toLowerCase(Locale.ROOT);
-            if (!usernames.contains(username)) {
-                usernames.add(username);
-            }
+            collect(addResolved(examId, List.of(), List.of(r.username().trim().toLowerCase(Locale.ROOT)), null, user.getUserId()),
+                    r.row(), "username", added, alreadyInExam, notStudent, errors);
         }
-        AddStudentsReport report = addResolved(examId, List.of(), usernames, null, user.getUserId());
-        List<String> notStudent = new ArrayList<>(report.notStudent());
-        notStudent.addAll(report.inactive());
-        return new ImportReport(accounts.size(), created, report.added(), report.alreadyInExam(), notStudent, errors);
+        for (Row r : rows) {
+            if (r.creates()) {
+                continue;
+            }
+            boolean byCode = notBlank(r.code());
+            if (!byCode && !notBlank(r.username())) {
+                errors.add(new ImportRowError(r.row(), "student_code", "STUDENT_CODE_REQUIRED",
+                        "Give the student code (or the username) of the student"));
+                continue;
+            }
+            AddStudentsReport report = byCode
+                    ? addResolved(examId, List.of(r.code().trim().toUpperCase(Locale.ROOT)), List.of(), null, user.getUserId())
+                    : addResolved(examId, List.of(), List.of(r.username().trim().toLowerCase(Locale.ROOT)), null, user.getUserId());
+            collect(report, r.row(), byCode ? "student_code" : "username", added, alreadyInExam, notStudent, errors);
+        }
+        errors.sort((x, y) -> Integer.compare(x.row(), y.row()));
+        DryRun.rollbackIf(dryRun);
+        return new ImportReport(rows.size(), created, added, alreadyInExam, notStudent, errors);
+    }
+
+    /** One row's outcome: added / already there, or a row error (unknown, not a student, deactivated). */
+    private static void collect(AddStudentsReport report, int row, String column, List<StudentRef> added,
+                                List<String> alreadyInExam, List<String> notStudent, List<ImportRowError> errors) {
+        added.addAll(report.added());
+        alreadyInExam.addAll(report.alreadyInExam());
+        report.unknown().forEach(t -> errors.add(new ImportRowError(row, column, "STUDENT_NOT_FOUND",
+                "No account " + t + "; add username, full_name and email to create it")));
+        report.notStudent().forEach(t -> {
+            notStudent.add(t);
+            errors.add(new ImportRowError(row, column, "NOT_A_STUDENT", t + " is not a student account"));
+        });
+        report.inactive().forEach(t -> errors.add(new ImportRowError(row, column, "STUDENT_INACTIVE", t + " is deactivated")));
+    }
+
+    private static boolean notBlank(String s) {
+        return s != null && !s.isBlank();
+    }
+
+    /** Class list template (15 §5.7, D62): row 1 = column names + what to write + what a blank cell means. */
+    static byte[] template() {
+        return CsvTemplates.csv(List.of(
+                "student_code (MSSV — bắt buộc; sinh viên đã có tài khoản chỉ cần cột này; vd. SV0001)",
+                "username (chỉ điền khi sinh viên chưa có tài khoản — tên đăng nhập, duy nhất, 3–50 ký tự a-z 0-9 . - _; vd. annv)",
+                "full_name (chỉ điền khi chưa có tài khoản — họ tên; vd. Nguyễn Văn An)",
+                "email (chỉ điền khi chưa có tài khoản — duy nhất, dùng để đặt lại mật khẩu; vd. annv@school.edu.vn)",
+                "password (chỉ dùng khi tạo tài khoản mới, 8–100 ký tự — trống = mật khẩu mặc định ở Cấu hình; phải đổi ở lần đăng nhập đầu)"));
     }
 
     /**
-     * Before the student started: DRAFT → just leave the list; generated → the lượt thi becomes
-     * CANCELLED / REMOVED_BY_LECTURER. The remaining students keep a contiguous order.
+     * Only students who have not checked in can leave the roster; the others keep a contiguous order. A published or
+     * open buổi thi keeps at least one student, as publishing required (unpublish or cancel it instead).
      */
     void remove(UUID examId, UUID studentId, User user) {
         refresher.refreshDue();
         VivaExam exam = access.write(examId, user);
-        if (exam.getStatus() == ExamStatus.CLOSED || exam.getStatus() == ExamStatus.CANCELLED) {
-            throw ApiException.conflict("EXAM_NOT_EDITABLE", "The student list of a closed or cancelled exam is final");
-        }
+        requireRosterEditable(exam);
         MapSqlParameterSource p = ExamQueries.params(examId).addValue("s", studentId);
         List<Integer> seq = jdbc.queryForList(
                 "select seq_no from viva_exam_students where viva_exam_id = :e and student_id = :s", p, Integer.class);
         if (seq.isEmpty()) {
             throw ApiException.notFound("STUDENT_NOT_IN_EXAM", "The student is not in this exam");
         }
-        List<Map<String, Object>> session = jdbc.queryForList(
-                "select status, started_at from exam_sessions where viva_exam_id = :e and student_id = :s", p);
-        if (!session.isEmpty()) {
-            String status = (String) session.getFirst().get("status");
-            if (session.getFirst().get("started_at") != null
-                    || !("SCHEDULED".equals(status) || "CANCELLED".equals(status))) {
-                throw ApiException.conflict("SESSION_ALREADY_STARTED", "The student already started this exam");
-            }
-            jdbc.update("""
-                    update exam_sessions set status = 'CANCELLED', cancel_reason = 'REMOVED_BY_LECTURER'
-                    where viva_exam_id = :e and student_id = :s and status = 'SCHEDULED'""", p);
+        Boolean checkedIn = jdbc.queryForObject(
+                "select exists(select 1 from exam_attempts where viva_exam_id = :e and student_id = :s)", p, Boolean.class);
+        if (Boolean.TRUE.equals(checkedIn)) {
+            throw ApiException.conflict("ATTEMPT_EXISTS", "The student already checked in");
+        }
+        Integer roster = jdbc.queryForObject("select count(*) from viva_exam_students where viva_exam_id = :e", p, Integer.class);
+        if (exam.getStatus() != ExamStatus.DRAFT && roster != null && roster <= 1) {
+            throw ApiException.conflict("LAST_STUDENT",
+                    "A published or open exam needs at least one student; unpublish or cancel it instead");
         }
         jdbc.update("delete from viva_exam_students where viva_exam_id = :e and student_id = :s", p);
         jdbc.update("update viva_exam_students set seq_no = seq_no - 1 where viva_exam_id = :e and seq_no > :seq",
                 p.addValue("seq", seq.getFirst()));
+    }
+
+    /** The roster can change until check-in closes: students draw their questions only at check-in (D48). */
+    private static void requireRosterEditable(VivaExam exam) {
+        if (exam.getStatus() == ExamStatus.CLOSED || exam.getStatus() == ExamStatus.CANCELLED) {
+            throw ApiException.conflict("EXAM_NOT_EDITABLE", "The student list of a closed or cancelled exam is final");
+        }
     }
 
     /** Splits pasted text on commas, semicolons, whitespace and new lines; de-duplicates case-insensitively. */

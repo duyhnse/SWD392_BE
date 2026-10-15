@@ -43,6 +43,21 @@ final class GradingJson {
         return JSON.readValue(json, Snapshot.class);
     }
 
+    /** {@code attempt_questions.rubric_snapshot} (same shape as {@link Snapshot}); null for missing / empty JSON. */
+    static RubricSnapshot readRubric(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        Snapshot s = snapshot(json);
+        if (s.rubricId() == null || s.criteria() == null) {
+            return null;
+        }
+        return new RubricSnapshot(s.rubricId(), s.name(), s.criteria().stream()
+                .map(c -> new RubricSnapshot.Criterion(c.criterionId(), c.name(), c.description(), c.maxScore(),
+                        c.weightPercent(), c.sortOrder()))
+                .toList());
+    }
+
     static Signals signals(String json) {
         return json == null ? null : JSON.readValue(json, Signals.class);
     }

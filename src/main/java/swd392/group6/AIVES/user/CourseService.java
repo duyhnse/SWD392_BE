@@ -95,6 +95,9 @@ class CourseService {
             course.setDefaultLanguage(request.defaultLanguage());
         }
         if (request.active() != null) {
+            if (!request.active() && course.isActive()) {
+                requireNothingRunning(course.getCourseId());
+            }
             course.setActive(request.active());
         }
         return toDetail(courseRepository.saveAndFlush(course));
@@ -132,6 +135,19 @@ class CourseService {
             }
         }
         Set<UUID> current = courseAccessIdsOf(courseId);
+        List<String> examining = new java.util.ArrayList<>();
+        for (UUID id : current) {
+            if (!wanted.contains(id)) {
+                examining.addAll(jdbc.sql("""
+                                select 'B-' || display_no from viva_exams
+                                where course_id = ? and examiner_id = ? and status in ('DRAFT', 'READY', 'OPEN')
+                                order by display_no""").params(courseId, id).query(String.class).list());
+            }
+        }
+        if (!examining.isEmpty()) {
+            throw ApiException.conflict("LECTURER_IS_EXAMINER", "A lecturer you removed is the examiner of "
+                    + String.join(", ", examining) + "; change the examiner of those exam sessions first");
+        }
         for (UUID id : current) {
             if (!wanted.contains(id)) {
                 jdbc.sql("delete from course_lecturers where course_id = ? and lecturer_id = ?").params(courseId, id).update();
@@ -204,5 +220,22 @@ class CourseService {
 
     private static ApiException codeExists() {
         return ApiException.conflict("COURSE_CODE_EXISTS", "A course with this code already exists");
+    }
+
+    /**
+     * Data lifecycle (D54): an inactive course is archived — readable, but its content can no longer change. It may only
+     * be archived when no buổi thi is published/open, no attempt is running and no grading is left unfinished.
+     */
+    private void requireNothingRunning(UUID courseId) {
+        Boolean busy = jdbc.sql("""
+                select exists(select 1 from viva_exams where course_id = ? and status in ('READY', 'OPEN'))
+                    or exists(select 1 from exam_attempts where course_id = ? and status in ('IN_PROGRESS', 'INTERRUPTED'))
+                    or exists(select 1 from grade_evaluations g join exam_attempts a on a.attempt_id = g.attempt_id
+                              where a.course_id = ? and g.status in ('PENDING_AI', 'AWAITING_REVIEW', 'DISPUTED'))""")
+                .params(courseId, courseId, courseId).query(Boolean.class).single();
+        if (Boolean.TRUE.equals(busy)) {
+            throw ApiException.conflict("COURSE_HAS_ACTIVE_EXAMS",
+                    "Close the course's exams and finish grading before archiving it");
+        }
     }
 }

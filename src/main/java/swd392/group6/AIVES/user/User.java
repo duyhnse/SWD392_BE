@@ -23,6 +23,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import swd392.group6.AIVES.common.Language;
+import swd392.group6.AIVES.security.PasswordChangeRequirement;
 import swd392.group6.AIVES.security.TokenRevocation;
 
 import java.time.Instant;
@@ -37,7 +38,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class User implements UserDetails, TokenRevocation {
+public class User implements UserDetails, TokenRevocation, PasswordChangeRequirement {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -86,6 +87,10 @@ public class User implements UserDetails, TokenRevocation {
     private boolean active = true;
 
     /** Tokens issued before this instant are rejected (D24). */
+    /** D62: the account was created with a password chosen by someone else; the owner must change it first. */
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword;
+
     @Column(name = "password_changed_at")
     private Instant passwordChangedAt;
 

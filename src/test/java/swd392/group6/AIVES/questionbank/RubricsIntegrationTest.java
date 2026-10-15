@@ -9,6 +9,7 @@ import swd392.group6.AIVES.questionbank.QuestionBankFixture.Actor;
 import swd392.group6.AIVES.support.IntegrationTest;
 import swd392.group6.AIVES.support.TestUsers;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.contains;
@@ -70,7 +71,7 @@ class RubricsIntegrationTest {
         fx.json(lecturer, post("/api/v1/courses/" + courseId + "/rubrics"), rubricBody("Bad", 60, 30))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("RUBRIC_WEIGHTS_NOT_100"))
-                .andExpect(jsonPath("$.detail").value("Weights total 90.00"));
+                .andExpect(jsonPath("$.detail").value("Weights must total exactly 100%; they total 90.00%"));
     }
 
     @Test
@@ -99,6 +100,18 @@ class RubricsIntegrationTest {
                                 + "{\"name\":\"b\",\"maxScore\":10,\"weightPercent\":110}]}")
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("RUBRIC_WEIGHT_INVALID"));
+        for (String bad : List.of("100.5", "10.125")) {
+            fx.json(lecturer, post("/api/v1/courses/" + courseId + "/rubrics"),
+                            "{\"name\":\"Big\",\"criteria\":[{\"name\":\"a\",\"maxScore\":" + bad + ",\"weightPercent\":100}]}")
+                    .andExpect(status().isUnprocessableContent())
+                    .andExpect(jsonPath("$.code").value("RUBRIC_MAX_SCORE_INVALID"));
+        }
+        fx.json(lecturer, post("/api/v1/courses/" + courseId + "/rubrics"),
+                        "{\"name\":\"Over\",\"criteria\":[{\"name\":\"a\",\"maxScore\":10,\"weightPercent\":70},"
+                                + "{\"name\":\"b\",\"maxScore\":10,\"weightPercent\":50}]}")
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("RUBRIC_WEIGHTS_NOT_100"))
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("120.00%")));
         fx.json(lecturer, post("/api/v1/courses/" + courseId + "/rubrics"),
                         "{\"name\":\"NoName\",\"criteria\":[{\"maxScore\":10,\"weightPercent\":100}]}")
                 .andExpect(status().isBadRequest());

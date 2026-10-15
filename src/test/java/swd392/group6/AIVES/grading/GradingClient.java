@@ -24,7 +24,7 @@ public class GradingClient {
     }
 
     public String create(UUID sessionId) throws Exception {
-        String json = mockMvc.perform(post("/api/v1/sessions/{id}/evaluation", sessionId).header("Authorization", lecturerToken))
+        String json = mockMvc.perform(post("/api/v1/attempts/{id}/evaluation", sessionId).header("Authorization", lecturerToken))
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(json, "$.id");
     }

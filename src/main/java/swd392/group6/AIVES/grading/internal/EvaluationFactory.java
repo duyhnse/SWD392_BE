@@ -6,12 +6,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.exam.ExamApi;
-import swd392.group6.AIVES.exam.ExamApi.SessionInfo;
+import swd392.group6.AIVES.exam.ExamApi.AttemptInfo;
 import swd392.group6.AIVES.grading.GradingApi;
 import swd392.group6.AIVES.interview.InterviewApi;
 import swd392.group6.AIVES.interview.InterviewApi.ThreadInfo;
 import swd392.group6.AIVES.interview.InterviewApi.TurnInfo;
-import swd392.group6.AIVES.questionbank.QuestionBankApi;
 import swd392.group6.AIVES.questionbank.QuestionBankApi.RubricSnapshot;
 
 import java.math.BigDecimal;
@@ -30,7 +29,7 @@ import java.util.UUID;
  *
  * <p>Thread classification:
  * <ul>
- *   <li>session question {@code SKIPPED} → {@code NOT_ASKED}, not included in the total;</li>
+ *   <li>attempt question {@code SKIPPED} → {@code NOT_ASKED}, not included in the total;</li>
  *   <li>{@code NOT_REACHED} → {@code NOT_ASKED}, included, final scores pre-filled with 0;</li>
  *   <li>turns that are all {@code NO_ANSWER} → {@code AI_SCORED} by the system with every AI score 0;</li>
  *   <li>no non-blank transcript → {@code MISSING_DATA} (manual grading);</li>
@@ -47,33 +46,37 @@ class EvaluationFactory implements GradingApi {
 
     private final ExamApi examApi;
     private final InterviewApi interviewApi;
-    private final QuestionBankApi questionBankApi;
     private final GradeEvaluationRepository evaluations;
     private final EntityManager entityManager;
     private final Clock clock;
 
     @Override
     @Transactional
-    public CreatedEvaluation createEvaluation(UUID sessionId, Mode mode) {
-        SessionInfo session = examApi.getSession(sessionId)
-                .orElseThrow(() -> ApiException.notFound("SESSION_NOT_FOUND", "Session not found"));
-        Optional<GradeEvaluation> existing = evaluations.findBySessionId(sessionId);
+    public CreatedEvaluation createEvaluation(UUID attemptId, Mode mode) {
+        AttemptInfo attempt = examApi.getAttempt(attemptId)
+                .orElseThrow(() -> ApiException.notFound("ATTEMPT_NOT_FOUND", "Attempt not found"));
+        Optional<GradeEvaluation> existing = evaluations.findByAttemptId(attemptId);
         if (existing.isPresent()) {
             return new CreatedEvaluation(existing.get().getEvaluationId(), existing.get().getStatus().name(), false);
         }
-        if (!"COMPLETED".equals(session.status())) {
-            throw ApiException.conflict("SESSION_NOT_COMPLETED", "Only a completed session can be graded");
+        if (!"COMPLETED".equals(attempt.status())) {
+            throw ApiException.conflict("ATTEMPT_NOT_COMPLETED", "Only a completed attempt can be graded");
         }
 
-        List<ThreadInfo> threads = interviewApi.getThreads(sessionId);
+        // Grade with the rubric copied at check-in (D49), never the current bank version; replaced questions are not graded.
+        List<ThreadInfo> threads = interviewApi.getThreads(attemptId).stream()
+                .filter(t -> !"VOIDED".equals(t.status())).toList();
+        Map<UUID, RubricSnapshot> snapshots = new HashMap<>();
+        examApi.getAttemptQuestions(attemptId).forEach(q -> snapshots.put(q.attemptQuestionId(),
+                GradingJson.readRubric(q.rubricSnapshotJson())));
         Map<UUID, RubricSnapshot> rubrics = new HashMap<>();
         List<Integer> withoutRubric = new ArrayList<>();
         for (ThreadInfo thread : threads) {
-            Optional<RubricSnapshot> rubric = questionBankApi.getRubricSnapshot(thread.questionId());
-            if (rubric.isEmpty() || rubric.get().criteria().isEmpty()) {
+            RubricSnapshot rubric = snapshots.get(thread.attemptQuestionId());
+            if (rubric == null || rubric.criteria() == null || rubric.criteria().isEmpty()) {
                 withoutRubric.add(thread.orderNo());
             } else {
-                rubrics.put(thread.questionId(), rubric.get());
+                rubrics.put(thread.attemptQuestionId(), rubric);
             }
         }
         if (!withoutRubric.isEmpty()) {
@@ -83,7 +86,7 @@ class EvaluationFactory implements GradingApi {
         Instant now = clock.instant();
         GradeEvaluation evaluation = new GradeEvaluation();
         evaluation.setEvaluationId(UUID.randomUUID());
-        evaluation.setSessionId(sessionId);
+        evaluation.setAttemptId(attemptId);
         evaluation.setCreatedAt(now);
         evaluation.setUpdatedAt(now);
 
@@ -91,11 +94,11 @@ class EvaluationFactory implements GradingApi {
         List<BigDecimal> aiScores = new ArrayList<>();
         List<Object> rows = new ArrayList<>();
         for (ThreadInfo thread : threads) {
-            RubricSnapshot rubric = rubrics.get(thread.questionId());
+            RubricSnapshot rubric = rubrics.get(thread.attemptQuestionId());
             QuestionGrade grade = new QuestionGrade();
             grade.setQuestionGradeId(UUID.randomUUID());
             grade.setEvaluationId(evaluation.getEvaluationId());
-            grade.setSessionQuestionId(thread.sessionQuestionId());
+            grade.setAttemptQuestionId(thread.attemptQuestionId());
             grade.setQuestionId(thread.questionId());
             grade.setRubricSnapshot(GradingJson.write(GradingJson.Snapshot.of(rubric)));
             grade.setSignals(GradingJson.write(signals(thread.turns())));

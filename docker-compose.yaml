@@ -50,7 +50,10 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
-      AI_MODE: ${AI_MODE:-mock}
+      AI_NODE_URL: ${AI_NODE_URL:-}
+      AI_NODE_TOKEN: ${AI_NODE_TOKEN:-}
+      AI_NODE_CALLBACK_SECRET: ${AI_NODE_CALLBACK_SECRET:-}
+      AI_NODE_CALLBACK_BASE_URL: ${AI_NODE_CALLBACK_BASE_URL:-http://localhost:8080}
       STORAGE_LOCAL_DIR: /app/data/storage
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       MAIL_MODE: ${MAIL_MODE:-log}
@@ -60,7 +63,9 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     ports:
-      - "127.0.0.1:8080:8080"
+      # 127.0.0.1 = only Caddy reaches it. With the AI node over Tailscale, set BACKEND_BIND to node 1's tailnet IPv4
+      # so the node can call back and fetch signed file links (16 §5); /internal/* is never public through Caddy.
+      - "${BACKEND_BIND:-127.0.0.1}:8080:8080"
     volumes:
       - backend_storage:/app/data/storage
 
