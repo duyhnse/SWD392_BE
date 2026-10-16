@@ -46,6 +46,8 @@ import java.util.function.Supplier;
 public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSpeechPort, AiJobPort, AiMaterialIndexPort {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    /** Log correlation on both nodes (16 §2.2): the turn id, the job id, or a fresh id. */
+    private static final String REQUEST_ID = "X-AIVES-Request-Id";
 
     private final RestClient http;
     private final RestClient answerHttp;
@@ -85,7 +87,7 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
         MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
         form.add("audio", filePart(r.audio(), r.audioContentType(), "answer"));
         form.add("context", jsonPart(context));
-        JsonNode body = call(() -> answerHttp.post().uri("/v1/interview/process-answer")
+        JsonNode body = call(() -> answerHttp.post().uri("/v1/interview/process-answer").header(REQUEST_ID, r.requestId())
                 .contentType(MediaType.MULTIPART_FORM_DATA).body(form).retrieve().body(JsonNode.class));
         JsonNode t = body.path("transcript");
         Transcript transcript = new Transcript(t.path("text").asString(""), t.path("model").asString(null),
@@ -119,7 +121,7 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
         form.add("audio", filePart(r.audio(), r.contentType(), "answer"));
         form.add("context", jsonPart(Map.of("language", r.language().name(),
                 "prompt", r.hotwordPrompt() == null ? "" : r.hotwordPrompt())));
-        JsonNode body = call(() -> http.post().uri("/v1/stt").contentType(MediaType.MULTIPART_FORM_DATA)
+        JsonNode body = call(() -> http.post().uri("/v1/stt").header(REQUEST_ID, newRequestId()).contentType(MediaType.MULTIPART_FORM_DATA)
                 .body(form).retrieve().body(JsonNode.class));
         return new Transcript(body.path("text").asString(""), body.path("model").asString(null),
                 body.path("latency_ms").asLong(0));
@@ -127,7 +129,7 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
 
     @Override
     public SynthesizedAudio synthesize(String text, Language language) {
-        JsonNode body = call(() -> http.post().uri("/v1/tts").contentType(MediaType.APPLICATION_JSON)
+        JsonNode body = call(() -> http.post().uri("/v1/tts").header(REQUEST_ID, newRequestId()).contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("text", text, "language", language.name(), "format", "mp3")).retrieve().body(JsonNode.class));
         SynthesizedAudio audio = audio(body);
         if (audio == null) {
@@ -141,7 +143,7 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
     @Override
     public void deleteMaterial(UUID materialId) {
         try {
-            http.delete().uri("/v1/materials/{id}", materialId).retrieve().toBodilessEntity();
+            http.delete().uri("/v1/materials/{id}", materialId).header(REQUEST_ID, materialId.toString()).retrieve().toBodilessEntity();
         } catch (RestClientException e) {
             log.warn("AI node did not drop material {} from its index: {}", materialId, e.getMessage());
         }
@@ -151,7 +153,7 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
     public Optional<AiJobOutcome> submit(UUID jobId, AiJobType type, JsonNode input, String callbackUrl) {
         Map<String, Object> body = Map.of("job_id", jobId.toString(), "type", type.name(), "callback_url", callbackUrl,
                 "input", input);
-        call(() -> http.post().uri("/v1/jobs").contentType(MediaType.APPLICATION_JSON).body(body).retrieve()
+        call(() -> http.post().uri("/v1/jobs").header(REQUEST_ID, jobId.toString()).contentType(MediaType.APPLICATION_JSON).body(body).retrieve()
                 .toBodilessEntity());
         return Optional.empty();
     }
@@ -160,7 +162,7 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
     public Optional<AiJobOutcome> poll(UUID jobId) {
         JsonNode body;
         try {
-            body = http.get().uri("/v1/jobs/{id}", jobId).retrieve().body(JsonNode.class);
+            body = http.get().uri("/v1/jobs/{id}", jobId).header(REQUEST_ID, jobId.toString()).retrieve().body(JsonNode.class);
         } catch (HttpStatusCodeException e) {
             if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
                 return Optional.of(new AiJobOutcome("FAILED", null, "AI_JOB_LOST", "The AI node does not know this job"));
@@ -179,6 +181,10 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
     }
 
     // ---- helpers ---------------------------------------------------------------------------------------------
+
+    private static String newRequestId() {
+        return UUID.randomUUID().toString();
+    }
 
     private static <T> T call(Supplier<T> request) {
         try {
