@@ -113,6 +113,7 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
         assertThat((Integer) JsonPath.read(st, "$.progress.threadIndex")).isEqualTo(1);
         assertThat((Integer) JsonPath.read(st, "$.progress.threadCount")).isEqualTo(2);
         assertThat((Integer) JsonPath.read(st, "$.remainingSec")).isEqualTo(600);
+        assertThat((Integer) JsonPath.read(st, "$.currentTurn.answerTimeLimitSec")).isEqualTo(45); // cap (D69), đề says 120
         assertThat(state(s)).contains(turnId(st)); // polling again does not create another turn
         call(get(JsonPath.<String>read(st, "$.currentTurn.audioUrl")), token(s.student())).andExpect(status().isOk());
     }
