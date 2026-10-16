@@ -26,7 +26,7 @@ public record AiNodeProperties(String baseUrl, String token, String callbackSecr
             callbackSecret = java.util.HexFormat.of().formatHex(random);
         }
         connectTimeout = connectTimeout == null ? Duration.ofSeconds(2) : connectTimeout;
-        processAnswerTimeout = processAnswerTimeout == null ? Duration.ofSeconds(25) : processAnswerTimeout;
+        processAnswerTimeout = processAnswerTimeout == null ? Duration.ofSeconds(12) : processAnswerTimeout;
         jobTimeout = jobTimeout == null ? Duration.ofMinutes(5) : jobTimeout;
     }
 

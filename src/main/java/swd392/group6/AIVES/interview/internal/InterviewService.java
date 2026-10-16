@@ -1,7 +1,6 @@
 package swd392.group6.AIVES.interview.internal;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -65,8 +64,7 @@ import java.util.function.Supplier;
 class InterviewService {
 
     static final Duration OFFLINE_AFTER = Duration.ofSeconds(10);
-    /** Longer than the slowest answer turn (process-answer timeout + STT-only retries), so a slow AI is not cut off. */
-    static final Duration PROCESSING_STUCK_AFTER = Duration.ofSeconds(90);
+    static final Duration PROCESSING_STUCK_AFTER = Duration.ofSeconds(45);
     /** Upload / network allowance after the answer limit (05 §6). */
     static final int ANSWER_GRACE_SEC = 15;
     static final int MIN_ANSWER_LIMIT_SEC = 10;
@@ -98,14 +96,12 @@ class InterviewService {
     private final LiveFrames frames;
     private final TransactionTemplate tx;
     private final Clock clock;
-    private final int maxAnswerCapSec;
 
     InterviewService(ExamApi exams, AttemptControlApi control, TurnStore turns, AttemptEventLog events,
                      QuestionAudio questionAudio, InterviewAiPort ai, SpeechToTextPort stt, QuestionBankApi questionBank,
                      StoragePort storage, CourseAccessApi courseAccess, NotificationApi notifications,
                      ApplicationEventPublisher publisher, JdbcTemplate jdbc, LiveFrames frames,
-                     PlatformTransactionManager txManager, Clock clock,
-                     @Value("${application.interview.max-answer-sec:45}") int maxAnswerCapSec) {
+                     PlatformTransactionManager txManager, Clock clock) {
         this.exams = exams;
         this.control = control;
         this.turns = turns;
@@ -122,7 +118,6 @@ class InterviewService {
         this.frames = frames;
         this.tx = new TransactionTemplate(txManager);
         this.clock = clock;
-        this.maxAnswerCapSec = maxAnswerCapSec;
     }
 
     // ================================================================================================ student
@@ -795,7 +790,7 @@ class InterviewService {
 
     private int answerLimit(ExamInfo exam, AttemptQuestionInfo q) {
         int left = q.timeBudgetSec() - q.timeUsedSec();
-        return Math.max(MIN_ANSWER_LIMIT_SEC, Math.min(Math.min(exam.maxAnswerSec(), maxAnswerCapSec), left));
+        return Math.max(MIN_ANSWER_LIMIT_SEC, Math.min(exam.maxAnswerSec(), left));
     }
 
     private static int remaining(AttemptInfo a, Instant now) {
