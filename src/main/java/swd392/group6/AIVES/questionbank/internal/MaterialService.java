@@ -56,18 +56,22 @@ public class MaterialService {
     private final AiJobService aiJobs;
     private final AiNodeFileLinks fileLinks;
     private final AiMaterialIndexPort aiIndex;
+    private final TopicRepository topics;
 
     @Transactional(readOnly = true)
-    public List<MaterialDto> list(UUID courseId, User user) {
+    public List<MaterialDto> list(UUID courseId, UUID topicId, User user) {
         access.readCourse(courseId, user);
-        return materials.findByCourseIdOrderByCreatedAtDesc(courseId).stream().map(MaterialService::toDto).toList();
+        Map<UUID, String> names = topicNames(courseId);
+        return materials.findByCourseIdOrderByCreatedAtDesc(courseId).stream()
+                .filter(m -> topicId == null || topicId.equals(m.getTopicId()))
+                .map(m -> toDto(m, names)).toList();
     }
 
     @Transactional(readOnly = true)
     public MaterialDto get(UUID materialId, User user) {
         CourseMaterial m = load(materialId);
         access.read(m.getCourseId(), user, NOT_FOUND, "Material not found");
-        return toDto(m);
+        return toDto(m, topicNames(m.getCourseId()));
     }
 
     @Transactional(readOnly = true)
@@ -80,8 +84,9 @@ public class MaterialService {
         return new MaterialFile(m.getFileName(), m.getContentType(), data);
     }
 
-    public MaterialDto upload(UUID courseId, MultipartFile file, User user) {
+    public MaterialDto upload(UUID courseId, MultipartFile file, UUID topicId, User user) {
         access.writeCourse(courseId, user);
+        checkTopic(courseId, topicId);
         if (file == null || file.isEmpty()) {
             throw ApiException.unprocessable("FILE_EMPTY", "Upload a non-empty file in the 'file' field");
         }
@@ -98,6 +103,7 @@ public class MaterialService {
         }
         CourseMaterial m = new CourseMaterial();
         m.setCourseId(courseId);
+        m.setTopicId(topicId);
         m.setFileName(fileName);
         m.setContentType(contentType);
         m.setSizeBytes(data.length);
@@ -112,7 +118,28 @@ public class MaterialService {
         storage.put(key, data, contentType);
         afterRollback(() -> storage.delete(key));
         startIndexing(m);
-        return toDto(m);
+        return toDto(m, topicNames(courseId));
+    }
+
+    /** D70: put a material in a chapter (or none); the index is unchanged. */
+    @Transactional
+    public MaterialDto setTopic(UUID materialId, UUID topicId, User user) {
+        CourseMaterial m = load(materialId);
+        access.write(m.getCourseId(), user, NOT_FOUND, "Material not found");
+        checkTopic(m.getCourseId(), topicId);
+        m.setTopicId(topicId);
+        return toDto(materials.saveAndFlush(m), topicNames(m.getCourseId()));
+    }
+
+    private void checkTopic(UUID courseId, UUID topicId) {
+        if (topicId != null && topics.findById(topicId).filter(t -> t.getCourseId().equals(courseId)).isEmpty()) {
+            throw ApiException.unprocessable("TOPIC_NOT_IN_COURSE", "The chapter does not belong to this course");
+        }
+    }
+
+    private Map<UUID, String> topicNames(UUID courseId) {
+        return topics.findByCourseIdOrderBySortOrderAscNameAsc(courseId).stream()
+                .collect(java.util.stream.Collectors.toMap(Topic::getId, Topic::getName));
     }
 
     /** E4: a FAILED (or already INDEXED) material can be indexed again; its old chunks are dropped. */
@@ -123,10 +150,10 @@ public class MaterialService {
             throw ApiException.conflict("MATERIAL_PROCESSING", "The material is being indexed right now");
         }
         startIndexing(m);
-        return toDto(materials.saveAndFlush(m));
+        return toDto(materials.saveAndFlush(m), topicNames(m.getCourseId()));
     }
 
-    private void startIndexing(CourseMaterial m) {
+    void startIndexing(CourseMaterial m) {
         m.setStatus(MaterialStatus.PROCESSING);
         m.setErrorMessage(null);
         m.setPageCount(null);
@@ -213,8 +240,9 @@ public class MaterialService {
         }
     }
 
-    static MaterialDto toDto(CourseMaterial m) {
-        return new MaterialDto(m.getId(), m.getCourseId(), m.getFileName(), m.getContentType(), m.getSizeBytes(),
+    static MaterialDto toDto(CourseMaterial m, Map<UUID, String> topicNames) {
+        return new MaterialDto(m.getId(), m.getCourseId(), m.getTopicId(), topicNames.get(m.getTopicId()),
+                m.getFileName(), m.getContentType(), m.getSizeBytes(),
                 m.getStatus(), m.getPageCount(), m.getErrorMessage(), m.getUploadedBy(), m.getCreatedAt(),
                 m.getIndexedAt());
     }

@@ -54,6 +54,7 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
     void reset() {
         clock.set(T0);
         aiNode.ttsBroken = false;
+        aiNode.followUpVoiceLate = false;
         aiNode.answerRequests.clear();
     }
 
@@ -218,6 +219,34 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
         assertThat(jdbc.queryForObject("select student_transcript from exam_turns where turn_id = ?", String.class,
                 UUID.fromString(t1))).contains("module");
         assertThat(eventTypes(s.attempt())).contains("LLM_FAILED");
+    }
+
+    @Test
+    void lateFollowUpVoiceIsShownAtOnceAndVoicedJustAfter_D70() throws Exception {
+        aiNode.followUpVoiceLate = true;
+        Started s = start(2);
+        String afterShort = answered(s, turnId(state(s)), SHORT);
+        assertThat((String) JsonPath.read(afterShort, "$.currentTurn.type")).isEqualTo("FOLLOW_UP");
+        assertThat((String) JsonPath.read(afterShort, "$.currentTurn.text")).isNotBlank();
+        String later = afterShort;
+        for (int i = 0; i < 50 && JsonPath.read(later, "$.currentTurn.audioUrl") == null; i++) {
+            Thread.sleep(100);
+            later = state(s);
+        }
+        assertThat((String) JsonPath.read(later, "$.currentTurn.audioUrl")).endsWith("/question-audio");
+        assertThat((Boolean) JsonPath.read(later, "$.currentTurn.audioPending")).isFalse();
+        assertThat(eventTypes(s.attempt())).doesNotContain("TTS_FAILED");
+    }
+
+    @Test
+    void mainQuestionsAreVoicedRightAfterCheckIn_D70() throws Exception {
+        Started s = start(2);
+        List<String> texts = jdbc.queryForList("select content from attempt_questions where attempt_id = ? and status <> 'VOIDED'",
+                String.class, s.attempt());
+        for (int i = 0; i < 50 && !aiNode.spoken.containsAll(texts); i++) {
+            Thread.sleep(100);
+        }
+        assertThat(aiNode.spoken).containsAll(texts);
     }
 
     @Test

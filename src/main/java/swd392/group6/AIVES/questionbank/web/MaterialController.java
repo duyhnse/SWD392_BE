@@ -10,9 +10,12 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,6 +23,7 @@ import org.springframework.web.multipart.MultipartFile;
 import swd392.group6.AIVES.questionbank.internal.MaterialService;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.MaterialDto;
 import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.MaterialFile;
+import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.MaterialTopicRequest;
 import swd392.group6.AIVES.user.User;
 
 import java.nio.charset.StandardCharsets;
@@ -36,15 +40,16 @@ class MaterialController {
     private final MaterialService service;
 
     @GetMapping("/courses/{courseId}/materials")
-    public List<MaterialDto> list(@PathVariable UUID courseId, @AuthenticationPrincipal User user) {
-        return service.list(courseId, user);
+    public List<MaterialDto> list(@PathVariable UUID courseId, @RequestParam(required = false) UUID topicId,
+                                  @AuthenticationPrincipal User user) {
+        return service.list(courseId, topicId, user);
     }
 
     @PostMapping(path = "/courses/{courseId}/materials", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public MaterialDto upload(@PathVariable UUID courseId, @RequestPart(value = "file", required = false) MultipartFile file,
-                              @AuthenticationPrincipal User user) {
-        return service.upload(courseId, file, user);
+                              @RequestParam(required = false) UUID topicId, @AuthenticationPrincipal User user) {
+        return service.upload(courseId, file, topicId, user);
     }
 
     @GetMapping("/materials/{id}")
@@ -60,6 +65,12 @@ class MaterialController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
                         .filename(file.fileName(), StandardCharsets.UTF_8).build().toString())
                 .body(file.data());
+    }
+
+    @PatchMapping("/materials/{id}")
+    public MaterialDto setTopic(@PathVariable UUID id, @RequestBody MaterialTopicRequest request,
+                                @AuthenticationPrincipal User user) {
+        return service.setTopic(id, request.topicId(), user);
     }
 
     @PostMapping("/materials/{id}/reindex")

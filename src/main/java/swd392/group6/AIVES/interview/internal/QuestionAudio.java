@@ -55,6 +55,14 @@ class QuestionAudio {
         }
     }
 
+    /** Stores audio the AI node produced with a follow-up; empty when it came without (voiced later, D70). */
+    Optional<Stored> given(String text, Language language, SynthesizedAudio audio) {
+        if (audio == null || audio.data() == null || audio.data().length == 0) {
+            return Optional.empty();
+        }
+        return store(text, language, audio);
+    }
+
     /** Stores audio the AI node already produced (a follow-up comes with its audio, 16 §3.1). */
     Optional<Stored> store(String text, Language language, SynthesizedAudio audio) {
         if (audio == null || audio.data() == null || audio.data().length == 0) {

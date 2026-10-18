@@ -64,6 +64,8 @@ import java.util.function.Supplier;
 class InterviewService {
 
     static final Duration OFFLINE_AFTER = Duration.ofSeconds(10);
+    /** How long the browser waits for a follow-up voice made after the turn (D70) before speaking the text itself. */
+    static final Duration FOLLOW_UP_VOICE_WAIT = Duration.ofSeconds(12);
     static final Duration PROCESSING_STUCK_AFTER = Duration.ofSeconds(45);
     /** Upload / network allowance after the answer limit (05 §6). */
     static final int ANSWER_GRACE_SEC = 15;
@@ -94,6 +96,7 @@ class InterviewService {
     private final ApplicationEventPublisher publisher;
     private final JdbcTemplate jdbc;
     private final LiveFrames frames;
+    private final QuestionAudioPrefetch prefetch;
     private final TransactionTemplate tx;
     private final Clock clock;
 
@@ -101,7 +104,7 @@ class InterviewService {
                      QuestionAudio questionAudio, InterviewAiPort ai, SpeechToTextPort stt, QuestionBankApi questionBank,
                      StoragePort storage, CourseAccessApi courseAccess, NotificationApi notifications,
                      ApplicationEventPublisher publisher, JdbcTemplate jdbc, LiveFrames frames,
-                     PlatformTransactionManager txManager, Clock clock) {
+                     PlatformTransactionManager txManager, Clock clock, QuestionAudioPrefetch prefetch) {
         this.exams = exams;
         this.control = control;
         this.turns = turns;
@@ -116,6 +119,7 @@ class InterviewService {
         this.publisher = publisher;
         this.jdbc = jdbc;
         this.frames = frames;
+        this.prefetch = prefetch;
         this.tx = new TransactionTemplate(txManager);
         this.clock = clock;
     }
@@ -492,10 +496,7 @@ class InterviewService {
         QuestionAudio.Stored followUpStored = null;
         if ("FOLLOW_UP".equals(decision)) {
             followUpText = analysis.followUpQuestion().strip();
-            followUpStored = questionAudio.store(followUpText, language, followUpAudio).orElse(null);
-            if (followUpStored == null) {
-                notes.add(Map.entry("TTS_FAILED", payload("turnType", "FOLLOW_UP")));
-            }
+            followUpStored = questionAudio.given(followUpText, language, followUpAudio).orElse(null); // else voiced later
         } else if (p.nextMainText() != null) {
             questionAudio.forText(p.nextMainText(), Language.valueOf(p.nextMainLanguage())); // warm the cache
         }
@@ -550,6 +551,9 @@ class InterviewService {
         if ("FOLLOW_UP".equals(o.decision())) {
             UUID id = turns.ask(a.attemptId(), t.attemptQuestionId(), t.questionId(), t.turnId(), t.followupIndex() + 1,
                     o.followUpText(), t.language(), o.followUpAudio(), now);
+            if (o.followUpAudio() == null) {
+                prefetch.followUp(a.attemptId(), id, o.followUpText(), Language.valueOf(t.language()));
+            }
             events.log(a.attemptId(), id, "QUESTION_ASKED", null,
                     payload("turnType", "FOLLOW_UP", "followupIndex", t.followupIndex() + 1), now);
         } else {
@@ -741,8 +745,10 @@ class InterviewService {
         CurrentTurn turn = null;
         if (open != null && current != null && !"COMPLETED".equals(a.status())) {
             String audioUrl = open.questionAudioKey() == null ? null : "/api/v1/turns/" + open.turnId() + "/question-audio";
+            boolean audioPending = audioUrl == null && "FOLLOW_UP".equals(open.type()) && "ASKED".equals(open.status())
+                    && open.askedAt().isAfter(now.minus(FOLLOW_UP_VOICE_WAIT));
             turn = new CurrentTurn(open.turnId(), open.type(), open.language(), open.questionText(), audioUrl, open.questionAudioMs(),
-                    open.askedAt(), answerLimit(exam, current), open.status());
+                    open.askedAt(), answerLimit(exam, current), open.status(), audioPending);
         }
         AttemptEventLog.Notice n = events.notice(attemptId, now);
         return new AttemptState(attemptId, exam.title(), a.status(), a.endReason(), events.version(attemptId), now,

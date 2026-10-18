@@ -1,9 +1,13 @@
 package swd392.group6.AIVES.user;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import swd392.group6.AIVES.ai.AiEmbeddingModelChangedEvent;
+import swd392.group6.AIVES.ai.AiSettings;
+import swd392.group6.AIVES.ai.AiSettingsSource;
 import swd392.group6.AIVES.common.ApiException;
 import swd392.group6.AIVES.common.Language;
 import tools.jackson.databind.JsonNode;
@@ -17,23 +21,27 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 /** FG7 language & speech configuration stored in {@code system_settings} (15 §4, §5.1). */
 @Service
 @RequiredArgsConstructor
-class SettingsService implements SettingsApi {
+class SettingsService implements SettingsApi, AiSettingsSource {
 
-    /** Business settings only: AI providers, voices and STT languages are the AI node's configuration (D63). */
-    static final Set<String> KNOWN_KEYS = Set.of("default_language", "exam.seconds.REMEMBER",
-            "exam.seconds.UNDERSTAND", "exam.seconds.APPLY", "exam.seconds.ANALYZE", "exam.seconds.ANY",
-            "account.default_password");
+    /** Business settings, plus the admin's AI settings {@code ai.*} sent to the AI node with every call (D70). */
+    static final Set<String> KNOWN_KEYS = java.util.stream.Stream.concat(Stream.of("default_language",
+                    "exam.seconds.REMEMBER", "exam.seconds.UNDERSTAND", "exam.seconds.APPLY", "exam.seconds.ANALYZE",
+                    "exam.seconds.ANY", "account.default_password"), AiSettings.RULES.stream().map(AiSettings.Rule::key))
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final JdbcClient jdbc;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
-    record SettingResponse(String key, JsonNode value, String description, Instant updatedAt) {
+    /** @param rule how an {@code ai.*} value is edited (range, choices, model group); null for the other settings */
+    record SettingResponse(String key, JsonNode value, String description, Instant updatedAt, AiSettings.Rule rule) {
     }
 
     record UpdateSettingsRequest(Map<String, JsonNode> settings) {
@@ -43,7 +51,7 @@ class SettingsService implements SettingsApi {
     public List<SettingResponse> list() {
         return jdbc.sql("select setting_key, setting_value::text, description, updated_at from system_settings order by setting_key")
                 .query((rs, i) -> new SettingResponse(rs.getString(1), JSON.readTree(rs.getString(2)), rs.getString(3),
-                        rs.getTimestamp(4).toInstant()))
+                        rs.getTimestamp(4).toInstant(), AiSettings.rule(rs.getString(1)).orElse(null)))
                 .list();
     }
 
@@ -54,6 +62,7 @@ class SettingsService implements SettingsApi {
             throw ApiException.unprocessable("SETTINGS_EMPTY", "Send at least one setting: {\"settings\": {key: value}}");
         }
         request.settings().forEach(SettingsService::validate);
+        String oldEmbedding = value(AiSettings.EMBEDDING_MODEL).orElse(null);
         Timestamp now = Timestamp.from(clock.instant());
         request.settings().forEach((key, value) -> jdbc.sql("""
                         insert into system_settings (setting_key, setting_value, updated_by, updated_at)
@@ -63,6 +72,10 @@ class SettingsService implements SettingsApi {
                               updated_at = excluded.updated_at""")
                 .params(key, JSON.writeValueAsString(value), adminId, now)
                 .update());
+        JsonNode embedding = request.settings().get(AiSettings.EMBEDDING_MODEL);
+        if (embedding != null && !embedding.asString().trim().equals(oldEmbedding)) {
+            events.publishEvent(new AiEmbeddingModelChangedEvent(embedding.asString().trim())); // → re-index materials
+        }
         return list();
     }
 
@@ -104,6 +117,12 @@ class SettingsService implements SettingsApi {
         }
         if (value == null || !value.isString()) {
             throw ApiException.unprocessable("INVALID_SETTING_VALUE", "Setting " + key + " must be a string");
+        }
+        if (key.startsWith("ai.")) {
+            String problem = AiSettings.problem(key, value.asString());
+            if (problem != null) {
+                throw ApiException.unprocessable("INVALID_SETTING_VALUE", problem);
+            }
         }
         if (key.equals("default_language") && !Set.of("VI", "EN").contains(value.asString())) {
             throw ApiException.unprocessable("INVALID_SETTING_VALUE", "default_language must be VI or EN");

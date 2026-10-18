@@ -154,6 +154,31 @@ class QuestionInputsIntegrationTest {
     }
 
     @Test
+    void sharedRubricChosenAtGenerationIsAttachedAndSentToTheAi_D70() throws Exception {
+        UUID material = upload("slides.pdf", PDF);
+        UUID topic = fx.topic(lecturer, bank.courseId(), "Chương 2");
+        String body = generation(topic, List.of(material), 2, "\"UNDERSTAND\"", null)
+                .replaceFirst("}$", ",\"rubricId\":\"" + bank.rubricId() + "\"}");
+        UUID request = QuestionBankFixture.id(fx.json(lecturer, post("/api/v1/courses/" + bank.courseId() + "/question-generations"),
+                body).andExpect(status().isAccepted()).andExpect(jsonPath("$.rubricId").value(bank.rubricId().toString())));
+        String sent = jdbc.queryForObject("select request::text from ai_jobs where subject_id = ?", String.class, request);
+        assertThat(sent).contains("\"rubric\"", "\"criteria\"");
+        String list = QuestionBankFixture.body(fx.perform(lecturer, get("/api/v1/courses/" + bank.courseId() + "/questions")
+                .param("generationRequestId", request.toString())).andExpect(jsonPath("$.total").value(2)));
+        UUID q = UUID.fromString(JsonPath.read(list, "$.items[0].id"));
+        fx.perform(lecturer, get("/api/v1/questions/" + q))
+                .andExpect(jsonPath("$.rubric.id").value(bank.rubricId().toString()))
+                .andExpect(jsonPath("$.ai.suggestedRubric.criteria", hasSize(2))); // the AI's idea stays visible
+
+        UUID otherCourse = fx.course("VI");
+        fx.assign(otherCourse, lecturer);
+        UUID foreign = fx.rubric(lecturer, otherCourse, "Khác", 100);
+        fx.json(lecturer, post("/api/v1/courses/" + bank.courseId() + "/question-generations"),
+                        generation(topic, List.of(material), 1, "\"UNDERSTAND\"", null).replaceFirst("}$", ",\"rubricId\":\"" + foreign + "\"}"))
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("RUBRIC_NOT_IN_COURSE"));
+    }
+
+    @Test
     void noContextFailuresAndBadAnswersWriteNothing_AC_Q5_Q7_Q12() throws Exception {
         UUID material = upload("slides.pdf", PDF);
         UUID topic = fx.topic(lecturer, bank.courseId(), "Kanji");

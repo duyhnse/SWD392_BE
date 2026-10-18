@@ -26,7 +26,8 @@ public record AiNodeProperties(String baseUrl, String token, String callbackSecr
             callbackSecret = java.util.HexFormat.of().formatHex(random);
         }
         connectTimeout = connectTimeout == null ? Duration.ofSeconds(2) : connectTimeout;
-        processAnswerTimeout = processAnswerTimeout == null ? Duration.ofSeconds(12) : processAnswerTimeout;
+        // safety net only: the AI node answers within the admin turn budget (ai.timeout.turn_budget_sec, 8–20 s, D70)
+        processAnswerTimeout = processAnswerTimeout == null ? Duration.ofSeconds(22) : processAnswerTimeout;
         jobTimeout = jobTimeout == null ? Duration.ofMinutes(5) : jobTimeout;
     }
 

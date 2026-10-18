@@ -69,6 +69,12 @@ class TurnStore {
     }
 
     /** Inserts an ASKED turn and returns its id. {@code parentTurnId} null = MAIN. */
+    /** Voice added after the turn was asked (D70); never replaces an existing one. */
+    boolean setQuestionAudio(UUID turnId, QuestionAudio.Stored audio) {
+        return jdbc.update("update exam_turns set question_audio_key = ?, question_audio_ms = ? where turn_id = ? and question_audio_key is null",
+                audio.key(), audio.durationMs(), turnId) > 0;
+    }
+
     UUID ask(UUID attemptId, UUID attemptQuestionId, UUID questionId, UUID parentTurnId, int followupIndex, String text,
              String language, QuestionAudio.Stored audio, Instant at) {
         UUID id = UUID.randomUUID();

@@ -118,13 +118,13 @@ public final class QuestionBankDtos {
     public record GenerationRequest(@NotNull UUID topicId, @NotEmpty @Size(max = 20) List<@NotNull UUID> materialIds,
                                     @NotNull @Min(1) @Max(20) Integer count,
                                     @NotEmpty List<@NotNull BloomLevel> bloomLevels,
-                                    @Size(max = 1000) String focusText, Language language) {
+                                    @Size(max = 1000) String focusText, Language language, UUID rubricId) {
     }
 
     public record GenerationDto(UUID id, UUID courseId, UUID topicId, String topicName, List<UUID> materialIds,
                                 int requestedCount, List<BloomLevel> bloomLevels, String focusText, Language language,
                                 String status, int generatedCount, String message, UUID requestedBy,
-                                Instant createdAt, Instant finishedAt) {
+                                Instant createdAt, Instant finishedAt, UUID rubricId, String rubricName) {
     }
 
     // ---- Import (04 §8) ----
@@ -137,9 +137,14 @@ public final class QuestionBankDtos {
 
     // ---- Materials ----
 
-    public record MaterialDto(UUID id, UUID courseId, String fileName, String contentType, long sizeBytes,
+    public record MaterialDto(UUID id, UUID courseId, UUID topicId, String topicName, String fileName, String contentType,
+                              long sizeBytes,
                               MaterialStatus status, Integer pageCount, String errorMessage, UUID uploadedBy,
                               Instant createdAt, Instant indexedAt) {
+    }
+
+    /** Moves a material to another chapter; {@code null} = no chapter. */
+    public record MaterialTopicRequest(UUID topicId) {
     }
 
     public record MaterialFile(String fileName, String contentType, byte[] data) {

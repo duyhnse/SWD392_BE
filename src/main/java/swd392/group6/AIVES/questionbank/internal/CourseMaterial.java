@@ -30,6 +30,10 @@ public class CourseMaterial {
     @Column(name = "course_id", nullable = false, updatable = false)
     private UUID courseId;
 
+    /** Chapter of the course this file covers (optional, D70). */
+    @Column(name = "topic_id")
+    private UUID topicId;
+
     @Column(name = "file_name", nullable = false, length = 255)
     private String fileName;
 

@@ -37,6 +37,9 @@ public class FakeAiNode implements AiJobPort, AiMaterialIndexPort, InterviewAiPo
     /** Requests seen by process-answer (WF3 tests check what was skipped, e.g. AC-I5). */
     public final List<AnswerRequest> answerRequests = new CopyOnWriteArrayList<>();
     public volatile boolean ttsBroken;
+    /** The AI node answers a follow-up without its voice (it ran out of turn time, D70). */
+    public volatile boolean followUpVoiceLate;
+    public final List<String> spoken = new CopyOnWriteArrayList<>();
 
     // ---- interview (16 §3): the answer clip is plain UTF-8 text = the transcript --------------------------------
     // "#stt-fail": no transcript at all · "#ai-fail": process-answer fails, STT alone works · "không biết": wrong ·
@@ -62,7 +65,7 @@ public class FakeAiNode implements AiJobPort, AiMaterialIndexPort, InterviewAiPo
             analysis = new Analysis("COMPLETE", List.of("ý 1"), List.of(), false, false, false, false, 0, List.of(),
                     null, "fake: complete", "fake-llm");
         }
-        SynthesizedAudio audio = analysis.followUpQuestion() == null || ttsBroken ? null
+        SynthesizedAudio audio = analysis.followUpQuestion() == null || ttsBroken || followUpVoiceLate ? null
                 : new SynthesizedAudio("fake follow-up audio".getBytes(StandardCharsets.UTF_8), "audio/mpeg", 1500);
         return new AnswerResult(transcript, analysis, audio, null);
     }
@@ -81,6 +84,7 @@ public class FakeAiNode implements AiJobPort, AiMaterialIndexPort, InterviewAiPo
         if (ttsBroken) {
             throw new AiUnavailableException("fake AI node: TTS down");
         }
+        spoken.add(text);
         return new SynthesizedAudio(("tts:" + language + ":" + text).getBytes(StandardCharsets.UTF_8), "audio/mpeg", 2000);
     }
 

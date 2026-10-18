@@ -72,17 +72,19 @@ public class QuestionGenerationService {
         Language language = r.language() != null ? r.language() : Language.valueOf((String) course.get("default_language"));
         List<BloomLevel> blooms = r.bloomLevels().stream().distinct().toList();
         String focus = r.focusText() == null || r.focusText().isBlank() ? null : r.focusText().strip();
+        Map<String, Object> rubric = r.rubricId() == null ? null : sharedRubric(r.rubricId(), courseId);
 
         UUID id = UUID.randomUUID();
         Instant now = clock.instant();
         jdbc.update("""
                 insert into ai_generation_requests (generation_request_id, course_id, topic_id, requested_by, material_ids,
-                    requested_count, bloom_levels, focus_text, language, status, created_at)
-                values (:id, :c, :t, :u, cast(:m as jsonb), :n, cast(:b as jsonb), :f, :lang, 'PENDING', :now)""",
+                    requested_count, bloom_levels, focus_text, language, status, created_at, rubric_id)
+                values (:id, :c, :t, :u, cast(:m as jsonb), :n, cast(:b as jsonb), :f, :lang, 'PENDING', :now, :r)""",
                 new MapSqlParameterSource("id", id).addValue("c", courseId).addValue("t", r.topicId())
                         .addValue("u", user.getUserId()).addValue("m", JSON.writeValueAsString(materialIds))
                         .addValue("n", r.count()).addValue("b", JSON.writeValueAsString(blooms)).addValue("f", focus)
-                        .addValue("lang", language.name()).addValue("now", Timestamp.from(now)));
+                        .addValue("lang", language.name()).addValue("now", Timestamp.from(now))
+                        .addValue("r", r.rubricId()));
 
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("language", language.name());
@@ -96,10 +98,24 @@ public class QuestionGenerationService {
                         limit :n""", new MapSqlParameterSource("t", r.topicId()).addValue("n", MAX_EXISTING_TITLES),
                 String.class));
         input.put("material_ids", materialIds);
+        if (rubric != null) {
+            input.put("rubric", rubric); // reference answers are written so each criterion can be judged
+        }
         jdbc.update("update ai_generation_requests set status = 'RUNNING' where generation_request_id = :id",
                 new MapSqlParameterSource("id", id));
         aiJobs.enqueue(AiJobType.GENERATE_QUESTIONS, JOB_SUBJECT, id, input);
         return get(id, user);
+    }
+
+    /** A rubric of the course with its criteria, as the AI node reads it (name, description per criterion). */
+    private Map<String, Object> sharedRubric(UUID rubricId, UUID courseId) {
+        Map<String, Object> rubric = jdbc.queryForList("select name from rubrics where rubric_id = :r and course_id = :c",
+                new MapSqlParameterSource("r", rubricId).addValue("c", courseId)).stream().findFirst()
+                .orElseThrow(() -> ApiException.unprocessable("RUBRIC_NOT_IN_COURSE", "The rubric does not belong to this course"));
+        List<Map<String, Object>> criteria = jdbc.queryForList("""
+                        select name, description, max_score, weight_percent from rubric_criteria where rubric_id = :r
+                        order by sort_order""", new MapSqlParameterSource("r", rubricId));
+        return Map.of("name", rubric.get("name"), "criteria", criteria);
     }
 
     @Transactional(readOnly = true)
@@ -123,7 +139,8 @@ public class QuestionGenerationService {
      */
     void onJobFinished(UUID requestId, String jobStatus, JsonNode result, String errorCode, String errorMessage) {
         Map<String, Object> req = jdbc.queryForList("""
-                        select status, course_id, topic_id, requested_by, requested_count, language, material_ids::text
+                        select status, course_id, topic_id, requested_by, requested_count, language, material_ids::text,
+                               rubric_id
                         from ai_generation_requests where generation_request_id = :id for update""",
                 new MapSqlParameterSource("id", requestId)).stream().findFirst().orElse(null);
         if (req == null || !"RUNNING".equals(req.get("status"))) {
@@ -162,6 +179,7 @@ public class QuestionGenerationService {
             q.setStatus(QuestionStatus.DRAFT);
             q.setOrigin(QuestionOrigin.AI_GENERATED);
             q.setGenerationRequestId(requestId);
+            q.setRubricId((UUID) req.get("rubric_id")); // the chosen shared rubric; the AI's own one stays a suggestion
             q.setOwnerId(owner);
             q.setCreatedAt(now);
             q.setUpdatedAt(now);
@@ -275,8 +293,9 @@ public class QuestionGenerationService {
     private static final String SELECT = """
             select g.generation_request_id, g.course_id, g.topic_id, t.name as topic_name, g.material_ids::text,
                    g.requested_count, g.bloom_levels::text, g.focus_text, g.language, g.status, g.generated_count,
-                   g.message, g.requested_by, g.created_at, g.finished_at
-            from ai_generation_requests g join topics t on t.topic_id = g.topic_id""";
+                   g.message, g.requested_by, g.created_at, g.finished_at, g.rubric_id, r.name as rubric_name
+            from ai_generation_requests g join topics t on t.topic_id = g.topic_id
+                 left join rubrics r on r.rubric_id = g.rubric_id""";
 
     private Optional<GenerationDto> find(UUID id) {
         return jdbc.query(SELECT + " where g.generation_request_id = :id", new MapSqlParameterSource("id", id),
@@ -292,7 +311,8 @@ public class QuestionGenerationService {
         return new GenerationDto(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getObject(3, UUID.class),
                 rs.getString(4), materials, rs.getInt(6), blooms, rs.getString(8), Language.valueOf(rs.getString(9)),
                 rs.getString(10), rs.getInt(11), rs.getString(12), rs.getObject(13, UUID.class),
-                rs.getTimestamp(14).toInstant(), finished == null ? null : finished.toInstant());
+                rs.getTimestamp(14).toInstant(), finished == null ? null : finished.toInstant(),
+                rs.getObject(16, UUID.class), rs.getString(17));
     }
 
     private static Map<String, Object> mapOf(String k1, Object v1, String k2, Object v2) {

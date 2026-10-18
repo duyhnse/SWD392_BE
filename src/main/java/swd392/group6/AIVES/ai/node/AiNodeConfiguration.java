@@ -1,5 +1,8 @@
 package swd392.group6.AIVES.ai.node;
 
+import org.springframework.beans.factory.ObjectProvider;
+import swd392.group6.AIVES.ai.AiSettingsSource;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -17,13 +20,13 @@ import swd392.group6.AIVES.ai.AiNodeProperties;
 class AiNodeConfiguration {
 
     @Bean
-    AiNodeClient aiNodeClient(AiNodeProperties properties) {
+    AiNodeClient aiNodeClient(AiNodeProperties properties, ObjectProvider<AiSettingsSource> settings) {
         if (properties.baseUrl() == null || properties.baseUrl().isBlank()) {
             log.warn("AI_NODE_URL is not set: AI features (material indexing, question generation, AI grading, "
                     + "the interview) are unavailable until the AI node is configured");
         } else {
             log.info("AI node: {}", properties.baseUrl());
         }
-        return new AiNodeClient(properties);
+        return new AiNodeClient(properties, settings.getIfAvailable());
     }
 }

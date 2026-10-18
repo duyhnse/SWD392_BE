@@ -47,7 +47,10 @@ class SettingsIntegrationTest {
     void adminListsSeededSettings() throws Exception {
         mockMvc.perform(get("/api/v1/admin/settings").header("Authorization", adminAuth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(7))   // business settings only; AI ones belong to the AI node (D63)
+                .andExpect(jsonPath("$.length()").value(28))  // 7 business settings + 21 AI settings (D70)
+                .andExpect(jsonPath("$[?(@.key=='ai.timeout.turn_budget_sec')].value").value("11"))
+                .andExpect(jsonPath("$[?(@.key=='ai.timeout.turn_budget_sec')].rule.max").value(20.0))
+                .andExpect(jsonPath("$[?(@.key=='ai.model.tts')].rule.group").value("tts"))
                 .andExpect(jsonPath("$[?(@.key=='account.default_password')].value").exists())
                 .andExpect(jsonPath("$[?(@.key=='exam.seconds.ANALYZE')].value").value("300"))
                 .andExpect(jsonPath("$[?(@.key=='stt.provider')]").isEmpty())
@@ -100,6 +103,27 @@ class SettingsIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"settings\":{}}"))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("SETTINGS_EMPTY"));
+    }
+
+    @Test
+    void aiSettingsAreCheckedAgainstTheirRules() throws Exception {
+        for (String body : new String[]{"{\"settings\":{\"ai.timeout.turn_budget_sec\":\"60\"}}",
+                "{\"settings\":{\"ai.temperature.analysis\":\"hot\"}}", "{\"settings\":{\"ai.interview_reasoning\":\"max\"}}",
+                "{\"settings\":{\"ai.model.stt\":\"bad model!\"}}"}) {
+            mockMvc.perform(put("/api/v1/admin/settings").header("Authorization", adminAuth)
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isUnprocessableContent())
+                    .andExpect(jsonPath("$.code").value("INVALID_SETTING_VALUE"));
+        }
+        try {
+            putSettings("{\"settings\":{\"ai.temperature.generation\":\"0.9\",\"ai.model.interview_fallback\":\"\"}}");
+            mockMvc.perform(get("/api/v1/admin/settings").header("Authorization", adminAuth))
+                    .andExpect(jsonPath("$[?(@.key=='ai.temperature.generation')].value").value("0.9"));
+        } finally {
+            putSettings("{\"settings\":{\"ai.temperature.generation\":\"0.7\",\"ai.model.interview_fallback\":\"gemini-3.1-flash-lite\"}}");
+        }
+        mockMvc.perform(get("/api/v1/admin/ai/rules").header("Authorization", adminAuth))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(21));
     }
 
     @Test
