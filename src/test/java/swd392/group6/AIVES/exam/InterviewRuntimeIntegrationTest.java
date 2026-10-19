@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.ResultActions;
 import swd392.group6.AIVES.interview.AttemptCompletedEvent;
+import swd392.group6.AIVES.ai.InterviewAiPort.AnswerRequest;
 import swd392.group6.AIVES.support.AiNodeTestDouble;
 import swd392.group6.AIVES.support.IntegrationTest;
 import swd392.group6.AIVES.user.User;
@@ -247,6 +248,59 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
             Thread.sleep(100);
         }
         assertThat(aiNode.spoken).containsAll(texts);
+    }
+
+    private void part(Started s, String turnId, int index, String text) throws Exception {
+        mockMvc.perform(multipart("/api/v1/attempts/" + s.attempt() + "/turns/" + turnId + "/answer-parts/" + index)
+                        .file(new MockMultipartFile("audio", "p.webm", "audio/webm", text.getBytes(StandardCharsets.UTF_8)))
+                        .header("Authorization", "Bearer " + token(s.student())))
+                .andExpect(status().isAccepted());
+    }
+
+    private String answeredInParts(Started s, String turnId, String full, String tail, int parts) throws Exception {
+        return json(mockMvc.perform(multipart("/api/v1/attempts/" + s.attempt() + "/turns/" + turnId + "/answer")
+                .file(new MockMultipartFile("audio", "a.webm", "audio/webm", full.getBytes(StandardCharsets.UTF_8)))
+                .file(new MockMultipartFile("tail", "t.webm", "audio/webm", tail.getBytes(StandardCharsets.UTF_8)))
+                .param("durationSec", "80").param("parts", String.valueOf(parts))
+                .header("Authorization", "Bearer " + token(s.student()))).andExpect(status().isOk()));
+    }
+
+    @Test
+    void aLongAnswerSentInPartsOnlyLeavesTheTailToTranscribe_D74() throws Exception {
+        Started s = start(1);
+        String turn = turnId(state(s));
+        part(s, turn, 0, "Modular monolith là một khối triển khai duy nhất");
+        part(s, turn, 1, "nhưng chia module theo nghiệp vụ với ranh giới rõ ràng");
+        part(s, turn, 1, "a retried upload changes nothing");
+        answeredInParts(s, turn, "FULL RECORDING", "và giao tiếp qua API công khai của từng module", 2);
+        AnswerRequest sent = aiNode.answerRequests.getLast();
+        assertThat(new String(sent.audio(), StandardCharsets.UTF_8)).isEqualTo("và giao tiếp qua API công khai của từng module");
+        assertThat(sent.transcriptPrefix()).isEqualTo(
+                "Modular monolith là một khối triển khai duy nhất nhưng chia module theo nghiệp vụ với ranh giới rõ ràng");
+        assertThat(jdbc.queryForObject("select student_transcript from exam_turns where turn_id = ?::uuid", String.class, turn))
+                .startsWith("Modular monolith").endsWith("từng module");
+        assertThat(eventTypes(s.attempt())).contains("ANSWER_PARTS_USED");
+    }
+
+    @Test
+    void aMissingPartFallsBackToTheFullRecording_D74() throws Exception {
+        Started s = start(1);
+        String turn = turnId(state(s));
+        part(s, turn, 0, "phần đầu");
+        answeredInParts(s, turn, "FULL RECORDING", "đoạn cuối", 2);   // part 1 never arrived
+        AnswerRequest sent = aiNode.answerRequests.getLast();
+        assertThat(new String(sent.audio(), StandardCharsets.UTF_8)).isEqualTo("FULL RECORDING");
+        assertThat(sent.transcriptPrefix()).isNull();
+        assertThat(eventTypes(s.attempt())).contains("ANSWER_PARTS_IGNORED");
+    }
+
+    @Test
+    void partsOnlyForTheCurrentTurn_D74() throws Exception {
+        Started s = start(1);
+        mockMvc.perform(multipart("/api/v1/attempts/" + s.attempt() + "/turns/" + UUID.randomUUID() + "/answer-parts/0")
+                        .file(new MockMultipartFile("audio", "p.webm", "audio/webm", new byte[] {1}))
+                        .header("Authorization", "Bearer " + token(s.student())))
+                .andExpect(status().isConflict());
     }
 
     @Test

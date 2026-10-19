@@ -48,7 +48,8 @@ public class AiNodeTestDouble implements AiJobPort, AiMaterialIndexPort, Intervi
     @Override
     public AnswerResult processAnswer(AnswerRequest request) {
         answerRequests.add(request);
-        String text = new String(request.audio(), StandardCharsets.UTF_8);
+        String tail = new String(request.audio(), StandardCharsets.UTF_8);
+        String text = request.transcriptPrefix() == null ? tail : (request.transcriptPrefix() + " " + tail).strip();
         if (text.contains("#stt-fail") || text.contains("#ai-fail")) {
             throw new AiUnavailableException("AI node test double: process-answer down");
         }

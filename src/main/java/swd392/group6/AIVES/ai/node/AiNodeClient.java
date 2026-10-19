@@ -95,6 +95,9 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
         context.put("followups_used", r.followupsUsed());
         context.put("max_followups", r.maxFollowups());
         context.put("want_follow_up_audio", r.wantFollowUpAudio());
+        if (r.transcriptPrefix() != null) {
+            context.put("transcript_prefix", r.transcriptPrefix()); // contract 1.3.0 (D74): the audio is the rest
+        }
         context.put("options", options());
         MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
         form.add("audio", filePart(r.audio(), r.audioContentType(), "answer"));

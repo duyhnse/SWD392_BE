@@ -97,6 +97,9 @@ class InterviewService {
     private final JdbcTemplate jdbc;
     private final LiveFrames frames;
     private final QuestionAudioPrefetch prefetch;
+    private final AnswerParts answerParts;
+    /** How long the answer waits for the transcripts of its earlier parts still running (D74). */
+    static final Duration PARTS_WAIT = Duration.ofSeconds(4);
     private final TransactionTemplate tx;
     private final Clock clock;
 
@@ -104,7 +107,8 @@ class InterviewService {
                      QuestionAudio questionAudio, InterviewAiPort ai, SpeechToTextPort stt, QuestionBankApi questionBank,
                      StoragePort storage, CourseAccessApi courseAccess, NotificationApi notifications,
                      ApplicationEventPublisher publisher, JdbcTemplate jdbc, LiveFrames frames,
-                     PlatformTransactionManager txManager, Clock clock, QuestionAudioPrefetch prefetch) {
+                     PlatformTransactionManager txManager, Clock clock, QuestionAudioPrefetch prefetch,
+                     AnswerParts answerParts) {
         this.exams = exams;
         this.control = control;
         this.turns = turns;
@@ -120,6 +124,7 @@ class InterviewService {
         this.jdbc = jdbc;
         this.frames = frames;
         this.prefetch = prefetch;
+        this.answerParts = answerParts;
         this.tx = new TransactionTemplate(txManager);
         this.clock = clock;
     }
@@ -136,6 +141,15 @@ class InterviewService {
 
     AttemptState submitAnswer(UUID attemptId, UUID turnId, byte[] audio, String contentType, Integer durationSec,
                               User student) {
+        return submitAnswer(attemptId, turnId, audio, contentType, durationSec, null, null, null, student);
+    }
+
+    /**
+     * @param tail  the last part of a long answer (D74) when {@code parts} earlier parts were sent while recording;
+     *              the AI node then transcribes only the tail. {@code audio} is always the full recording (evidence).
+     */
+    AttemptState submitAnswer(UUID attemptId, UUID turnId, byte[] audio, String contentType, Integer durationSec,
+                              byte[] tail, String tailType, Integer parts, User student) {
         own(attemptId, student);
         if (audio == null || audio.length == 0) {
             throw ApiException.unprocessable("AUDIO_EMPTY", "The answer recording is empty");
@@ -148,13 +162,35 @@ class InterviewService {
             throw new ApiException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "AUDIO_UNSUPPORTED_TYPE",
                     "Upload audio/webm, audio/mp4, audio/ogg, audio/mpeg or audio/wav");
         }
-        Pending pending = inTx(() -> receive(attemptId, turnId, audio, type, durationSec));
+        String tailMime = tailType == null ? null : tailType.split(";")[0].trim().toLowerCase(Locale.ROOT);
+        boolean useParts = parts != null && parts > 0 && parts <= AnswerParts.MAX_PARTS && tail != null && tail.length > 0
+                && tail.length <= MAX_AUDIO_BYTES && AUDIO_TYPES.containsKey(tailMime);
+        Pending pending = inTx(() -> receive(attemptId, turnId, audio, type, durationSec,
+                useParts ? tail : null, useParts ? tailMime : null, useParts ? parts : 0));
         if (pending != null) {
             Outcome outcome = analyse(pending);
             inTx(() -> conclude(pending, outcome));
         }
         advance(attemptId);
         return view(attemptId);
+    }
+
+    /** A ~25 s part of the answer being recorded (D74): transcribed in the background, used as the prefix at "done". */
+    void answerPart(UUID attemptId, UUID turnId, int index, byte[] audio, String contentType, User student) {
+        AttemptInfo a = own(attemptId, student);
+        String type = contentType == null ? "" : contentType.split(";")[0].trim().toLowerCase(Locale.ROOT);
+        if (audio == null || audio.length == 0 || audio.length > AnswerParts.MAX_PART_BYTES || !AUDIO_TYPES.containsKey(type)) {
+            throw ApiException.unprocessable("PART_INVALID", "A part is a non-empty audio file of at most 5 MB");
+        }
+        if (index < 0 || index >= AnswerParts.MAX_PARTS) {
+            throw ApiException.unprocessable("PART_INVALID", "Part index out of range");
+        }
+        Turn open = turns.open(attemptId).orElseThrow(InterviewService::turnNotCurrent);
+        if (!open.turnId().equals(turnId) || !"ASKED".equals(open.status())) {
+            throw turnNotCurrent();
+        }
+        String hotwords = String.join(", ", questionBank.courseTerms(a.courseId()).stream().limit(50).toList());
+        answerParts.accept(turnId, index, audio, type, Language.valueOf(open.language()), hotwords);
     }
 
     /** The client heard no voice for the whole answer limit (EX-1) — next main question, no follow-up. */
@@ -395,7 +431,8 @@ class InterviewService {
     /** Facts of one submitted answer, gathered in tx 1 and used by the AI phase and tx 2. */
     private record Pending(UUID attemptId, UUID courseId, Turn turn, AttemptQuestionInfo question, List<Turn> priorTurns,
                            int maxFollowups, int threadRemainingSec, int attemptRemainingSec, byte[] audio,
-                           String contentType, Instant submittedAt, String nextMainText, String nextMainLanguage) {
+                           String contentType, Instant submittedAt, String nextMainText, String nextMainLanguage,
+                           byte[] tail, String tailType, int parts) {
     }
 
     private record Outcome(String status, String transcript, String analysisJson, String decision, String followUpText,
@@ -404,7 +441,8 @@ class InterviewService {
     }
 
     /** Tx 1: check the turn is the current one, store the clip, charge the answering time (D46). */
-    private Pending receive(UUID attemptId, UUID turnId, byte[] audio, String type, Integer durationSec) {
+    private Pending receive(UUID attemptId, UUID turnId, byte[] audio, String type, Integer durationSec, byte[] tail,
+                            String tailType, int parts) {
         AttemptInfo a = lockRunning(attemptId);
         Instant now = clock.instant();
         control.touch(attemptId, now);
@@ -430,7 +468,7 @@ class InterviewService {
         int countedSec = Math.round(countedMs / 1000f);
         control.chargeTime(q.attemptQuestionId(), countedSec);
         events.log(attemptId, turnId, "ANSWER_SUBMITTED", a.studentId(),
-                payload("sizeBytes", audio.length, "durationSec", durationSec, "countedSec", countedSec), now);
+                payload("sizeBytes", audio.length, "durationSec", durationSec, "countedSec", countedSec, "parts", parts), now);
         List<Turn> prior = turns.thread(q.attemptQuestionId()).stream()
                 .filter(x -> x.followupIndex() < t.followupIndex()).toList();
         Optional<AttemptQuestionInfo> next = questions(attemptId).stream()
@@ -438,7 +476,7 @@ class InterviewService {
         return new Pending(attemptId, a.courseId(), t, q, prior, exam.maxFollowupsPerQuestion(),
                 q.timeBudgetSec() - q.timeUsedSec() - countedSec, a.deadlineAt() == null ? Integer.MAX_VALUE : seconds(now, a.deadlineAt()),
                 audio, type, now, next.map(AttemptQuestionInfo::content).orElse(null),
-                next.map(AttemptQuestionInfo::language).orElse(null));
+                next.map(AttemptQuestionInfo::language).orElse(null), tail, tailType, parts);
     }
 
     /** AI phase, no transaction: transcript + analysis (or only a transcript when NEXT is already forced). */
@@ -453,13 +491,20 @@ class InterviewService {
         Analysis analysis = null;
         String analysisError = null;
         SynthesizedAudio followUpAudio = null;
+        // D74: earlier parts already transcribed → the AI node only transcribes the tail
+        Optional<String> prefix = p.parts() > 0 ? answerParts.prefix(t.turnId(), p.parts(), PARTS_WAIT) : Optional.empty();
+        if (p.parts() > 0) {
+            notes.add(Map.entry(prefix.isPresent() ? "ANSWER_PARTS_USED" : "ANSWER_PARTS_IGNORED", payload("parts", p.parts())));
+        }
+        byte[] sent = prefix.isPresent() ? p.tail() : p.audio();
+        String sentType = prefix.isPresent() ? p.tailType() : p.contentType();
         if (forced == null) {
             try {
                 AnswerResult r = ai.processAnswer(new InterviewAiPort.AnswerRequest(t.turnId().toString(), language,
-                        p.audio(), p.contentType(), hotwords, p.question().content(), p.question().referenceAnswer(),
+                        sent, sentType, hotwords, p.question().content(), p.question().referenceAnswer(),
                         p.priorTurns().stream().map(x -> new InterviewAiPort.PriorTurn(x.type(), x.questionText(),
                                 x.transcript() == null ? "" : x.transcript())).toList(),
-                        t.questionText(), t.followupIndex(), p.maxFollowups(), true));
+                        t.questionText(), t.followupIndex(), p.maxFollowups(), true, prefix.orElse(null)));
                 transcript = r.transcript();
                 analysis = r.analysis();
                 analysisError = r.analysisError();

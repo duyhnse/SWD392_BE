@@ -49,9 +49,21 @@ class InterviewController {
     @PostMapping("/attempts/{id}/turns/{turnId}/answer")
     @PreAuthorize("hasRole('STUDENT')")
     public AttemptState answer(@PathVariable UUID id, @PathVariable UUID turnId, @RequestPart("audio") MultipartFile audio,
+                               @RequestPart(value = "tail", required = false) MultipartFile tail,
                                @RequestParam(required = false) Integer durationSec,
+                               @RequestParam(required = false) Integer parts,
                                @AuthenticationPrincipal User user) throws IOException {
-        return service.submitAnswer(id, turnId, audio.getBytes(), audio.getContentType(), durationSec, user);
+        return service.submitAnswer(id, turnId, audio.getBytes(), audio.getContentType(), durationSec,
+                tail == null ? null : tail.getBytes(), tail == null ? null : tail.getContentType(), parts, user);
+    }
+
+    /** D74: a ~25 s part of the answer being recorded, transcribed in the background. */
+    @PostMapping("/attempts/{id}/turns/{turnId}/answer-parts/{index}")
+    @PreAuthorize("hasRole('STUDENT')")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void answerPart(@PathVariable UUID id, @PathVariable UUID turnId, @PathVariable int index,
+                           @RequestPart("audio") MultipartFile audio, @AuthenticationPrincipal User user) throws IOException {
+        service.answerPart(id, turnId, index, audio.getBytes(), audio.getContentType(), user);
     }
 
     @PostMapping("/attempts/{id}/turns/{turnId}/no-answer")

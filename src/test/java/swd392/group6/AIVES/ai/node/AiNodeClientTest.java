@@ -95,6 +95,14 @@ class AiNodeClientTest {
     }
 
     @Test
+    void theTranscriptOfEarlierPartsTravelsAsThePrefix_D74() {
+        responses.put("POST /v1/interview/process-answer", new Object[]{200, "{\"transcript\":{\"text\":\"a b c\"}}"});
+        client.processAnswer(new AnswerRequest("t", Language.VI, new byte[] {1}, "audio/webm", List.of(), "Q", "", List.of(),
+                "Q", 0, 1, false, "phần đầu đã chép"));
+        assertThat(requests.get("POST /v1/interview/process-answer")).contains("\"transcript_prefix\":\"phần đầu đã chép\"");
+    }
+
+    @Test
     void analysisFailureStillReturnsTheTranscript() {
         responses.put("POST /v1/interview/process-answer", new Object[]{200, """
                 {"transcript":{"text":"abc"},"analysis":null,"analysis_error":{"code":"LLM_TIMEOUT","message":"8s"}}"""});
