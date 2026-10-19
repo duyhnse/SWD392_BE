@@ -87,7 +87,7 @@ class AuthorizationSweepIntegrationTest {
     }
 
     private static String concrete(String pattern) {
-        return pattern.replace("{kind}", "CAMERA").replace("{chunkIndex}", "0")
+        return pattern.replace("{kind}", "CAMERA").replace("{chunkIndex}", "0").replace("{index}", "0")
                 .replaceAll("\\{[^}/]+}", UUID.randomUUID().toString());
     }
 
