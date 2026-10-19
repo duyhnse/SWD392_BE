@@ -48,7 +48,8 @@ public final class AiSettings {
             new Rule("ai.interview_reasoning", "CHOICE", null, null, null, List.of("minimal", "low", "medium"), "minimal",
                     "interview_reasoning", null),
             number("ai.rag.top_k", 4, 12, "8", "rag.top_k", null),
-            number("ai.rag.min_similarity", 0.3, 0.8, "0.45", "rag.min_similarity", null));
+            number("ai.rag.min_similarity", 0.3, 0.8, "0.45", "rag.min_similarity", null),
+            number("ai.rag.duplicate_similarity", 0.8, 0.98, "0.885", "rag.duplicate_similarity", null));
 
     public static final String EMBEDDING_MODEL = "ai.model.embedding";
 

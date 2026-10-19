@@ -154,6 +154,23 @@ class QuestionInputsIntegrationTest {
     }
 
     @Test
+    void theAiIsToldEveryQuestionOfTheCourse_ownChapterFirst_D76() throws Exception {
+        UUID material = upload("slides.pdf", PDF);
+        UUID chapterA = fx.topic(lecturer, bank.courseId(), "Chương A");
+        UUID chapterB = fx.topic(lecturer, bank.courseId(), "Chương B");
+        generate(chapterA, List.of(material), 2, "\"UNDERSTAND\"", null);
+        fx.question(lecturer, bank.courseId(), QuestionBankFixture.completeQuestion(chapterB, bank.rubricId(), "Câu sẵn của chương B"));
+        UUID second = generate(chapterB, List.of(material), 1, "\"UNDERSTAND\"", null);
+        String sent = jdbc.queryForObject("select request::text from ai_jobs where subject_id = ?", String.class, second);
+        List<String> existing = JsonPath.read(sent, "$.existing_questions");
+        List<String> drafts = jdbc.queryForList("select content from questions where topic_id = ?", String.class, chapterA);
+        assertThat(existing).hasSize(2 + 1 + jdbc.queryForObject("select count(*) from questions where course_id = ? and topic_id <> ?"
+                + " and topic_id <> ? and status in ('PUBLISHED', 'DRAFT')", Integer.class, bank.courseId(), chapterA, chapterB))
+                .containsAll(drafts);                                   // chapter A's drafts are there too
+        assertThat(existing.getFirst()).contains("Câu sẵn của chương B");  // the chapter's own question first
+    }
+
+    @Test
     void sharedRubricChosenAtGenerationIsAttachedAndSentToTheAi_D70() throws Exception {
         UUID material = upload("slides.pdf", PDF);
         UUID topic = fx.topic(lecturer, bank.courseId(), "Chương 2");

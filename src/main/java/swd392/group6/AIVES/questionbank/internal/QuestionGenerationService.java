@@ -42,7 +42,7 @@ public class QuestionGenerationService {
 
     static final String JOB_SUBJECT = "GENERATION_REQUEST";
     private static final JsonMapper JSON = JsonMapper.builder().build();
-    private static final int MAX_EXISTING_TITLES = 30;
+    private static final int MAX_EXISTING_TITLES = 60;
 
     private final NamedParameterJdbcTemplate jdbc;
     private final ContentAccess access;
@@ -93,11 +93,12 @@ public class QuestionGenerationService {
         input.put("count", r.count());
         input.put("bloom_levels", blooms.stream().map(Enum::name).toList());
         input.put("focus_text", focus);
-        // drafts too: asking twice for the same topic must not repeat the first batch
+        // drafts too: asking twice for the same topic must not repeat the first batch; other chapters of the course
+        // too (a focus can reach their materials), the topic's own questions first (D76)
         input.put("existing_questions", jdbc.queryForList("""
-                        select content from questions where topic_id = :t and status in ('PUBLISHED', 'DRAFT')
-                        order by updated_at desc limit :n""", new MapSqlParameterSource("t", r.topicId()).addValue("n", MAX_EXISTING_TITLES),
-                String.class));
+                        select content from questions where course_id = :c and status in ('PUBLISHED', 'DRAFT')
+                        order by coalesce(topic_id = :t, false) desc, updated_at desc limit :n""",
+                new MapSqlParameterSource("t", r.topicId()).addValue("c", courseId).addValue("n", MAX_EXISTING_TITLES), String.class));
         input.put("material_ids", materialIds);
         if (rubric != null) {
             input.put("rubric", rubric); // reference answers are written so each criterion can be judged
