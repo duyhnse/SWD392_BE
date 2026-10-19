@@ -67,11 +67,8 @@ class EvaluationService {
     public Created create(UUID attemptId, User user) {
         AttemptInfo attempt = support.requireAttempt(attemptId);
         support.requireCourseWrite(attempt.courseId(), user);
-        // Normally made by the AI pipeline when the attempt ends; this covers older attempts — the AI grades them too.
-        GradingApi.CreatedEvaluation result = gradingApi.createEvaluation(attemptId, GradingApi.Mode.AI);
-        if (result.created()) {
-            aiPipeline.start(result.evaluationId());
-        }
+        // Normally made when the attempt ends; this covers older attempts. Opening a sheet never runs the AI (D78).
+        GradingApi.CreatedEvaluation result = gradingApi.createEvaluation(attemptId, GradingApi.Mode.MANUAL);
         GradeEvaluation evaluation = support.requireEvaluation(result.evaluationId());
         return new Created(toDto(evaluation, attempt), result.created());
     }
@@ -100,9 +97,10 @@ class EvaluationService {
             return new EvaluationSummaryDto(s.attemptId(), s.attemptNo(), new StudentRef(s.studentId(), s.fullName(), s.studentCode()),
                     s.attemptStatus(), s.endedAt(), e == null ? null : e.getEvaluationId(), e == null ? null : e.getStatus().name(),
                     e == null ? null : e.getAiTotalScore(), e == null ? null : e.getFinalTotalScore(),
-                    (int) threads.stream().filter(g -> g.getStatus() == QuestionGradeStatus.AI_FAILED).count(),
+                    (int) threads.stream().filter(g -> g.getStatus() == QuestionGradeStatus.AI_FAILED && !notRequested(g)).count(),
                     (int) threads.stream().filter(g -> g.getStatus() == QuestionGradeStatus.MISSING_DATA).count(),
-                    e != null && withOpenDispute.contains(e.getEvaluationId()));
+                    e != null && withOpenDispute.contains(e.getEvaluationId()),
+                    (int) threads.stream().filter(EvaluationService::notRequested).count());
         }).toList();
         return page(rows, page, size);
     }
@@ -177,6 +175,13 @@ class EvaluationService {
     }
 
     /** "Accept all AI": copies the AI scores into every thread that has them and no final score yet. */
+    /** D78 "AI grade this attempt": only on the lecturer's request, only questions nobody graded yet. */
+    public EvaluationDto requestAi(UUID evaluationId, Integer version, User user) {
+        EvaluationContext ctx = writable(evaluationId, user, version);
+        aiPipeline.requestAll(ctx.evaluation());
+        return save(ctx.evaluation(), ctx.attempt(), clock.instant());
+    }
+
     public EvaluationDto acceptAllAi(UUID evaluationId, Integer version, User user) {
         EvaluationContext ctx = writable(evaluationId, user, version);
         List<QuestionGrade> all = grades.findByEvaluationId(evaluationId);
@@ -371,6 +376,10 @@ class EvaluationService {
         Map<UUID, ThreadInfo> threads = interviewApi.getThreads(attempt.attemptId()).stream()
                 .collect(Collectors.toMap(ThreadInfo::attemptQuestionId, Function.identity()));
         GradingSupport.Student student = support.student(attempt.studentId());
+        Map<UUID, GradingSupport.Student> graders = support.students(java.util.stream.Stream.concat(
+                java.util.stream.Stream.of(evaluation.getConfirmedBy()), all.stream().map(QuestionGrade::getConfirmedBy))
+                .filter(java.util.Objects::nonNull).collect(Collectors.toSet()));
+        java.util.function.Function<UUID, String> grader = id -> id == null || !graders.containsKey(id) ? null : graders.get(id).fullName();
 
         List<ThreadDto> threadDtos = new ArrayList<>();
         for (QuestionGrade g : all) {
@@ -402,7 +411,8 @@ class EvaluationService {
                     new RubricRef(snapshot.rubricId(), snapshot.name()), turns, criterionDtos, g.getAiScore(),
                     g.getFinalScore(), GradingJson.strings(g.getAiStrengths()), GradingJson.strings(g.getAiWeaknesses()),
                     GradingJson.strings(g.getAiMissingPoints()), g.getAiFeedback(), g.getAiError(),
-                    GradingJson.signals(g.getSignals()), g.getLecturerComment(), g.getConfirmedBy(), g.getConfirmedAt()));
+                    GradingJson.signals(g.getSignals()), g.getLecturerComment(), g.getConfirmedBy(), g.getConfirmedAt(),
+                    grader.apply(g.getConfirmedBy())));
         }
         threadDtos.sort(Comparator.comparingInt(ThreadDto::orderNo));
         List<QuestionGrade> included = all.stream().filter(QuestionGrade::isIncludeInTotal).toList();
@@ -413,7 +423,12 @@ class EvaluationService {
                 new StudentRef(student.id(), student.fullName(), student.studentCode()), evaluation.getAiTotalScore(),
                 evaluation.getFinalTotalScore(), current, evaluation.getAiGeneralFeedback(),
                 evaluation.getLecturerComment(), evaluation.getConfirmedBy(), evaluation.getConfirmedAt(),
-                evaluation.getCreatedAt(), evaluation.getUpdatedAt(), threadDtos);
+                evaluation.getCreatedAt(), evaluation.getUpdatedAt(), threadDtos, grader.apply(evaluation.getConfirmedBy()));
+    }
+
+    /** A question the AI was not asked to grade yet (D78) — not a failure. */
+    static boolean notRequested(QuestionGrade g) {
+        return g.getStatus() == QuestionGradeStatus.AI_FAILED && EvaluationFactory.AI_NOT_REQUESTED.equals(g.getAiError());
     }
 
     static String plain(BigDecimal value) {

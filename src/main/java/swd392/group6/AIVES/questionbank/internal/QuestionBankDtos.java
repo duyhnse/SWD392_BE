@@ -99,14 +99,15 @@ public final class QuestionBankDtos {
                               QuestionStatus status, QuestionOrigin origin, QuestionRubricDto rubric, AiDto ai,
                               List<SourceDto> sources, @JsonProperty("isLocked") boolean isLocked, UUID ownerId,
                               UUID supersedesQuestionId, Integer version, Instant createdAt, Instant updatedAt,
-                              UUID publishedBy, Instant publishedAt, Instant discardedAt) {
+                              UUID publishedBy, Instant publishedAt, Instant discardedAt, String ownerName,
+                              String publishedByName) {
     }
 
     public record QuestionSummaryDto(UUID id, long no, UUID courseId, UUID topicId, String topicName,
                                      String content, BloomLevel bloomLevel, Language language, QuestionStatus status,
                                      QuestionOrigin origin, UUID rubricId, String rubricName,
                                      @JsonProperty("isLocked") boolean isLocked, UUID ownerId, Integer version,
-                                     Instant createdAt, Instant updatedAt, Instant publishedAt) {
+                                     Instant createdAt, Instant updatedAt, Instant publishedAt, String ownerName) {
     }
 
     public record QuestionFilter(List<QuestionStatus> status, List<UUID> topicId, List<BloomLevel> bloomLevel,

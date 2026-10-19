@@ -65,25 +65,44 @@ class AiGradingIntegrationTest {
         return jdbc.queryForObject("select evaluation_id::text from grade_evaluations where attempt_id = ?", String.class, attemptId);
     }
 
+    /** D78: completion only makes the sheet; the AI grades when the lecturer asks. */
+    private String completedAndAiGraded(SessionFx s) throws Exception {
+        events.publishEvent(new AttemptCompletedEvent(s.sessionId(), course.courseId(), List.of(), "ALL_DONE"));
+        String id = evaluationOf(s.sessionId());
+        mockMvc.perform(post("/api/v1/evaluations/{id}/ai-grade", id).header("Authorization", lecturerToken)).andExpect(status().isOk());
+        return id;
+    }
+
     private String json(String evaluationId) throws Exception {
         return mockMvc.perform(get("/api/v1/evaluations/{id}", evaluationId).header("Authorization", lecturerToken))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
     }
 
     @Test
-    void aCompletedAttemptIsGradedByTheAiAndTheExaminerIsTold_AC_G1() throws Exception {
+    void aCompletedAttemptWaitsForTheLecturer_theAiGradesOnlyWhenAsked_AC_G1_D78() throws Exception {
         SessionFx s = session(fx.student("Trần Thị B"), "microservice scale doc lap", "monolith de trien khai");
         events.publishEvent(new AttemptCompletedEvent(s.sessionId(), course.courseId(), List.of(), "ALL_DONE"));
-
         String id = evaluationOf(s.sessionId());
         String body = json(id);
+        assertThat((String) JsonPath.read(body, "$.status")).isEqualTo("AWAITING_REVIEW");
+        assertThat((List<String>) JsonPath.read(body, "$.threads[*].aiError")).containsOnly("AI_NOT_REQUESTED");
+        assertThat(jdbc.queryForObject("select count(*) from ai_jobs j join question_grades g on g.question_grade_id = j.subject_id"
+                + " where g.evaluation_id = ?::uuid", Integer.class, id)).isZero();   // no tokens spent yet
+        assertThat(jdbc.queryForObject("select count(*) from notifications where type = 'GRADING_READY' and payload->>'evaluationId' = ?",
+                Integer.class, id)).isEqualTo(1);                                          // "an attempt is waiting"
+
+        mockMvc.perform(post("/api/v1/evaluations/{id}/ai-grade", id).header("Authorization", lecturerToken)).andExpect(status().isOk());
+        body = json(id);
         assertThat((String) JsonPath.read(body, "$.status")).isEqualTo("AWAITING_REVIEW");
         assertThat((List<String>) JsonPath.read(body, "$.threads[*].status")).containsOnly("AI_SCORED");
         assertThat((Double) JsonPath.read(body, "$.aiTotalScore")).isEqualTo(7.5);   // 0.75×0.6×10 + 0.75×0.4×10
         assertThat((Object) JsonPath.read(body, "$.finalTotalScore")).isNull();      // the AI never finalises (BR-G1)
+        assertThat((Object) JsonPath.read(body, "$.confirmedByName")).isNull();
         assertThat((String) JsonPath.read(body, "$.aiGeneralFeedback")).isEqualTo("double summary");
-        assertThat(jdbc.queryForObject("select count(*) from notifications where type = 'GRADING_READY' and payload->>'evaluationId' = ?",
+        assertThat(jdbc.queryForObject("select count(*) from notifications where type = 'AI_GRADING_DONE' and payload->>'evaluationId' = ?",
                 Integer.class, id)).isEqualTo(1);
+        mockMvc.perform(post("/api/v1/evaluations/{id}/ai-grade", id).header("Authorization", lecturerToken))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("AI_NOTHING_TO_GRADE"));
 
         events.publishEvent(new AttemptCompletedEvent(s.sessionId(), course.courseId(), List.of(), "ALL_DONE"));
         assertThat(jdbc.queryForObject("select count(*) from grade_evaluations where attempt_id = ?", Integer.class,
@@ -95,7 +114,7 @@ class AiGradingIntegrationTest {
         User student = fx.student("Lê Văn Bí Mật");
         aiNode.gradeInputs.clear();
         SessionFx s = session(student, "câu trả lời một", "câu trả lời hai");
-        events.publishEvent(new AttemptCompletedEvent(s.sessionId(), course.courseId(), List.of(), "ALL_DONE"));
+        completedAndAiGraded(s);
 
         assertThat(aiNode.gradeInputs).hasSize(2);
         String sent = aiNode.gradeInputs.getFirst().toString();
@@ -106,8 +125,7 @@ class AiGradingIntegrationTest {
     @Test
     void anInvalidAiAnswerFailsOneThreadOnlyAndCanBeRetried_AC_G3() throws Exception {
         SessionFx s = session(fx.student("C"), "#ai-fail gibberish", "monolith de trien khai");
-        events.publishEvent(new AttemptCompletedEvent(s.sessionId(), course.courseId(), List.of(), "ALL_DONE"));
-        String id = evaluationOf(s.sessionId());
+        String id = completedAndAiGraded(s);
         String body = json(id);
         assertThat((String) JsonPath.read(body, "$.status")).isEqualTo("AWAITING_REVIEW");
         assertThat((String) JsonPath.read(body, "$.threads[0].status")).isEqualTo("AI_FAILED");
@@ -136,6 +154,11 @@ class AiGradingIntegrationTest {
         String body = json(id);
         String q1 = JsonPath.read(body, "$.threads[0].gradeId"), q2 = JsonPath.read(body, "$.threads[1].gradeId");
         List<String> c2 = JsonPath.read(body, "$.threads[1].criteria[*].criterionId");
+        // the lecturer asks the AI for question 1 only (one call, no overall comment)
+        mockMvc.perform(post("/api/v1/evaluations/{id}/threads/{g}/retry-ai", id, q1).header("Authorization", lecturerToken))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("select count(*) from ai_jobs where job_type = 'SUMMARIZE_EVALUATION' and subject_id = ?::uuid",
+                Integer.class, id)).isZero();
 
         mockMvc.perform(post("/api/v1/evaluations/{id}/threads/{g}/accept-ai", id, q1).contentType(MediaType.APPLICATION_JSON).content("{\"version\":" + version(id) + "}")
                 .header("Authorization", lecturerToken)).andExpect(status().isOk());
@@ -151,15 +174,16 @@ class AiGradingIntegrationTest {
         assertThat((Double) JsonPath.read(body, "$.threads[1].finalScore")).isEqualTo(3.2);   // 4×0.6 + 2×0.4
         mockMvc.perform(post("/api/v1/evaluations/{id}/confirm", id).contentType(MediaType.APPLICATION_JSON).content("{\"version\":" + version(id) + "}")
                 .header("Authorization", lecturerToken)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("CONFIRMED")).andExpect(jsonPath("$.finalTotalScore").value(5.35));
+                .andExpect(jsonPath("$.status").value("CONFIRMED")).andExpect(jsonPath("$.finalTotalScore").value(5.35))
+                .andExpect(jsonPath("$.confirmedByName").value(course.lecturer().getFullName()))   // staff see who graded
+                .andExpect(jsonPath("$.threads[1].confirmedByName").value(course.lecturer().getFullName()));
     }
 
     @Test
     void anEnglishQuestionInAVietnameseCourseIsGradedInEnglish_theOverallCommentInTheCourseLanguage_D77() throws Exception {
         SessionFx s = session(fx.student("Lang"), "dependency inversion means depending on abstractions", "monolith de trien khai");
         jdbc.update("update attempt_questions set language = 'EN' where attempt_id = ? and order_no = 1", s.sessionId());
-        events.publishEvent(new AttemptCompletedEvent(s.sessionId(), course.courseId(), List.of(), "ALL_DONE"));
-        String id = evaluationOf(s.sessionId());
+        String id = completedAndAiGraded(s);
         List<String> threadLanguages = jdbc.queryForList("""
                 select j.request->>'language' from ai_jobs j join question_grades g on g.question_grade_id = j.subject_id
                 join attempt_questions aq on aq.attempt_question_id = g.attempt_question_id

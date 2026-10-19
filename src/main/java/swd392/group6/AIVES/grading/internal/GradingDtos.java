@@ -23,10 +23,11 @@ final class GradingDtos {
     record StudentRef(UUID id, String fullName, String studentCode) {
     }
 
+    /** {@code confirmedByName}: staff only — the student's result never names a grader. */
     record EvaluationDto(UUID id, UUID attemptId, UUID vivaExamId, String status, int version, StudentRef student,
                          BigDecimal aiTotalScore, BigDecimal finalTotalScore, BigDecimal currentTotalScore,
                          String aiGeneralFeedback, String lecturerComment, UUID confirmedBy, Instant confirmedAt,
-                         Instant createdAt, Instant updatedAt, List<ThreadDto> threads) {
+                         Instant createdAt, Instant updatedAt, List<ThreadDto> threads, String confirmedByName) {
     }
 
     /** {@code language}: the language this question was asked and graded in (BR-Q9). */
@@ -48,13 +49,13 @@ final class GradingDtos {
                      QuestionRef question, RubricRef rubric, List<TurnDto> turns, List<CriterionDto> criteria,
                      BigDecimal aiScore, BigDecimal finalScore, List<String> aiStrengths, List<String> aiWeaknesses,
                      List<String> aiMissingPoints, String aiFeedback, String aiError, GradingJson.Signals signals,
-                     String lecturerComment, UUID confirmedBy, Instant confirmedAt) {
+                     String lecturerComment, UUID confirmedBy, Instant confirmedAt, String confirmedByName) {
     }
 
     record EvaluationSummaryDto(UUID attemptId, Long attemptNo, StudentRef student, String attemptStatus, Instant endedAt,
                                 UUID evaluationId, String evaluationStatus, BigDecimal aiTotalScore,
                                 BigDecimal finalTotalScore, int aiFailedThreads, int missingDataThreads,
-                                boolean openDispute) {
+                                boolean openDispute, int aiNotRequestedThreads) {
     }
 
     record ChangeDto(UUID id, UUID questionGradeId, Integer threadOrderNo, UUID criterionScoreId, String field,

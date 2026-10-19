@@ -67,18 +67,62 @@ class AiGradingPipeline {
 
     // ---------------------------------------------------------------------------------------------- start
 
-    /** PRE-G1: after the attempt is committed as COMPLETED. */
+    /**
+     * PRE-G1: after the attempt is committed as COMPLETED its grading sheet is ready, without AI: the AI grades only
+     * when a lecturer asks ({@link #requestAll}, {@link #retry}) — opening a sheet costs no tokens (D78).
+     */
     @TransactionalEventListener(fallbackExecution = true)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void on(AttemptCompletedEvent event) {
         try {
-            GradingApi.CreatedEvaluation created = gradingApi.createEvaluation(event.attemptId(), GradingApi.Mode.AI);
+            GradingApi.CreatedEvaluation created = gradingApi.createEvaluation(event.attemptId(), GradingApi.Mode.MANUAL);
             if (created.created()) {
-                start(created.evaluationId());
+                examApi.getAttempt(event.attemptId()).filter(a -> a.examinerId() != null).ifPresent(a ->
+                        notifications.notify(a.examinerId(), "GRADING_READY", "Có một lượt thi chờ chấm",
+                                "Mở Chấm điểm để chấm tay hoặc nhờ AI gợi ý điểm.",
+                                Map.of("evaluationId", created.evaluationId().toString(), "attemptId", a.attemptId().toString(),
+                                        "vivaExamId", a.vivaExamId().toString())));
             }
-        } catch (ApiException e) { // e.g. RUBRIC_MISSING: the lecturer grades by hand
-            log.warn("No AI grading for attempt {}: {} {}", event.attemptId(), e.getCode(), e.getMessage());
+        } catch (ApiException e) { // e.g. RUBRIC_MISSING: shown on the grading list, graded once fixed
+            log.warn("No grading sheet for attempt {}: {} {}", event.attemptId(), e.getCode(), e.getMessage());
         }
+    }
+
+    /**
+     * "AI grade this attempt": every question with a transcript that has neither an AI score nor a score from the
+     * lecturer is queued; when they are done the evaluation gets its overall AI comment. @return questions queued
+     */
+    int requestAll(GradeEvaluation evaluation) {
+        if (evaluation.getStatus() != EvaluationStatus.AWAITING_REVIEW) {
+            throw ApiException.conflict("AI_GRADING_NOT_ALLOWED", "The AI grades an attempt that is awaiting review");
+        }
+        Map<UUID, AttemptQuestionInfo> questions = new HashMap<>();
+        examApi.getAttemptQuestions(evaluation.getAttemptId()).forEach(q -> questions.put(q.attemptQuestionId(), q));
+        Map<UUID, ThreadInfo> threads = new HashMap<>();
+        interviewApi.getThreads(evaluation.getAttemptId()).forEach(t -> threads.put(t.attemptQuestionId(), t));
+        List<QuestionGrade> todo = new ArrayList<>();
+        for (QuestionGrade g : grades.findByEvaluationId(evaluation.getEvaluationId())) {
+            ThreadInfo thread = threads.get(g.getAttemptQuestionId());
+            boolean answered = thread != null && thread.turns().stream().anyMatch(t -> t.transcript() != null && !t.transcript().isBlank());
+            boolean graded = criterionScores.findByQuestionGradeIdIn(List.of(g.getQuestionGradeId())).stream()
+                    .anyMatch(c -> c.getFinalScore() != null);
+            if (g.getStatus() == QuestionGradeStatus.AI_FAILED && answered && !graded) {
+                todo.add(g);
+            }
+        }
+        if (todo.isEmpty()) {
+            throw ApiException.conflict("AI_NOTHING_TO_GRADE",
+                    "Every answered question already has an AI score or the lecturer's score");
+        }
+        for (QuestionGrade g : todo) {
+            g.setStatus(QuestionGradeStatus.PENDING_AI);
+            g.setAiError(null);
+            grades.saveAndFlush(g);
+            aiJobs.enqueue(AiJobType.GRADE_THREAD, THREAD_SUBJECT, g.getQuestionGradeId(),
+                    input(g, questions.get(g.getAttemptQuestionId()), threads.get(g.getAttemptQuestionId())));
+        }
+        evaluation.setStatus(EvaluationStatus.PENDING_AI); // back to AWAITING_REVIEW with a summary when all are done
+        return todo.size();
     }
 
     /** Queues every PENDING_AI thread of an evaluation; finishes at once when none is. Must run in a transaction. */
@@ -248,7 +292,7 @@ class AiGradingPipeline {
             aiJobs.enqueue(AiJobType.SUMMARIZE_EVALUATION, SUMMARY_SUBJECT, evaluation.getEvaluationId(), input);
         }
         if (attempt.examinerId() != null) {
-            notifications.notify(attempt.examinerId(), "GRADING_READY", "AI đã chấm xong một lượt thi",
+            notifications.notify(attempt.examinerId(), "AI_GRADING_DONE", "AI đã chấm xong một lượt thi",
                     "Mở Chấm điểm để xem gợi ý của AI và chốt điểm.",
                     Map.of("evaluationId", evaluation.getEvaluationId().toString(), "attemptId", attempt.attemptId().toString(),
                             "vivaExamId", attempt.vivaExamId().toString()));

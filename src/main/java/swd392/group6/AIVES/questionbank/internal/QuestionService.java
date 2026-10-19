@@ -111,10 +111,12 @@ public class QuestionService {
         Map<UUID, String> rubricNames = rubrics.findAllById(result.getContent().stream().map(Question::getRubricId)
                         .filter(Objects::nonNull).collect(Collectors.toSet())).stream()
                 .collect(Collectors.toMap(Rubric::getId, Rubric::getName));
+        Map<UUID, String> people = names(result.getContent().stream().map(Question::getOwnerId).toList());
         return PageResponse.of(result, q -> new QuestionSummaryDto(q.getId(), no(q.getDisplayNo()), q.getCourseId(), q.getTopicId(),
                 topicName(courseTopics.get(q.getTopicId())), q.getContent(), q.getBloomLevel(), q.getLanguage(), q.getStatus(),
                 q.getOrigin(), q.getRubricId(), q.getRubricId() == null ? null : rubricNames.get(q.getRubricId()),
-                q.isLocked(), q.getOwnerId(), q.getVersion(), q.getCreatedAt(), q.getUpdatedAt(), q.getPublishedAt()));
+                q.isLocked(), q.getOwnerId(), q.getVersion(), q.getCreatedAt(), q.getUpdatedAt(), q.getPublishedAt(),
+                people.get(q.getOwnerId())));
     }
 
     @Transactional(readOnly = true)
@@ -498,10 +500,25 @@ public class QuestionService {
             ai = new AiDto(q.getAiOriginalContent(), q.getAiOriginalReferenceAnswer(), q.getAiSuggestedBloom(),
                     suggestedRubric(q.getId()), q.getGenerationRequestId());
         }
+        Map<UUID, String> people = names(java.util.Arrays.asList(q.getOwnerId(), q.getPublishedBy()));
         return new QuestionDto(q.getId(), no(q.getDisplayNo()), q.getCourseId(), q.getTopicId(), topicName(topic), q.getContent(),
                 q.getReferenceAnswer(), q.getBloomLevel(), q.getLanguage(), q.getStatus(), q.getOrigin(), rubric, ai,
                 sourceDtos, q.isLocked(), q.getOwnerId(), q.getSupersedesQuestionId(), q.getVersion(), q.getCreatedAt(),
-                q.getUpdatedAt(), q.getPublishedBy(), q.getPublishedAt(), q.getDiscardedAt());
+                q.getUpdatedAt(), q.getPublishedBy(), q.getPublishedAt(), q.getDiscardedAt(), people.get(q.getOwnerId()),
+                q.getPublishedBy() == null ? null : people.get(q.getPublishedBy()));
+    }
+
+    /** Full names of staff (who wrote / published a question); staff-only screens. */
+    private Map<UUID, String> names(java.util.Collection<UUID> ids) {
+        List<UUID> wanted = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (wanted.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, String> out = new java.util.HashMap<>();
+        new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc)
+                .query("select user_id, full_name from users where user_id in (:ids)", Map.of("ids", wanted),
+                        rs -> { out.put(rs.getObject(1, UUID.class), rs.getString(2)); });
+        return out;
     }
 
     private static String topicName(Topic topic) {

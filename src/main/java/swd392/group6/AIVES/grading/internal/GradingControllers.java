@@ -90,6 +90,12 @@ final class GradingControllers {
             return service.retryAi(id, gradeId, request == null ? null : request.version(), user);
         }
 
+        @PostMapping("/evaluations/{id}/ai-grade")
+        public EvaluationDto aiGrade(@PathVariable UUID id, @RequestBody(required = false) VersionRequest request,
+                                     @AuthenticationPrincipal User user) {
+            return service.requestAi(id, request == null ? null : request.version(), user);
+        }
+
         @PostMapping("/evaluations/{id}/accept-all-ai")
         public EvaluationDto acceptAllAi(@PathVariable UUID id, @RequestBody(required = false) VersionRequest request,
                                   @AuthenticationPrincipal User user) {

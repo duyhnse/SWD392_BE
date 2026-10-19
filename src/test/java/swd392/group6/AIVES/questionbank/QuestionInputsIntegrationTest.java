@@ -133,7 +133,8 @@ class QuestionInputsIntegrationTest {
                 .andExpect(jsonPath("$.sources[0].materialName").value("slides.pdf"))
                 .andExpect(jsonPath("$.sources[0].excerpt", startsWith("Đoạn trích")))
                 .andExpect(jsonPath("$.ai.suggestedRubric.criteria", hasSize(2)))
-                .andExpect(jsonPath("$.rubric").doesNotExist()), "$.ai.originalContent");
+                .andExpect(jsonPath("$.rubric").doesNotExist())
+                .andExpect(jsonPath("$.ownerName").value(lecturer.user().getFullName())), "$.ai.originalContent");   // who asked the AI
 
         int version = QuestionBankFixture.read(fx.perform(lecturer, get("/api/v1/questions/" + q)), "$.version");
         fx.json(lecturer, put("/api/v1/questions/" + q), "{\"version\":" + version + ",\"topicId\":\"" + topic
