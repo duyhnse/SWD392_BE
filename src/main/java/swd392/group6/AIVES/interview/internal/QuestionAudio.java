@@ -3,6 +3,8 @@ package swd392.group6.AIVES.interview.internal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import swd392.group6.AIVES.ai.AiSettings;
+import swd392.group6.AIVES.ai.AiSettingsSource;
 import swd392.group6.AIVES.ai.AiUnavailableException;
 import swd392.group6.AIVES.ai.SynthesizedAudio;
 import swd392.group6.AIVES.ai.TextToSpeechPort;
@@ -21,8 +23,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Spoken questions (TTS by the AI node), stored once per language + text: {@code tts/{sha256}.{ext}} plus a small
- * JSON with type and length. Main questions are asked by many students, so the cache is the latency lever of 05 §12.
+ * Spoken questions (TTS by the AI node), stored once per language + TTS model + voice + text: {@code tts/{sha256}.{ext}}
+ * plus a small JSON with type and length. The model and voice are part of the key (D71), so another admin choice — or
+ * audio cached in the mock era — is never replayed. Main questions are asked by many students, so the cache is the latency lever of 05 §12.
  * Kept as evidence of what the student heard (FG5). Never called inside a DB transaction.
  */
 @Slf4j
@@ -36,13 +39,14 @@ class QuestionAudio {
 
     private final TextToSpeechPort tts;
     private final StoragePort storage;
+    private final org.springframework.beans.factory.ObjectProvider<AiSettingsSource> settings;
 
     record Stored(String key, String contentType, Integer durationMs) {
     }
 
     /** Cached audio for the text, synthesised on a miss; empty when TTS fails (client speaks the text, EX-7). */
     Optional<Stored> forText(String text, Language language) {
-        String base = "tts/" + hash(language + "|" + text);
+        String base = base(text, language);
         Optional<Stored> cached = cached(base);
         if (cached.isPresent()) {
             return cached;
@@ -68,7 +72,7 @@ class QuestionAudio {
         if (audio == null || audio.data() == null || audio.data().length == 0) {
             return forText(text, language);
         }
-        String base = "tts/" + hash(language + "|" + text);
+        String base = base(text, language);
         return Optional.of(cached(base).orElseGet(() -> store(base, audio)));
     }
 
@@ -90,6 +94,15 @@ class QuestionAudio {
         meta.put("durationMs", audio.durationMs());
         storage.put(base + ".json", JSON.writeValueAsBytes(meta), "application/json");
         return new Stored(key, type, audio.durationMs());
+    }
+
+    /** Cache key: the voice that would speak it now (admin's model and voice, defaults otherwise). */
+    private String base(String text, Language language) {
+        AiSettingsSource source = settings.getIfAvailable();
+        java.util.function.Function<String, String> value = key -> (source == null ? java.util.Optional.<String>empty()
+                : source.value(key)).orElseGet(() -> AiSettings.rule(key).map(AiSettings.Rule::defaultValue).orElse(""));
+        return "tts/" + hash(language + "|" + value.apply("ai.model.tts") + "|" + value.apply("ai.voice." + language.name())
+                + "|" + text);
     }
 
     private static String hash(String value) {
