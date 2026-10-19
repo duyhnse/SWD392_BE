@@ -19,7 +19,7 @@ class AiSettingsTest {
         assertThat((Map<String, Object>) o.get("temperature")).containsEntry("analysis", 0.4);
         assertThat((Map<String, Object>) o.get("timeouts")).containsEntry("turn_budget_sec", 11.0); // out of range → default
         assertThat((Map<String, Object>) o.get("voices")).containsEntry("VI", "Puck");
-        assertThat((Map<String, Object>) o.get("models")).containsEntry("stt", "gemini-3.5-transcribe");
+        assertThat((Map<String, Object>) o.get("models")).containsEntry("stt", "google/gemini-3.5-transcribe");
         assertThat(o).containsEntry("interview_reasoning", "minimal");
     }
 

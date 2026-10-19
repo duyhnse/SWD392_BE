@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
 /**
  * AI settings the admin edits on the Settings page (D70), stored as {@code system_settings} rows {@code ai.*} and sent
  * to the AI node as the {@code options} object of every call (contract 1.2.0). Ranges keep a value from breaking the
- * exam flow; the AI node clamps again on its side. Defaults come from measurements on the deployed models (D70).
+ * exam flow; the AI node clamps again on its side. Defaults: OpenRouter model ids (D71), timings measured on prod (D70).
  */
 public final class AiSettings {
 
@@ -27,13 +27,13 @@ public final class AiSettings {
     private static final Pattern VOICE = Pattern.compile("[A-Za-z0-9_\\-]{2,60}");
 
     public static final List<Rule> RULES = List.of(
-            model("ai.model.interview", "llm", "gemini-3.5-flash-lite", "models.interview"),
-            model("ai.model.interview_fallback", "llm", "gemini-3.1-flash-lite", "models.interview_fallback"),
-            model("ai.model.generation", "llm", "gemini-3.5-flash-lite", "models.generation"),
-            model("ai.model.grading", "llm", "gemini-3.5-flash-lite", "models.grading"),
-            model("ai.model.stt", "stt", "gemini-3.5-transcribe", "models.stt"),
-            model("ai.model.tts", "tts", "gemini-3.8-flash-tts", "models.tts"),
-            model("ai.model.embedding", "embedding", "gemini-embedding-2", "models.embedding"),
+            model("ai.model.interview", "llm", "google/gemini-3.8-flash", "models.interview"),
+            model("ai.model.interview_fallback", "llm", "google/gemini-3.1-flash-lite", "models.interview_fallback"),
+            model("ai.model.generation", "llm", "google/gemini-3.8-flash", "models.generation"),
+            model("ai.model.grading", "llm", "google/gemini-3.8-flash", "models.grading"),
+            model("ai.model.stt", "stt", "google/gemini-3.5-transcribe", "models.stt"),
+            model("ai.model.tts", "tts", "google/gemini-3.8-flash-tts", "models.tts"),
+            model("ai.model.embedding", "embedding", "google/gemini-embedding-2", "models.embedding"),
             new Rule("ai.voice.VI", "VOICE", "voices", null, null, null, "Kore", "voices.VI", null),
             new Rule("ai.voice.EN", "VOICE", "voices", null, null, null, "Kore", "voices.EN", null),
             number("ai.temperature.analysis", 0, 1, "0.2", "temperature.analysis", null),

@@ -51,6 +51,8 @@ class SettingsIntegrationTest {
                 .andExpect(jsonPath("$[?(@.key=='ai.timeout.turn_budget_sec')].value").value("11"))
                 .andExpect(jsonPath("$[?(@.key=='ai.timeout.turn_budget_sec')].rule.max").value(20.0))
                 .andExpect(jsonPath("$[?(@.key=='ai.model.tts')].rule.group").value("tts"))
+                .andExpect(jsonPath("$[?(@.key=='ai.model.interview')].value").value("google/gemini-3.8-flash"))   // V11, D71
+                .andExpect(jsonPath("$[?(@.key=='ai.model.embedding')].value").value("google/gemini-embedding-2"))
                 .andExpect(jsonPath("$[?(@.key=='account.default_password')].value").exists())
                 .andExpect(jsonPath("$[?(@.key=='exam.seconds.ANALYZE')].value").value("300"))
                 .andExpect(jsonPath("$[?(@.key=='stt.provider')]").isEmpty())
@@ -120,7 +122,7 @@ class SettingsIntegrationTest {
             mockMvc.perform(get("/api/v1/admin/settings").header("Authorization", adminAuth))
                     .andExpect(jsonPath("$[?(@.key=='ai.temperature.generation')].value").value("0.9"));
         } finally {
-            putSettings("{\"settings\":{\"ai.temperature.generation\":\"0.7\",\"ai.model.interview_fallback\":\"gemini-3.1-flash-lite\"}}");
+            putSettings("{\"settings\":{\"ai.temperature.generation\":\"0.7\",\"ai.model.interview_fallback\":\"google/gemini-3.1-flash-lite\"}}");
         }
         mockMvc.perform(get("/api/v1/admin/ai/rules").header("Authorization", adminAuth))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(21));
