@@ -80,8 +80,13 @@ class DisputeService {
     }
 
     @Transactional(readOnly = true)
+    /** The student's own requests; who resolved them stays with the staff (graders are not shown to students). */
     public List<DisputeDto> mine(User student) {
-        return toDtos(disputes.findByStudentIdOrderByCreatedAtDesc(student.getUserId()));
+        return toDtos(disputes.findByStudentIdOrderByCreatedAtDesc(student.getUserId())).stream()
+                .map(d -> new DisputeDto(d.id(), d.evaluationId(), d.attemptId(), d.vivaExamId(), d.examTitle(), d.student(),
+                        d.reason(), d.questionGradeIds(), d.status(), d.resolution(), null, d.createdAt(), d.resolvedAt(),
+                        d.evaluationStatus()))
+                .toList();
     }
 
     @Transactional(readOnly = true)

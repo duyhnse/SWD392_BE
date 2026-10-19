@@ -173,6 +173,8 @@ class ResultsAndDisputesIntegrationTest {
                 .andExpect(jsonPath("$.status").value("RESOLVED"))
                 .andExpect(jsonPath("$.evaluationStatus").value("DISPUTED"))
                 .andExpect(jsonPath("$.resolvedBy").value(course.lecturer().getUserId().toString()));
+        mockMvc.perform(get("/api/v1/me/disputes").header("Authorization", studentToken))   // the student sees the answer, not who gave it
+                .andExpect(jsonPath("$[0].status").value("RESOLVED")).andExpect(jsonPath("$[0].resolvedBy").isEmpty());
         mockMvc.perform(post("/api/v1/disputes/{id}/reject", disputeId).header("Authorization", lecturerToken)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"resolution\":\"x\"}"))
                 .andExpect(status().isConflict())
