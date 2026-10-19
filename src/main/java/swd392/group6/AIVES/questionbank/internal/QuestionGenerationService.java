@@ -93,9 +93,10 @@ public class QuestionGenerationService {
         input.put("count", r.count());
         input.put("bloom_levels", blooms.stream().map(Enum::name).toList());
         input.put("focus_text", focus);
+        // drafts too: asking twice for the same topic must not repeat the first batch
         input.put("existing_questions", jdbc.queryForList("""
-                        select content from questions where topic_id = :t and status = 'PUBLISHED' order by published_at desc
-                        limit :n""", new MapSqlParameterSource("t", r.topicId()).addValue("n", MAX_EXISTING_TITLES),
+                        select content from questions where topic_id = :t and status in ('PUBLISHED', 'DRAFT')
+                        order by updated_at desc limit :n""", new MapSqlParameterSource("t", r.topicId()).addValue("n", MAX_EXISTING_TITLES),
                 String.class));
         input.put("material_ids", materialIds);
         if (rubric != null) {
@@ -149,7 +150,9 @@ public class QuestionGenerationService {
         UUID owner = (UUID) req.get("requested_by");
         UUID courseId = (UUID) req.get("course_id");
         if ("NO_CONTEXT".equals(errorCode)) {
-            finish(requestId, "NO_CONTEXT", 0, "Selected materials do not cover this topic", null);
+            String why = errorMessage == null || errorMessage.isBlank() ? "Selected materials do not cover this topic"
+                    : errorMessage.length() > 500 ? errorMessage.substring(0, 500) : errorMessage; // the AI's reason (D71)
+            finish(requestId, "NO_CONTEXT", 0, why, null);
             notify(owner, requestId, courseId, "NO_CONTEXT", 0);
             return;
         }
