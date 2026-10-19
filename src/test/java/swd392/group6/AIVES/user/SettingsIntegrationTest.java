@@ -47,7 +47,7 @@ class SettingsIntegrationTest {
     void adminListsSeededSettings() throws Exception {
         mockMvc.perform(get("/api/v1/admin/settings").header("Authorization", adminAuth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(28))  // 7 business settings + 21 AI settings (D70)
+                .andExpect(jsonPath("$.length()").value(29))  // 8 business settings (incl. retention) + 21 AI settings (D70)
                 .andExpect(jsonPath("$[?(@.key=='ai.timeout.turn_budget_sec')].value").value("11"))
                 .andExpect(jsonPath("$[?(@.key=='ai.timeout.turn_budget_sec')].rule.max").value(20.0))
                 .andExpect(jsonPath("$[?(@.key=='ai.model.tts')].rule.group").value("tts"))

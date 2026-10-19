@@ -31,7 +31,7 @@ class SettingsService implements SettingsApi, AiSettingsSource {
     /** Business settings, plus the admin's AI settings {@code ai.*} sent to the AI node with every call (D70). */
     static final Set<String> KNOWN_KEYS = java.util.stream.Stream.concat(Stream.of("default_language",
                     "exam.seconds.REMEMBER", "exam.seconds.UNDERSTAND", "exam.seconds.APPLY", "exam.seconds.ANALYZE",
-                    "exam.seconds.ANY", "account.default_password"), AiSettings.RULES.stream().map(AiSettings.Rule::key))
+                    "exam.seconds.ANY", "account.default_password", "retention.recording_days"), AiSettings.RULES.stream().map(AiSettings.Rule::key))
             .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -126,6 +126,17 @@ class SettingsService implements SettingsApi, AiSettingsSource {
         }
         if (key.equals("default_language") && !Set.of("VI", "EN").contains(value.asString())) {
             throw ApiException.unprocessable("INVALID_SETTING_VALUE", "default_language must be VI or EN");
+        }
+        if (key.equals("retention.recording_days")) {
+            int days;
+            try {
+                days = Integer.parseInt(value.asString().trim());
+            } catch (NumberFormatException e) {
+                days = -1;
+            }
+            if (days < 30 || days > 3650) {
+                throw ApiException.unprocessable("INVALID_SETTING_VALUE", "retention.recording_days must be 30–3650 days");
+            }
         }
         if (key.equals("account.default_password")) {
             String p = value.asString();
