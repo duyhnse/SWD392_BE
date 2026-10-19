@@ -93,10 +93,29 @@ public class FakeAiNode implements AiJobPort, AiMaterialIndexPort, InterviewAiPo
         return Optional.of(switch (type) {
             case INDEX_MATERIAL -> index(input);
             case GENERATE_QUESTIONS -> generate(input);
-            case GRADE_THREAD -> ok(Map.of("criteria", List.of(), "strengths", List.of(), "weaknesses", List.of(),
-                    "missing_points", List.of(), "feedback", "fake", "model", "fake"));
+            case GRADE_THREAD -> grade(input);
             case SUMMARIZE_EVALUATION -> ok(Map.of("summary", "fake summary", "model", "fake"));
         });
+    }
+
+    /** P-GRADE stand-in: 3/4 of every criterion's max; a transcript with "#ai-fail" gets an answer without criteria. */
+    public final List<JsonNode> gradeInputs = new CopyOnWriteArrayList<>();
+
+    private AiJobOutcome grade(JsonNode input) {
+        gradeInputs.add(input);
+        boolean fail = false;
+        for (JsonNode t : input.path("turns")) {
+            fail |= t.path("transcript").asString("").contains("#ai-fail");
+        }
+        List<Map<String, Object>> criteria = new ArrayList<>();
+        if (!fail) {
+            for (JsonNode c : input.path("rubric").path("criteria")) {
+                criteria.add(Map.of("criterion_id", c.path("criterion_id").asString(),
+                        "score", c.path("max_score").asDouble() * 0.75, "justification", "fake: mostly covered"));
+            }
+        }
+        return ok(Map.of("criteria", criteria, "strengths", List.of("fake strength"), "weaknesses", List.of("fake weakness"),
+                "missing_points", List.of("fake missing point"), "feedback", "fake feedback", "model", "fake-llm"));
     }
 
     @Override

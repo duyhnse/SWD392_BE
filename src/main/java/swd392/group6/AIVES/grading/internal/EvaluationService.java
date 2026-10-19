@@ -59,6 +59,7 @@ class EvaluationService {
     private final InterviewApi interviewApi;
     private final ExamApi examApi;
     private final Clock clock;
+    private final AiGradingPipeline aiPipeline;
 
     record Created(EvaluationDto evaluation, boolean created) {
     }
@@ -66,7 +67,11 @@ class EvaluationService {
     public Created create(UUID attemptId, User user) {
         AttemptInfo attempt = support.requireAttempt(attemptId);
         support.requireCourseWrite(attempt.courseId(), user);
-        GradingApi.CreatedEvaluation result = gradingApi.createEvaluation(attemptId, GradingApi.Mode.MANUAL);
+        // Normally made by the AI pipeline when the attempt ends; this covers older attempts — the AI grades them too.
+        GradingApi.CreatedEvaluation result = gradingApi.createEvaluation(attemptId, GradingApi.Mode.AI);
+        if (result.created()) {
+            aiPipeline.start(result.evaluationId());
+        }
         GradeEvaluation evaluation = support.requireEvaluation(result.evaluationId());
         return new Created(toDto(evaluation, attempt), result.created());
     }
@@ -158,6 +163,17 @@ class EvaluationService {
         Instant now = clock.instant();
         copyAi(ctx.evaluation(), grade, criteria, user, now);
         return save(ctx.evaluation(), ctx.attempt(), now);
+    }
+
+    /** EX-G2 "Retry AI" (also grades a thread first graded by hand only). Final scores already set are kept. */
+    public EvaluationDto retryAi(UUID evaluationId, UUID gradeId, Integer version, User user) {
+        EvaluationContext ctx = writable(evaluationId, user, version);
+        QuestionGrade grade = requireGrade(ctx.evaluation(), gradeId);
+        if (grade.getStatus() != QuestionGradeStatus.AI_FAILED && grade.getStatus() != QuestionGradeStatus.AI_SCORED) {
+            throw ApiException.conflict("AI_RETRY_NOT_ALLOWED", "Only a thread the AI failed on or already graded can be graded again");
+        }
+        aiPipeline.retry(grade, ctx.evaluation());
+        return save(ctx.evaluation(), ctx.attempt(), clock.instant());
     }
 
     public EvaluationDto acceptAllAi(UUID evaluationId, Integer version, User user) {
