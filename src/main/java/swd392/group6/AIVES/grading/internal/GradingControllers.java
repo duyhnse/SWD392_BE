@@ -160,17 +160,20 @@ final class GradingControllers {
             return service.report(vivaExamId, user);
         }
 
+        /** {@code format=xlsx} (default): the Excel score sheet; {@code csv}: the plain table for other tools. */
         @GetMapping("/export")
-        public ResponseEntity<byte[]> export(@PathVariable UUID vivaExamId, @RequestParam(defaultValue = "csv") String format,
+        public ResponseEntity<byte[]> export(@PathVariable UUID vivaExamId, @RequestParam(defaultValue = "xlsx") String format,
                                       @AuthenticationPrincipal User user) {
-            if (!"csv".equalsIgnoreCase(format)) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "UNSUPPORTED_FORMAT", "Only format=csv is supported");
+            boolean csv = "csv".equalsIgnoreCase(format);
+            if (!csv && !"xlsx".equalsIgnoreCase(format)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "UNSUPPORTED_FORMAT", "format must be xlsx or csv");
             }
-            byte[] body = service.exportCsv(vivaExamId, user);
+            byte[] body = csv ? service.exportCsv(vivaExamId, user) : service.exportXlsx(vivaExamId, user);
             return ResponseEntity.ok()
-                    .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+                    .contentType(csv ? new MediaType("text", "csv", StandardCharsets.UTF_8)
+                            : MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                     .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                            .filename("bang-diem-" + vivaExamId + ".csv").build().toString())
+                            .filename("bang-diem-" + vivaExamId + (csv ? ".csv" : ".xlsx")).build().toString())
                     .body(body);
         }
     }

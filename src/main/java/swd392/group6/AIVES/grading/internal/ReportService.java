@@ -123,8 +123,22 @@ class ReportService {
         return result;
     }
 
-    /** Score sheet: STT, MSSV, Họ tên, Câu 1..N, Tổng, Ghi chú — UTF-8 with BOM so Excel shows Vietnamese. */
-    public byte[] exportCsv(UUID vivaExamId, User user) {
+    /** One student of the score sheet. Scores and totals only from a CONFIRMED evaluation (BR-G1). */
+    record SheetRow(int stt, String studentCode, String fullName, String attendance, BigDecimal[] scores, BigDecimal total,
+                    BigDecimal aiTotal, String result, String grading, String notes, UUID evaluationId) {
+    }
+
+    /** Header facts of the buổi thi for the sheet. */
+    record SheetHeader(String courseCode, String courseName, Long examNo, String examTitle, Long templateNo,
+                       String templateTitle, String examiner, Instant checkinOpensAt, Instant checkinClosesAt,
+                       BigDecimal passScore, String language, int questionCount) {
+    }
+
+    record Sheet(SheetHeader header, List<SheetRow> rows, ReportDto report) {
+    }
+
+    /** Everything the CSV and the Excel score sheets show (FG6, 08 P3). */
+    Sheet sheet(UUID vivaExamId, User user) {
         ExamInfo exam = support.requireExamRead(vivaExamId, user);
         Instant now = clock.instant();
         List<GradingSupport.RosterRow> students = support.rosterOfExam(vivaExamId);
@@ -153,37 +167,26 @@ class ReportService {
                 : grades.findByEvaluationIdIn(confirmedIds).stream()
                 .collect(Collectors.groupingBy(QuestionGrade::getEvaluationId));
 
-        StringBuilder csv = new StringBuilder();
-        List<String> header = new ArrayList<>(List.of("STT", "MSSV", "Họ tên"));
-        for (int i = 1; i <= questionCount; i++) {
-            header.add("Câu " + i);
-        }
-        header.add("Tổng");
-        if (exam.passScore() != null) {
-            header.add("Kết quả");
-        }
-        header.add("Ghi chú");
-        appendLine(csv, header);
-
+        List<SheetRow> rows = new ArrayList<>();
         int stt = 0;
         for (GradingSupport.RosterRow s : students) {
-            List<String> cells = new ArrayList<>();
-            cells.add(String.valueOf(++stt));
-            cells.add(nullToEmpty(s.studentCode()));
-            cells.add(nullToEmpty(s.fullName()));
-            String[] scores = new String[questionCount];
-            String total = "";
+            BigDecimal[] scores = new BigDecimal[questionCount];
+            BigDecimal total = null;
+            String result = "";
             List<String> notes = new ArrayList<>();
             GradeEvaluation evaluation = s.attemptId() == null ? null : evaluationByAttempt.get(s.attemptId());
+            String attendance = stageLabel(stage(s.attemptStatus(), exam, now));
+            String grading;
             if (!"COMPLETED".equals(s.attemptStatus())) {
-                notes.add(stageLabel(stage(s.attemptStatus(), exam, now)));
+                grading = "";
             } else if (evaluation == null) {
-                notes.add("Chưa chấm");
+                grading = "Chưa chấm";
             } else if (evaluation.getStatus() == EvaluationStatus.DISPUTED) {
-                notes.add("Đang phúc khảo");
+                grading = "Đang phúc khảo";
             } else if (evaluation.getStatus() != EvaluationStatus.CONFIRMED) {
-                notes.add("Chưa xác nhận điểm");
+                grading = evaluation.getStatus() == EvaluationStatus.PENDING_AI ? "AI đang chấm" : "Chờ giảng viên chốt";
             } else {
+                grading = "Đã chốt";
                 List<Integer> excluded = new ArrayList<>();
                 for (QuestionGrade g : gradesByEvaluation.getOrDefault(evaluation.getEvaluationId(), List.of())) {
                     int order = orderByAttemptQuestion.getOrDefault(g.getAttemptQuestionId(), 0);
@@ -191,12 +194,15 @@ class ReportService {
                         continue;
                     }
                     if (g.isIncludeInTotal()) {
-                        scores[order - 1] = format(g.getFinalScore());
+                        scores[order - 1] = g.getFinalScore();
                     } else {
                         excluded.add(order);
                     }
                 }
-                total = format(evaluation.getFinalTotalScore());
+                total = evaluation.getFinalTotalScore();
+                if (exam.passScore() != null && total != null) {
+                    result = total.compareTo(exam.passScore()) >= 0 ? "Đạt" : "Không đạt";
+                }
                 if (!excluded.isEmpty()) {
                     notes.add("Không tính câu " + excluded.stream().sorted().map(String::valueOf)
                             .collect(Collectors.joining(", ")));
@@ -205,14 +211,63 @@ class ReportService {
                     notes.add(evaluation.getLecturerComment());
                 }
             }
-            for (String score : scores) {
-                cells.add(score == null ? "" : score);
+            if ("CANCELLED".equals(s.attemptStatus())) {
+                notes.add("Lượt thi bị huỷ");
             }
-            cells.add(total);
-            if (exam.passScore() != null) {
-                cells.add(evaluation == null || evaluation.getStatus() != EvaluationStatus.CONFIRMED
-                        || evaluation.getFinalTotalScore() == null ? ""
-                        : evaluation.getFinalTotalScore().compareTo(exam.passScore()) >= 0 ? "Đạt" : "Không đạt");
+            rows.add(new SheetRow(++stt, nullToEmpty(s.studentCode()), nullToEmpty(s.fullName()), attendance, scores, total,
+                    evaluation == null ? null : evaluation.getAiTotalScore(), result, grading, String.join("; ", notes),
+                    evaluation == null ? null : evaluation.getEvaluationId()));
+        }
+        Map<String, Object> h = support.jdbc().queryForMap("""
+                        select c.code, c.name, e.display_no as exam_no, t.display_no as template_no, t.title as template_title,
+                               u.full_name as examiner
+                        from viva_exams e join courses c on c.course_id = e.course_id
+                        join exam_templates t on t.exam_template_id = e.exam_template_id
+                        left join users u on u.user_id = e.examiner_id
+                        where e.viva_exam_id = :exam""", new MapSqlParameterSource("exam", vivaExamId));
+        SheetHeader header = new SheetHeader((String) h.get("code"), (String) h.get("name"), number(h.get("exam_no")),
+                exam.title(), number(h.get("template_no")), (String) h.get("template_title"), (String) h.get("examiner"),
+                exam.checkinOpensAt(), exam.checkinClosesAt(), exam.passScore(), exam.language(), questionCount);
+        return new Sheet(header, rows, report(vivaExamId, user));
+    }
+
+    private static Long number(Object value) {
+        return value == null ? null : ((Number) value).longValue();
+    }
+
+    /** Score sheet: STT, MSSV, Họ tên, Câu 1..N, Tổng, Kết quả, Ghi chú — UTF-8 with BOM so Excel shows Vietnamese. */
+    public byte[] exportCsv(UUID vivaExamId, User user) {
+        Sheet sheet = sheet(vivaExamId, user);
+        int questionCount = sheet.header().questionCount();
+        boolean pass = sheet.header().passScore() != null;
+        StringBuilder csv = new StringBuilder();
+        List<String> header = new ArrayList<>(List.of("STT", "MSSV", "Họ tên"));
+        for (int i = 1; i <= questionCount; i++) {
+            header.add("Câu " + i);
+        }
+        header.add("Tổng");
+        if (pass) {
+            header.add("Kết quả");
+        }
+        header.add("Ghi chú");
+        appendLine(csv, header);
+        for (SheetRow r : sheet.rows()) {
+            List<String> cells = new ArrayList<>(List.of(String.valueOf(r.stt()), r.studentCode(), r.fullName()));
+            for (BigDecimal score : r.scores()) {
+                cells.add(format(score));
+            }
+            cells.add(format(r.total()));
+            if (pass) {
+                cells.add(r.result());
+            }
+            List<String> notes = new ArrayList<>();
+            if (!"Đã thi".equals(r.attendance())) {
+                notes.add(r.attendance());
+            } else if (!"Đã chốt".equals(r.grading())) {
+                notes.add("Chờ giảng viên chốt".equals(r.grading()) ? "Chưa xác nhận điểm" : r.grading());
+            }
+            if (!r.notes().isEmpty()) {
+                notes.add(r.notes());
             }
             cells.add(String.join("; ", notes));
             appendLine(csv, cells);
@@ -221,6 +276,34 @@ class ReportService {
         out.writeBytes(UTF8_BOM);
         out.writeBytes(csv.toString().getBytes(StandardCharsets.UTF_8));
         return out.toByteArray();
+    }
+
+    /** The same score sheet as an Excel workbook (sheet, criteria detail, question statistics). */
+    public byte[] exportXlsx(UUID vivaExamId, User user) {
+        return ScoreSheetXlsx.write(sheet(vivaExamId, user), criteriaDetail(vivaExamId), clock.instant());
+    }
+
+    /** Per student × question × criterion: AI and final scores of CONFIRMED evaluations (sheet 2 of the workbook). */
+    List<ScoreSheetXlsx.CriterionLine> criteriaDetail(UUID vivaExamId) {
+        return support.jdbc().query("""
+                        select u.student_code, u.full_name, sq.order_no, sq.content, cs.criterion_id, qg.rubric_snapshot::text,
+                               cs.weight_percent, cs.max_score, cs.ai_score, cs.final_score, qg.lecturer_comment, qg.include_in_total
+                        from exam_attempts s join users u on u.user_id = s.student_id
+                        join grade_evaluations ge on ge.attempt_id = s.attempt_id and ge.status = 'CONFIRMED'
+                        join question_grades qg on qg.evaluation_id = ge.evaluation_id
+                        join attempt_questions sq on sq.attempt_question_id = qg.attempt_question_id
+                        join criterion_scores cs on cs.question_grade_id = qg.question_grade_id
+                        where s.viva_exam_id = :exam
+                        order by u.student_code, sq.order_no""", new MapSqlParameterSource("exam", vivaExamId),
+                (rs, i) -> {
+                    UUID criterionId = rs.getObject(5, UUID.class);
+                    String name = GradingJson.snapshot(rs.getString(6)).criteria().stream()
+                            .filter(c -> c.criterionId().equals(criterionId)).map(GradingJson.SnapshotCriterion::name)
+                            .findFirst().orElse("");
+                    return new ScoreSheetXlsx.CriterionLine(rs.getString(1), rs.getString(2), rs.getInt(3), rs.getString(4),
+                            name, rs.getBigDecimal(7), rs.getBigDecimal(8), rs.getBigDecimal(9), rs.getBigDecimal(10),
+                            rs.getString(11), rs.getBoolean(12));
+                });
     }
 
     /** Derived stage of a roster student (15 §2.2, D48) — same rule as the exam module's ExamStage. */
@@ -244,6 +327,7 @@ class ReportService {
             case "IN_PROGRESS" -> "Đang thi";
             case "INTERRUPTED" -> "Bị gián đoạn";
             case "MISSED" -> "Vắng thi";
+            case "COMPLETED" -> "Đã thi";
             case "CANCELLED" -> "Đã huỷ";
             default -> stage;
         };
