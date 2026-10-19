@@ -473,6 +473,8 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
                 "{\"type\":\"DEVICES_CHECKED\",\"details\":{\"camera\":false,\"screen\":false}}").andExpect(status().isNoContent());
         call(post("/api/v1/attempts/" + s.attempt() + "/client-events"), token(s.student()), "{\"type\":\"CAMERA_UNAVAILABLE\"}")
                 .andExpect(status().isNoContent());
+        call(post("/api/v1/attempts/" + s.attempt() + "/client-events"), token(s.student()),
+                "{\"type\":\"VIRTUAL_DEVICE\",\"details\":{\"camera\":\"OBS Virtual Camera\"}}").andExpect(status().isNoContent());
         call(post("/api/v1/attempts/" + s.attempt() + "/client-events"), token(s.student()), "{\"type\":\"HACK\"}")
                 .andExpect(status().isUnprocessableContent());
         call(get("/api/v1/viva-exams/" + s.exam() + "/live"), s.c().token()).andExpect(status().isOk())
@@ -480,7 +482,7 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
                 .andExpect(jsonPath("$[0].online").value(true))
                 .andExpect(jsonPath("$[0].threadIndex").value(1))
                 .andExpect(jsonPath("$[0].currentTurnType").value("MAIN"));
-        assertThat(eventTypes(s.attempt())).contains("TAB_HIDDEN", "DEVICES_CHECKED", "CAMERA_UNAVAILABLE");
+        assertThat(eventTypes(s.attempt())).contains("TAB_HIDDEN", "DEVICES_CHECKED", "CAMERA_UNAVAILABLE", "VIRTUAL_DEVICE");
         String events = json(call(get("/api/v1/attempts/" + s.attempt() + "/events"), s.c().token()).andExpect(status().isOk()));
         assertThat(JsonPath.<List<Integer>>read(events, "$[?(@.type == 'TAB_HIDDEN')].payload.ms")).containsExactly(1200);
     }
