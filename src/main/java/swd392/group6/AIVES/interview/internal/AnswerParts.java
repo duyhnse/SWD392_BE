@@ -74,7 +74,7 @@ class AnswerParts {
                 return Optional.empty();
             }
             if (rows.stream().allMatch(r -> "DONE".equals(r[0]))) {
-                return Optional.of(String.join(" ", rows.stream().map(r -> r[1]).filter(s -> !s.isBlank()).toList()));
+                return Optional.of(join(rows.stream().map(r -> r[1]).toList()));
             }
             if (Instant.now().isAfter(until)) {
                 return Optional.empty();
@@ -86,5 +86,43 @@ class AnswerParts {
                 return Optional.empty();
             }
         }
+    }
+
+    /**
+     * Joins part transcripts. Parts overlap by ~0.3 s, so a word at the seam can be heard twice ("chỉ với" + "với 1 2
+     * tiếng"): up to 3 words that end one part and start the next are kept once.
+     */
+    static String join(java.util.List<String> parts) {
+        StringBuilder out = new StringBuilder();
+        for (String part : parts) {
+            String next = part == null ? "" : part.strip();
+            if (next.isEmpty()) {
+                continue;
+            }
+            if (!out.isEmpty()) {
+                String[] have = out.toString().split("\\s+");
+                String[] add = next.split("\\s+");
+                for (int k = Math.min(3, Math.min(have.length, add.length)); k > 0; k--) {
+                    boolean same = true;
+                    for (int j = 0; j < k && same; j++) {
+                        same = word(have[have.length - k + j]).equals(word(add[j])) && !word(add[j]).isEmpty();
+                    }
+                    if (same) {
+                        next = String.join(" ", java.util.Arrays.copyOfRange(add, k, add.length));
+                        break;
+                    }
+                }
+                if (next.isEmpty()) {
+                    continue;
+                }
+                out.append(' ');
+            }
+            out.append(next);
+        }
+        return out.toString();
+    }
+
+    private static String word(String w) {
+        return w.toLowerCase(java.util.Locale.ROOT).replaceAll("[\\p{Punct}…“”]", "");
     }
 }
