@@ -29,7 +29,8 @@ final class GradingDtos {
                          Instant createdAt, Instant updatedAt, List<ThreadDto> threads) {
     }
 
-    record QuestionRef(UUID id, String content, String referenceAnswer, BloomLevel bloomLevel) {
+    /** {@code language}: the language this question was asked and graded in (BR-Q9). */
+    record QuestionRef(UUID id, String content, String referenceAnswer, BloomLevel bloomLevel, String language) {
     }
 
     record RubricRef(UUID id, String name) {

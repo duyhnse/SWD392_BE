@@ -17,11 +17,13 @@ import swd392.group6.AIVES.support.TestUsers;
 import swd392.group6.AIVES.user.User;
 
 import java.util.List;
+import org.springframework.http.MediaType;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -120,6 +122,53 @@ class AiGradingIntegrationTest {
         body = json(id);
         assertThat((String) JsonPath.read(body, "$.threads[0].status")).isEqualTo("AI_SCORED");
         assertThat((Object) JsonPath.read(body, "$.threads[0].aiError")).isNull();
+    }
+
+    private int version(String evaluationId) throws Exception {
+        return JsonPath.read(json(evaluationId), "$.version");
+    }
+
+    @Test
+    void oneQuestionTakesTheAiScoreAnotherIsGradedByHand_thenConfirm() throws Exception {
+        SessionFx s = session(fx.student("Mixed"), "microservice scale doc lap", "monolith de trien khai");
+        events.publishEvent(new AttemptCompletedEvent(s.sessionId(), course.courseId(), List.of(), "ALL_DONE"));
+        String id = evaluationOf(s.sessionId());
+        String body = json(id);
+        String q1 = JsonPath.read(body, "$.threads[0].gradeId"), q2 = JsonPath.read(body, "$.threads[1].gradeId");
+        List<String> c2 = JsonPath.read(body, "$.threads[1].criteria[*].criterionId");
+
+        mockMvc.perform(post("/api/v1/evaluations/{id}/threads/{g}/accept-ai", id, q1).contentType(MediaType.APPLICATION_JSON).content("{\"version\":" + version(id) + "}")
+                .header("Authorization", lecturerToken)).andExpect(status().isOk());
+        mockMvc.perform(put("/api/v1/evaluations/{id}/threads/{g}", id, q2).header("Authorization", lecturerToken)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"version\":" + version(id) + ",\"criteria\":[{\"criterionId\":\"" + c2.get(0)
+                        + "\",\"finalScore\":4},{\"criterionId\":\"" + c2.get(1) + "\",\"finalScore\":2}]}"))
+                .andExpect(status().isOk());
+        // "accept all AI" afterwards fills only what is still empty: the hand-graded question keeps the lecturer's scores
+        mockMvc.perform(post("/api/v1/evaluations/{id}/accept-all-ai", id).contentType(MediaType.APPLICATION_JSON).content("{\"version\":" + version(id) + "}")
+                .header("Authorization", lecturerToken)).andExpect(status().isOk());
+        body = json(id);
+        assertThat((Double) JsonPath.read(body, "$.threads[0].finalScore")).isEqualTo(7.5);   // AI
+        assertThat((Double) JsonPath.read(body, "$.threads[1].finalScore")).isEqualTo(3.2);   // 4×0.6 + 2×0.4
+        mockMvc.perform(post("/api/v1/evaluations/{id}/confirm", id).contentType(MediaType.APPLICATION_JSON).content("{\"version\":" + version(id) + "}")
+                .header("Authorization", lecturerToken)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED")).andExpect(jsonPath("$.finalTotalScore").value(5.35));
+    }
+
+    @Test
+    void anEnglishQuestionInAVietnameseCourseIsGradedInEnglish_theOverallCommentInTheCourseLanguage_D77() throws Exception {
+        SessionFx s = session(fx.student("Lang"), "dependency inversion means depending on abstractions", "monolith de trien khai");
+        jdbc.update("update attempt_questions set language = 'EN' where attempt_id = ? and order_no = 1", s.sessionId());
+        events.publishEvent(new AttemptCompletedEvent(s.sessionId(), course.courseId(), List.of(), "ALL_DONE"));
+        String id = evaluationOf(s.sessionId());
+        List<String> threadLanguages = jdbc.queryForList("""
+                select j.request->>'language' from ai_jobs j join question_grades g on g.question_grade_id = j.subject_id
+                join attempt_questions aq on aq.attempt_question_id = g.attempt_question_id
+                where j.job_type = 'GRADE_THREAD' and g.evaluation_id = ?::uuid order by aq.order_no""", String.class, id);
+        assertThat(threadLanguages).containsExactly("EN", "VI");                       // each question in its own language
+        assertThat(jdbc.queryForObject("select request->>'language' from ai_jobs where job_type = 'SUMMARIZE_EVALUATION'"
+                + " and subject_id = ?::uuid", String.class, id)).isEqualTo("VI");    // the course's lecturer reads it
+        String body = json(id);
+        assertThat((String) JsonPath.read(body, "$.threads[0].question.language")).isEqualTo("EN");
     }
 
     @Test

@@ -284,9 +284,14 @@ class AiGradingPipeline {
         return rows;
     }
 
+    /**
+     * The overall comment is for the course's lecturer, so it is in the course language (D77); each question's own
+     * feedback stays in that question's language, like its interview.
+     */
     private String language(AttemptInfo attempt) {
-        return examApi.getAttemptQuestions(attempt.attemptId()).stream().map(AttemptQuestionInfo::language)
-                .filter(l -> l != null).findFirst().orElse("VI");
+        String lang = jdbc.queryForObject("select default_language from courses where course_id = ?", String.class,
+                attempt.courseId());
+        return lang == null ? "VI" : lang;
     }
 
     private void summarised(UUID evaluationId, AiJobService.AiJob job) {

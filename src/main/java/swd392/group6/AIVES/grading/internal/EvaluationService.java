@@ -176,6 +176,7 @@ class EvaluationService {
         return save(ctx.evaluation(), ctx.attempt(), clock.instant());
     }
 
+    /** "Accept all AI": copies the AI scores into every thread that has them and no final score yet. */
     public EvaluationDto acceptAllAi(UUID evaluationId, Integer version, User user) {
         EvaluationContext ctx = writable(evaluationId, user, version);
         List<QuestionGrade> all = grades.findByEvaluationId(evaluationId);
@@ -183,7 +184,9 @@ class EvaluationService {
         Instant now = clock.instant();
         for (QuestionGrade grade : all) {
             List<CriterionScore> scores = criteria.getOrDefault(grade.getQuestionGradeId(), List.of());
-            if (grade.getAiScore() != null && scores.stream().allMatch(c -> c.getAiScore() != null)) {
+            // only threads nobody graded yet: a score the lecturer set (by hand or by accepting the AI) stays
+            if (grade.getAiScore() != null && scores.stream().allMatch(c -> c.getAiScore() != null)
+                    && scores.stream().allMatch(c -> c.getFinalScore() == null)) {
                 copyAi(ctx.evaluation(), grade, scores, user, now);
             }
         }
@@ -386,9 +389,9 @@ class EvaluationService {
                     }).toList();
             // The wording asked, as snapshotted at check-in (D49) — not today's bank version.
             ExamApi.AttemptQuestionInfo snap = asked.get(g.getAttemptQuestionId());
-            QuestionRef question = snap == null ? new QuestionRef(g.getQuestionId(), null, null, null)
+            QuestionRef question = snap == null ? new QuestionRef(g.getQuestionId(), null, null, null, null)
                     : new QuestionRef(g.getQuestionId(), snap.content(), snap.referenceAnswer(),
-                    snap.bloomLevel() == null ? null : BloomLevel.valueOf(snap.bloomLevel()));
+                    snap.bloomLevel() == null ? null : BloomLevel.valueOf(snap.bloomLevel()), snap.language());
             List<TurnDto> turns = thread == null ? List.of() : thread.turns().stream()
                     .map(t -> new TurnDto(t.turnId(), t.turnType(), t.followupIndex(), t.questionText(), t.transcript(),
                             t.status(), t.answerAudioKey() == null ? null : "/api/v1/turns/" + t.turnId() + "/answer-audio",
