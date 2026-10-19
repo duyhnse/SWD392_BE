@@ -89,7 +89,7 @@ class AiNodeClientTest {
         assertThat(r.analysisError()).isNull();
         String sent = requests.get("POST /v1/interview/process-answer");
         assertThat(sent).contains("name=\"audio\"", "name=\"context\"", "\"request_id\":\"turn-7\"", "\"max_followups\":2",
-                "\"prior_turns\":[{", "\"options\":{\"models\":{\"interview\":\"google/gemini-3.8-flash\"",
+                "\"prior_turns\":[{", "\"options\":{\"models\":{\"interview\":\"google/gemini-3.5-flash-lite\"",
                 "\"turn_budget_sec\":11.0");
         assertThat(authHeaders.get("POST /v1/interview/process-answer")).isEqualTo("Bearer node-token");
     }

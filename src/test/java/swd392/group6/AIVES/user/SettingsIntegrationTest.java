@@ -51,7 +51,7 @@ class SettingsIntegrationTest {
                 .andExpect(jsonPath("$[?(@.key=='ai.timeout.turn_budget_sec')].value").value("11"))
                 .andExpect(jsonPath("$[?(@.key=='ai.timeout.turn_budget_sec')].rule.max").value(20.0))
                 .andExpect(jsonPath("$[?(@.key=='ai.model.tts')].rule.group").value("tts"))
-                .andExpect(jsonPath("$[?(@.key=='ai.model.interview')].value").value("google/gemini-3.8-flash"))   // V11, D71
+                .andExpect(jsonPath("$[?(@.key=='ai.model.interview')].value").value("google/gemini-3.5-flash-lite"))   // V11, D71
                 .andExpect(jsonPath("$[?(@.key=='ai.model.embedding')].value").value("google/gemini-embedding-2"))
                 .andExpect(jsonPath("$[?(@.key=='account.default_password')].value").exists())
                 .andExpect(jsonPath("$[?(@.key=='exam.seconds.ANALYZE')].value").value("300"))

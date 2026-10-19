@@ -27,7 +27,7 @@ public final class AiSettings {
     private static final Pattern VOICE = Pattern.compile("[A-Za-z0-9_\\-]{2,60}");
 
     public static final List<Rule> RULES = List.of(
-            model("ai.model.interview", "llm", "google/gemini-3.8-flash", "models.interview"),
+            model("ai.model.interview", "llm", "google/gemini-3.5-flash-lite", "models.interview"),
             model("ai.model.interview_fallback", "llm", "google/gemini-3.1-flash-lite", "models.interview_fallback"),
             model("ai.model.generation", "llm", "google/gemini-3.8-flash", "models.generation"),
             model("ai.model.grading", "llm", "google/gemini-3.8-flash", "models.grading"),
