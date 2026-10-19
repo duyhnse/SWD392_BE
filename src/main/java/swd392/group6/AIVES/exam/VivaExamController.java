@@ -39,8 +39,12 @@ import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 
-/** FG2 buổi thi and lượt thi endpoints for lecturers (ADMIN read-only) — 15 §5.3. Authorization is in the services. */
+/**
+ * FG2 buổi thi and lượt thi endpoints for lecturers (ADMIN read-only) — 15 §5.3. Students never reach them (they use
+ * {@code /me/viva-exams}); course membership and write rights are checked in the services.
+ */
 @RestController
+@org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('ADMIN', 'LECTURER')")
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
 class VivaExamController {
