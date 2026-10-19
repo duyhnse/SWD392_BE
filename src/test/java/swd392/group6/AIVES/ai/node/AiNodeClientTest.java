@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** The node-1 side of the AI node contract (SWD_Docs api/ai-node.openapi.yaml) against a fake node. */
+/** The node-1 side of the AI node contract (SWD_Docs api/ai-node.openapi.yaml) against a test-double node. */
 class AiNodeClientTest {
 
     private HttpServer server;

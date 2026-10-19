@@ -9,7 +9,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import swd392.group6.AIVES.questionbank.QuestionBankFixture.Actor;
 import swd392.group6.AIVES.questionbank.QuestionBankFixture.Bank;
-import swd392.group6.AIVES.support.FakeAiNode;
+import swd392.group6.AIVES.support.AiNodeTestDouble;
 import swd392.group6.AIVES.support.IntegrationTest;
 import swd392.group6.AIVES.support.TestUsers;
 
@@ -40,7 +40,7 @@ class QuestionInputsIntegrationTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private TestUsers users;
-    @Autowired private FakeAiNode aiNode;
+    @Autowired private AiNodeTestDouble aiNode;
 
     private QuestionBankFixture fx;
     private Actor lecturer;
@@ -53,7 +53,7 @@ class QuestionInputsIntegrationTest {
         bank = fx.bank(lecturer);
     }
 
-    // ------------------------------------------------------------------ materials & indexing (AI node = FakeAiNode)
+    // ------------------------------------------------------------------ materials & indexing (AI node = AiNodeTestDouble)
 
     static final byte[] PDF = "%PDF-1.7 slides".getBytes(StandardCharsets.UTF_8);
 

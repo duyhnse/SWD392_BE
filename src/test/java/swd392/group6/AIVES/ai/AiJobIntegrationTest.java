@@ -58,7 +58,7 @@ class AiJobIntegrationTest {
 
         AiJobService.AiJob job = jobs.find(jobId).orElseThrow();
         assertThat(job.status()).isEqualTo("SUCCEEDED");
-        assertThat(job.result().path("feedback").asString()).isEqualTo("fake feedback");   // support.FakeAiNode answered
+        assertThat(job.result().path("feedback").asString()).isEqualTo("double feedback");   // support.AiNodeTestDouble answered
         assertThat(job.finishedAt()).isNotNull();
         assertThat(events.stream(AiJobFinishedEvent.class))
                 .anySatisfy(e -> {

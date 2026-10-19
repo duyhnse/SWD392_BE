@@ -67,7 +67,7 @@ class MaterialsIntegrationTest {
 
         fx.perform(lecturer, get("/api/v1/materials/" + id))
                 .andExpect(status().isOk())
-                // indexed by the AI node (support.FakeAiNode)
+                // indexed by the AI node (support.AiNodeTestDouble)
                 .andExpect(jsonPath("$.status").value("INDEXED"))
                 .andExpect(jsonPath("$.fileName").value("Topic 3 slides.pdf"))
                 .andExpect(jsonPath("$.contentType").value(PDF))

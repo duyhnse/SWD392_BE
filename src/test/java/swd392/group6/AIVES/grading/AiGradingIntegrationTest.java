@@ -11,7 +11,7 @@ import swd392.group6.AIVES.grading.ExamFixtures.CourseFx;
 import swd392.group6.AIVES.grading.ExamFixtures.RubricFx;
 import swd392.group6.AIVES.grading.ExamFixtures.SessionFx;
 import swd392.group6.AIVES.interview.AttemptCompletedEvent;
-import swd392.group6.AIVES.support.FakeAiNode;
+import swd392.group6.AIVES.support.AiNodeTestDouble;
 import swd392.group6.AIVES.support.IntegrationTest;
 import swd392.group6.AIVES.support.TestUsers;
 import swd392.group6.AIVES.user.User;
@@ -32,7 +32,7 @@ class AiGradingIntegrationTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private TestUsers users;
     @Autowired private JdbcTemplate jdbc;
-    @Autowired private FakeAiNode aiNode;
+    @Autowired private AiNodeTestDouble aiNode;
     @Autowired private ApplicationEventPublisher events;
 
     private ExamFixtures fx;
@@ -79,7 +79,7 @@ class AiGradingIntegrationTest {
         assertThat((List<String>) JsonPath.read(body, "$.threads[*].status")).containsOnly("AI_SCORED");
         assertThat((Double) JsonPath.read(body, "$.aiTotalScore")).isEqualTo(7.5);   // 0.75×0.6×10 + 0.75×0.4×10
         assertThat((Object) JsonPath.read(body, "$.finalTotalScore")).isNull();      // the AI never finalises (BR-G1)
-        assertThat((String) JsonPath.read(body, "$.aiGeneralFeedback")).isEqualTo("fake summary");
+        assertThat((String) JsonPath.read(body, "$.aiGeneralFeedback")).isEqualTo("double summary");
         assertThat(jdbc.queryForObject("select count(*) from notifications where type = 'GRADING_READY' and payload->>'evaluationId' = ?",
                 Integer.class, id)).isEqualTo(1);
 

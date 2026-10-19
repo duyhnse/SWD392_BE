@@ -25,7 +25,7 @@ import java.util.Optional;
 /**
  * Spoken questions (TTS by the AI node), stored once per language + TTS model + voice + text: {@code tts/{sha256}.{ext}}
  * plus a small JSON with type and length. The model and voice are part of the key (D71), so another admin choice — or
- * audio cached in the mock era — is never replayed. Main questions are asked by many students, so the cache is the latency lever of 05 §12.
+ * audio cached before the current voice — is never replayed. Main questions are asked by many students, so the cache is the latency lever of 05 §12.
  * Kept as evidence of what the student heard (FG5). Never called inside a DB transaction.
  */
 @Slf4j

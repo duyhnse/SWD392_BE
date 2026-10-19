@@ -134,18 +134,18 @@ class EvaluationIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         String id = JsonPath.read(json, "$.id");
 
-        // the (fake) AI node answered: only the thread with a transcript was sent; AI fields only (BR-G1)
+        // the AI node (test double) answered: only the thread with a transcript was sent; AI fields only (BR-G1)
         mockMvc.perform(get("/api/v1/evaluations/{id}", id).header("Authorization", lecturerToken))
                 .andExpect(jsonPath("$.status").value("AWAITING_REVIEW"))
                 .andExpect(jsonPath("$.threads[0].status").value("AI_SCORED"))
                 .andExpect(jsonPath("$.threads[0].aiScore").value(7.5))
                 .andExpect(jsonPath("$.threads[0].criteria[0].aiScore").value(7.5))
-                .andExpect(jsonPath("$.threads[0].criteria[0].aiJustification").value("fake: mostly covered"))
+                .andExpect(jsonPath("$.threads[0].criteria[0].aiJustification").value("double: mostly covered"))
                 .andExpect(jsonPath("$.threads[0].criteria[0].finalScore").doesNotExist())
-                .andExpect(jsonPath("$.threads[0].aiMissingPoints[0]").value("fake missing point"))
+                .andExpect(jsonPath("$.threads[0].aiMissingPoints[0]").value("double missing point"))
                 .andExpect(jsonPath("$.threads[3].status").value("MISSING_DATA"))
                 .andExpect(jsonPath("$.aiTotalScore").value(3.75))
-                .andExpect(jsonPath("$.aiGeneralFeedback").value("fake summary"));
+                .andExpect(jsonPath("$.aiGeneralFeedback").value("double summary"));
 
         mockMvc.perform(post("/api/v1/attempts/{id}/evaluation", s.sessionId()).header("Authorization", lecturerToken))
                 .andExpect(status().isOk())

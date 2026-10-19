@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.ResultActions;
 import swd392.group6.AIVES.interview.AttemptCompletedEvent;
-import swd392.group6.AIVES.support.FakeAiNode;
+import swd392.group6.AIVES.support.AiNodeTestDouble;
 import swd392.group6.AIVES.support.IntegrationTest;
 import swd392.group6.AIVES.user.User;
 
@@ -25,7 +25,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** WF3 runtime (05 §4–§8, AC-I1…AC-I17): the turn loop over the fake AI node, timing, disconnects, examiner control. */
+/** WF3 runtime (05 §4–§8, AC-I1…AC-I17): the turn loop over the AI node test double, timing, disconnects, examiner control. */
 @IntegrationTest
 @Import({ExamTestConfiguration.class, InterviewRuntimeIntegrationTest.Events.class,
         swd392.group6.AIVES.interview.internal.InterviewTestHooks.class})
@@ -35,7 +35,7 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
             + "mỗi module sở hữu dữ liệu riêng và giao tiếp qua interface rõ ràng nên dễ bảo trì";
     private static final String SHORT = "Là chia module";
 
-    @Autowired FakeAiNode aiNode;
+    @Autowired AiNodeTestDouble aiNode;
     @Autowired swd392.group6.AIVES.interview.internal.InterviewTestHooks hooks;
     @Autowired Events completed;
 
@@ -352,7 +352,7 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
     void playbackAndProcessingAreNotCharged_AC_I17() throws Exception {
         Started s = start(1);
         String t1 = turnId(state(s));
-        clock.advance(Duration.ofSeconds(12)); // 2 s question audio (fake TTS) + 10 s answering
+        clock.advance(Duration.ofSeconds(12)); // 2 s question audio (test-double TTS) + 10 s answering
         answered(s, t1, LONG);
         assertThat(jdbc.queryForObject("select answer_counted_ms from exam_turns where turn_id = ?", Integer.class,
                 UUID.fromString(t1))).isEqualTo(10_000);

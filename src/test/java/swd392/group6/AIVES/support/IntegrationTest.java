@@ -16,6 +16,6 @@ import java.lang.annotation.Target;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@Import({TestcontainersConfiguration.class, FakeAiNode.class})
+@Import({TestcontainersConfiguration.class, AiNodeTestDouble.class})
 public @interface IntegrationTest {
 }

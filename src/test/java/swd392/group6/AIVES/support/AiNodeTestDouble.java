@@ -30,7 +30,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * "#no-context", "#fail" or "#bad-citation" answers NO_CONTEXT, a failed LLM, or a draft citing another material.
  */
 @TestConfiguration(proxyBeanMethods = false)
-public class FakeAiNode implements AiJobPort, AiMaterialIndexPort, InterviewAiPort, SpeechToTextPort, TextToSpeechPort {
+public class AiNodeTestDouble implements AiJobPort, AiMaterialIndexPort, InterviewAiPort, SpeechToTextPort, TextToSpeechPort {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     public final List<UUID> deletedMaterials = new CopyOnWriteArrayList<>();
@@ -50,23 +50,23 @@ public class FakeAiNode implements AiJobPort, AiMaterialIndexPort, InterviewAiPo
         answerRequests.add(request);
         String text = new String(request.audio(), StandardCharsets.UTF_8);
         if (text.contains("#stt-fail") || text.contains("#ai-fail")) {
-            throw new AiUnavailableException("fake AI node: process-answer down");
+            throw new AiUnavailableException("AI node test double: process-answer down");
         }
-        Transcript transcript = new Transcript(text, "fake-stt", 5);
+        Transcript transcript = new Transcript(text, "double-stt", 5);
         Analysis analysis;
         boolean shortAnswer = text.trim().split("\\s+").length < 15;
         if (text.contains("không biết")) {
             analysis = new Analysis("INSUFFICIENT", List.of(), List.of("ý 1"), false, false, false, true, 0, List.of(),
-                    null, "fake: does not know", "fake-llm");
+                    null, "double: does not know", "double-llm");
         } else if (shortAnswer) {
             analysis = new Analysis("PARTIAL", List.of(), List.of("ý 1"), false, false, false, false, 0, List.of(),
-                    "Em giải thích rõ hơn ý 1 được không?", "fake: short", "fake-llm");
+                    "Em giải thích rõ hơn ý 1 được không?", "double: short", "double-llm");
         } else {
             analysis = new Analysis("COMPLETE", List.of("ý 1"), List.of(), false, false, false, false, 0, List.of(),
-                    null, "fake: complete", "fake-llm");
+                    null, "double: complete", "double-llm");
         }
         SynthesizedAudio audio = analysis.followUpQuestion() == null || ttsBroken || followUpVoiceLate ? null
-                : new SynthesizedAudio("fake follow-up audio".getBytes(StandardCharsets.UTF_8), "audio/mpeg", 1500);
+                : new SynthesizedAudio("follow-up audio (test double)".getBytes(StandardCharsets.UTF_8), "audio/mpeg", 1500);
         return new AnswerResult(transcript, analysis, audio, null);
     }
 
@@ -74,15 +74,15 @@ public class FakeAiNode implements AiJobPort, AiMaterialIndexPort, InterviewAiPo
     public Transcript transcribe(SpeechToTextRequest request) {
         String text = new String(request.audio(), StandardCharsets.UTF_8);
         if (text.contains("#stt-fail")) {
-            throw new AiUnavailableException("fake AI node: STT down");
+            throw new AiUnavailableException("AI node test double: STT down");
         }
-        return new Transcript(text, "fake-stt", 5);
+        return new Transcript(text, "double-stt", 5);
     }
 
     @Override
     public SynthesizedAudio synthesize(String text, Language language) {
         if (ttsBroken) {
-            throw new AiUnavailableException("fake AI node: TTS down");
+            throw new AiUnavailableException("AI node test double: TTS down");
         }
         spoken.add(text);
         return new SynthesizedAudio(("tts:" + language + ":" + text).getBytes(StandardCharsets.UTF_8), "audio/mpeg", 2000);
@@ -94,7 +94,7 @@ public class FakeAiNode implements AiJobPort, AiMaterialIndexPort, InterviewAiPo
             case INDEX_MATERIAL -> index(input);
             case GENERATE_QUESTIONS -> generate(input);
             case GRADE_THREAD -> grade(input);
-            case SUMMARIZE_EVALUATION -> ok(Map.of("summary", "fake summary", "model", "fake"));
+            case SUMMARIZE_EVALUATION -> ok(Map.of("summary", "double summary", "model", "double"));
         });
     }
 
@@ -111,11 +111,11 @@ public class FakeAiNode implements AiJobPort, AiMaterialIndexPort, InterviewAiPo
         if (!fail) {
             for (JsonNode c : input.path("rubric").path("criteria")) {
                 criteria.add(Map.of("criterion_id", c.path("criterion_id").asString(),
-                        "score", c.path("max_score").asDouble() * 0.75, "justification", "fake: mostly covered"));
+                        "score", c.path("max_score").asDouble() * 0.75, "justification", "double: mostly covered"));
             }
         }
-        return ok(Map.of("criteria", criteria, "strengths", List.of("fake strength"), "weaknesses", List.of("fake weakness"),
-                "missing_points", List.of("fake missing point"), "feedback", "fake feedback", "model", "fake-llm"));
+        return ok(Map.of("criteria", criteria, "strengths", List.of("double strength"), "weaknesses", List.of("double weakness"),
+                "missing_points", List.of("double missing point"), "feedback", "double feedback", "model", "double-llm"));
     }
 
     @Override
@@ -136,7 +136,7 @@ public class FakeAiNode implements AiJobPort, AiMaterialIndexPort, InterviewAiPo
         if (name.contains("scan")) {
             return new AiJobOutcome("FAILED", null, "NO_TEXT_LAYER", "The file has no text layer");
         }
-        return ok(Map.of("page_count", 2, "chunk_count", 3, "embedding_model", "fake"));
+        return ok(Map.of("page_count", 2, "chunk_count", 3, "embedding_model", "double"));
     }
 
     private static AiJobOutcome generate(JsonNode input) {
@@ -163,7 +163,7 @@ public class FakeAiNode implements AiJobPort, AiMaterialIndexPort, InterviewAiPo
                             Map.of("name", "Độ chính xác", "description", "Đúng ý", "max_score", 10, "weight_percent", 60),
                             Map.of("name", "Diễn đạt", "description", "Rõ ràng", "max_score", 10, "weight_percent", 40)))));
         }
-        return ok(Map.of("questions", questions, "model", "fake"));
+        return ok(Map.of("questions", questions, "model", "double"));
     }
 
     private static AiJobOutcome ok(Object result) {
