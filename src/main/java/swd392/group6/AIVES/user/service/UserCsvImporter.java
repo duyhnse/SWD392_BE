@@ -106,11 +106,11 @@ public class UserCsvImporter {
     /** Account import template (14 §3.4, D62): row 1 = column names + what to write + what a blank cell means. */
     public static byte[] template() {
         return CsvTemplates.csv(List.of(
-                "username (bắt buộc — tên đăng nhập, duy nhất, 3–50 ký tự a-z 0-9 . - _; username đã có thì giữ nguyên, không ghi đè; vd. annv)",
+                "username (bắt buộc — tên đăng nhập, duy nhất, 3–50 ký tự a-z 0-9 . - _; username đã có thì giữ nguyên, không ghi đè; vd. annvse190001)",
                 "full_name (bắt buộc với tài khoản mới — họ tên, tối đa 100 ký tự; vd. Nguyễn Văn An)",
-                "email (bắt buộc với tài khoản mới — duy nhất, dùng để gửi link đặt lại mật khẩu; vd. annv@school.edu.vn)",
+                "email (bắt buộc với tài khoản mới — duy nhất, dùng để gửi link đặt lại mật khẩu; vd. annvse190001@school.edu.vn)",
                 "role (STUDENT / LECTURER / ADMIN — trống = STUDENT)",
-                "student_code (MSSV — bắt buộc khi role là STUDENT, để trống với LECTURER / ADMIN; vd. SV0001)",
+                "student_code (MSSV — bắt buộc khi role là STUDENT, để trống với LECTURER / ADMIN; vd. SE190001)",
                 "password (8–100 ký tự — trống = mật khẩu mặc định ở trang Cấu hình; người dùng phải đổi ở lần đăng nhập đầu)",
                 "active (TRUE / FALSE — trống = TRUE)"));
     }

@@ -86,7 +86,7 @@ public class AdminUserService {
         if (request.studentCode() != null) {
             String code = PasswordRules.normalizeStudentCode(request.studentCode());
             if (code != null && !PasswordRules.STUDENT_CODE.matcher(code).matches()) {
-                throw ApiException.unprocessable("INVALID_STUDENT_CODE", "Student code: 2-20 letters or digits, e.g. SE180180");
+                throw ApiException.unprocessable("INVALID_STUDENT_CODE", "Student code: 2-20 letters or digits, e.g. SE190001");
             }
             if (code != null && !code.equals(user.getStudentCode()) && userRepository.existsByStudentCode(code)) {
                 throw ApiException.conflict("STUDENT_CODE_ALREADY_EXISTS", "Student code is already used");

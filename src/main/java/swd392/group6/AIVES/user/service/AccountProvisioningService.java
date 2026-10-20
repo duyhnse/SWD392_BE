@@ -110,7 +110,7 @@ public class AccountProvisioningService implements UserApi {
             return error("STUDENT_CODE_REQUIRED", "student_code", "A student code (MSSV) is required for students");
         }
         if (code != null && !PasswordRules.STUDENT_CODE.matcher(code).matches()) {
-            return error("INVALID_STUDENT_CODE", "student_code", "Student code: 2-20 letters or digits, e.g. SE180180");
+            return error("INVALID_STUDENT_CODE", "student_code", "Student code: 2-20 letters or digits, e.g. SE190001");
         }
         if (code != null && (!seenCodes.add(code) || userRepository.existsByStudentCode(code))) {
             return error("STUDENT_CODE_ALREADY_EXISTS", "student_code", "Student code is already used");

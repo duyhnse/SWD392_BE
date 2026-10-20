@@ -193,7 +193,7 @@ public class QuestionImportService {
                 "reference_answer (cần để công bố — các ý chính, cách nhau bằng xuống dòng; vd. - y' = 2x  - Dùng quy tắc (xⁿ)' = n·xⁿ⁻¹; trống = chưa có)",
                 "bloom_level (cần để công bố — REMEMBER / UNDERSTAND / APPLY / ANALYZE hoặc NHO / HIEU / VAN_DUNG / PHAN_TICH; vd. HIEU; trống = chưa chọn)",
                 "language (VI / EN — trống = ngôn ngữ của môn)",
-                "rubric_name (cần để công bố — tên một rubric đã có trong môn; vd. Khái niệm & ví dụ; trống = chưa gắn)"));
+                "rubric_name (cần để công bố — tên một rubric đã có trong môn; vd. Khái niệm & lập luận; trống = chưa gắn)"));
     }
 
     static List<Line> readCsv(byte[] data) throws IOException {
