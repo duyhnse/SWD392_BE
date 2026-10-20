@@ -29,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /** WF3 runtime (05 §4–§8, AC-I1…AC-I17): the turn loop over the AI node test double, timing, disconnects, examiner control. */
 @IntegrationTest
 @Import({ExamTestConfiguration.class, InterviewRuntimeIntegrationTest.Events.class,
-        swd392.group6.AIVES.interview.internal.InterviewTestHooks.class})
+        swd392.group6.AIVES.interview.service.InterviewTestHooks.class})
 class InterviewRuntimeIntegrationTest extends ExamTestBase {
 
     private static final String LONG = "Modular monolith là một khối triển khai duy nhất nhưng chia module theo nghiệp vụ, "
@@ -37,7 +37,7 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
     private static final String SHORT = "Là chia module";
 
     @Autowired AiNodeTestDouble aiNode;
-    @Autowired swd392.group6.AIVES.interview.internal.InterviewTestHooks hooks;
+    @Autowired swd392.group6.AIVES.interview.service.InterviewTestHooks hooks;
     @Autowired Events completed;
 
     /** Collects completion events (BR-I9). */

@@ -14,10 +14,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.DuplicateRubricRequest;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.RubricDto;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.RubricRequest;
-import swd392.group6.AIVES.questionbank.internal.RubricService;
+import swd392.group6.AIVES.questionbank.dto.DuplicateRubricRequest;
+import swd392.group6.AIVES.questionbank.dto.RubricDto;
+import swd392.group6.AIVES.questionbank.dto.RubricRequest;
+import swd392.group6.AIVES.questionbank.service.RubricService;
 import swd392.group6.AIVES.user.User;
 
 import java.util.List;

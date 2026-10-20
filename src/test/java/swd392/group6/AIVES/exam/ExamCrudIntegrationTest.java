@@ -9,7 +9,6 @@ import swd392.group6.AIVES.support.IntegrationTest;
 import swd392.group6.AIVES.user.User;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;

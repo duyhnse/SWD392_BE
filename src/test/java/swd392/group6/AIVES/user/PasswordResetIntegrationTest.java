@@ -1,5 +1,9 @@
 package swd392.group6.AIVES.user;
 
+import swd392.group6.AIVES.user.domain.PasswordResetToken;
+import swd392.group6.AIVES.user.repository.PasswordResetTokenRepository;
+import swd392.group6.AIVES.user.service.PasswordResetService;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;

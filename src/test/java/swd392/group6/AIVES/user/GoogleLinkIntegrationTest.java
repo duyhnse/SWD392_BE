@@ -1,5 +1,9 @@
 package swd392.group6.AIVES.user;
 
+import swd392.group6.AIVES.user.repository.UserRepository;
+import swd392.group6.AIVES.user.service.GoogleAvatarFetcher;
+import swd392.group6.AIVES.user.service.GoogleIdentityVerifier;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -50,7 +54,7 @@ class GoogleLinkIntegrationTest {
         GoogleAvatarFetcher fakeGooglePhotoDownload() {
             return new GoogleAvatarFetcher() {
                 @Override
-                java.util.Optional<byte[]> fetch(String pictureUrl) {
+                public java.util.Optional<byte[]> fetch(String pictureUrl) {
                     return java.util.Optional.of(CrudFixtures.png(256, 256));
                 }
             };

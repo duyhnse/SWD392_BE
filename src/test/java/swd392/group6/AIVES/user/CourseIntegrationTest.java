@@ -1,5 +1,7 @@
 package swd392.group6.AIVES.user;
 
+import swd392.group6.AIVES.user.repository.UserRepository;
+
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

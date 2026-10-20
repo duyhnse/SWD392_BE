@@ -20,10 +20,10 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import swd392.group6.AIVES.questionbank.internal.MaterialService;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.MaterialDto;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.MaterialFile;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.MaterialTopicRequest;
+import swd392.group6.AIVES.questionbank.service.MaterialService;
+import swd392.group6.AIVES.questionbank.dto.MaterialDto;
+import swd392.group6.AIVES.questionbank.dto.MaterialFile;
+import swd392.group6.AIVES.questionbank.dto.MaterialTopicRequest;
 import swd392.group6.AIVES.user.User;
 
 import java.nio.charset.StandardCharsets;

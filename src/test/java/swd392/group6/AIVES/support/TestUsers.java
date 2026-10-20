@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.test.web.servlet.MockMvc;
 import swd392.group6.AIVES.user.Role;
 import swd392.group6.AIVES.user.User;
-import swd392.group6.AIVES.user.UserRepository;
+import swd392.group6.AIVES.user.repository.UserRepository;
 
 import java.util.UUID;
 

@@ -1,7 +1,8 @@
 package swd392.group6.AIVES.questionbank.web;
 
+import swd392.group6.AIVES.questionbank.dto.MoveQuestionsRequest;
+
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -16,11 +17,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.CreateTopicRequest;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.TermsDto;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.TopicDto;
-import swd392.group6.AIVES.questionbank.internal.QuestionBankDtos.UpdateTopicRequest;
-import swd392.group6.AIVES.questionbank.internal.TopicService;
+import swd392.group6.AIVES.questionbank.dto.CreateTopicRequest;
+import swd392.group6.AIVES.questionbank.dto.TermsDto;
+import swd392.group6.AIVES.questionbank.dto.TopicDto;
+import swd392.group6.AIVES.questionbank.dto.UpdateTopicRequest;
+import swd392.group6.AIVES.questionbank.service.TopicService;
 import swd392.group6.AIVES.user.User;
 
 import java.util.List;
@@ -64,9 +65,6 @@ class TopicController {
     public TopicService.MoveResult moveQuestions(@PathVariable UUID id, @Valid @RequestBody MoveQuestionsRequest request,
                                                  @AuthenticationPrincipal User user) {
         return service.moveQuestions(id, request.targetTopicId(), user);
-    }
-
-    record MoveQuestionsRequest(@NotNull UUID targetTopicId) {
     }
 
     @GetMapping("/courses/{courseId}/terms")

@@ -1,5 +1,7 @@
 package swd392.group6.AIVES.exam;
 
+import swd392.group6.AIVES.exam.service.ExamStatusRefresher;
+
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
