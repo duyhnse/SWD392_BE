@@ -182,7 +182,7 @@ class QuestionInputsIntegrationTest {
         UUID request = QuestionBankFixture.id(fx.json(lecturer, post("/api/v1/courses/" + bank.courseId() + "/question-generations"), body)
                 .andExpect(status().isAccepted()).andExpect(jsonPath("$.rubricsByBloom.APPLY").value(r2.toString())));
         String sent = jdbc.queryForObject("select request::text from ai_jobs where subject_id = ?", String.class, request);
-        assertThat(sent).contains("\"rubrics_by_bloom\"", "\"REMEMBER\"", "\"APPLY\"");
+        assertThat(sent).contains("\"rubrics_by_bloom\"", "\"REMEMBER\"", "\"APPLY\"", "\"primary_material_ids\"");
         List<java.util.Map<String, Object>> drafts = jdbc.queryForList(
                 "select question_id, bloom_level, rubric_id from questions where generation_request_id = ?", request);
         assertThat(drafts).hasSize(4).allSatisfy(d -> assertThat(d.get("rubric_id"))

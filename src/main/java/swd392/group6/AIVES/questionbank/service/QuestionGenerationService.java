@@ -123,6 +123,10 @@ public class QuestionGenerationService {
                         order by coalesce(topic_id = :t, false) desc, updated_at desc limit :n""",
                 new MapSqlParameterSource("t", r.topicId()).addValue("c", courseId).addValue("n", MAX_EXISTING_TITLES), String.class));
         input.put("material_ids", materialIds);
+        // the lecturer's own material for this chapter leads; general ones (review deck, whole-course plan) support (D80)
+        input.put("primary_material_ids", jdbc.queryForList("""
+                        select material_id from course_materials where material_id in (:m) and topic_id = :t""",
+                new MapSqlParameterSource("m", materialIds).addValue("t", r.topicId()), UUID.class));
         if (rubric != null) {
             input.put("rubric", rubric); // reference answers are written so each criterion can be judged
         }
