@@ -1,5 +1,9 @@
 package swd392.group6.AIVES.questionbank.web;
 
+import swd392.group6.AIVES.questionbank.dto.MoveRubricQuestionsResult;
+import swd392.group6.AIVES.questionbank.dto.MoveRubricQuestionsRequest;
+import swd392.group6.AIVES.questionbank.dto.RubricAssignResult;
+import swd392.group6.AIVES.questionbank.dto.RubricAssignRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -66,5 +70,17 @@ class RubricController {
     public RubricDto duplicate(@PathVariable UUID id, @Valid @RequestBody(required = false) DuplicateRubricRequest request,
                                @AuthenticationPrincipal User user) {
         return service.duplicate(id, request, user);
+    }
+
+    @PostMapping("/courses/{courseId}/rubrics/assign")
+    public RubricAssignResult assign(@PathVariable UUID courseId, @Valid @RequestBody RubricAssignRequest request,
+                                     @AuthenticationPrincipal User user) {
+        return service.assign(courseId, request, user);
+    }
+
+    @PostMapping("/rubrics/{id}/move-questions")
+    public MoveRubricQuestionsResult moveQuestions(@PathVariable UUID id, @Valid @RequestBody MoveRubricQuestionsRequest request,
+                                                   @AuthenticationPrincipal User user) {
+        return service.moveQuestions(id, request, user);
     }
 }

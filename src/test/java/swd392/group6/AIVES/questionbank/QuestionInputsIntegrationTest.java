@@ -172,6 +172,41 @@ class QuestionInputsIntegrationTest {
     }
 
     @Test
+    void eachDraftGetsTheRubricOfItsBloomLevel_andRubricsCanBeAssignedOrReplacedInBulk_D79() throws Exception {
+        UUID material = upload("slides.pdf", PDF);
+        UUID topic = fx.topic(lecturer, bank.courseId(), "Theo loại câu");
+        UUID r1 = fx.rubric(lecturer, bank.courseId(), "R1 Nhớ-Hiểu " + UUID.randomUUID(), 70, 30);
+        UUID r2 = fx.rubric(lecturer, bank.courseId(), "R2 Vận dụng " + UUID.randomUUID(), 40, 40, 20);
+        String body = generation(topic, List.of(material), 4, "\"REMEMBER\",\"APPLY\"", null)
+                .replaceFirst("}$", ",\"rubricsByBloom\":{\"REMEMBER\":\"" + r1 + "\",\"APPLY\":\"" + r2 + "\"}}");
+        UUID request = QuestionBankFixture.id(fx.json(lecturer, post("/api/v1/courses/" + bank.courseId() + "/question-generations"), body)
+                .andExpect(status().isAccepted()).andExpect(jsonPath("$.rubricsByBloom.APPLY").value(r2.toString())));
+        String sent = jdbc.queryForObject("select request::text from ai_jobs where subject_id = ?", String.class, request);
+        assertThat(sent).contains("\"rubrics_by_bloom\"", "\"REMEMBER\"", "\"APPLY\"");
+        List<java.util.Map<String, Object>> drafts = jdbc.queryForList(
+                "select question_id, bloom_level, rubric_id from questions where generation_request_id = ?", request);
+        assertThat(drafts).hasSize(4).allSatisfy(d -> assertThat(d.get("rubric_id"))
+                .isEqualTo("REMEMBER".equals(d.get("bloom_level")) ? r1 : r2));
+
+        // bulk: every draft onto R1, then R1's unlocked questions moved to a new version (after "duplicate")
+        String ids = String.join(",", drafts.stream().map(d -> "\"" + d.get("question_id") + "\"").toList());
+        fx.json(lecturer, post("/api/v1/courses/" + bank.courseId() + "/rubrics/assign"), "{\"questionIds\":[" + ids + "],\"rubricId\":\"" + r1 + "\"}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.updated", org.hamcrest.Matchers.hasSize(4)))
+                .andExpect(jsonPath("$.failed", org.hamcrest.Matchers.hasSize(0)));
+        UUID drafted = (UUID) drafts.getFirst().get("question_id");
+        jdbc.update("update questions set is_locked = true where question_id = ?", drafted);
+        fx.json(lecturer, post("/api/v1/rubrics/" + r1 + "/move-questions"), "{\"targetRubricId\":\"" + r2 + "\"}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.moved").value(3)).andExpect(jsonPath("$.lockedKept").value(1));
+        fx.json(lecturer, post("/api/v1/courses/" + bank.courseId() + "/rubrics/assign"), "{\"questionIds\":[\"" + drafted + "\"],\"rubricId\":\"" + r2 + "\"}")
+                .andExpect(jsonPath("$.failed[0].errors[0]").value("QUESTION_LOCKED"));   // a drawn question keeps its rubric
+        UUID otherCourse = fx.course("VI");
+        fx.assign(otherCourse, lecturer);
+        UUID foreign = fx.rubric(lecturer, otherCourse, "Khác", 100);
+        fx.json(lecturer, post("/api/v1/courses/" + bank.courseId() + "/rubrics/assign"), "{\"questionIds\":[" + ids + "],\"rubricId\":\"" + foreign + "\"}")
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("RUBRIC_NOT_IN_COURSE"));
+    }
+
+    @Test
     void sharedRubricChosenAtGenerationIsAttachedAndSentToTheAi_D70() throws Exception {
         UUID material = upload("slides.pdf", PDF);
         UUID topic = fx.topic(lecturer, bank.courseId(), "Chương 2");

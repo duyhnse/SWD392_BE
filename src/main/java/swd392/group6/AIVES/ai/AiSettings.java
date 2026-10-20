@@ -44,9 +44,14 @@ public final class AiSettings {
             number("ai.timeout.llm_interview_sec", 3, 15, "8", "timeouts.llm_interview_sec", "s"),
             number("ai.timeout.stt_sec", 5, 20, "10", "timeouts.stt_sec", "s"),
             number("ai.timeout.tts_sec", 4, 15, "15", "timeouts.tts_sec", "s"),
-            number("ai.timeout.llm_job_sec", 60, 140, "120", "timeouts.llm_job_sec", "s"),
+            number("ai.timeout.llm_job_sec", 60, 300, "180", "timeouts.llm_job_sec", "s"),
             new Rule("ai.interview_reasoning", "CHOICE", null, null, null, List.of("minimal", "low", "medium"), "minimal",
                     "interview_reasoning", null),
+            // thinking of the background jobs (no live budget); measured: high = steadiest grading (D79)
+            new Rule("ai.reasoning.generation", "CHOICE", null, null, null, List.of("minimal", "low", "medium", "high"), "high",
+                    "reasoning.generation", null),
+            new Rule("ai.reasoning.grading", "CHOICE", null, null, null, List.of("minimal", "low", "medium", "high"), "high",
+                    "reasoning.grading", null),
             number("ai.rag.top_k", 4, 12, "8", "rag.top_k", null),
             number("ai.rag.min_similarity", 0.3, 0.8, "0.45", "rag.min_similarity", null),
             number("ai.rag.duplicate_similarity", 0.8, 0.98, "0.885", "rag.duplicate_similarity", null));

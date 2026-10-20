@@ -1,5 +1,17 @@
 package swd392.group6.AIVES.questionbank.service;
 
+import java.util.ArrayList;
+
+import swd392.group6.AIVES.questionbank.dto.PublishFailure;
+
+import swd392.group6.AIVES.questionbank.dto.MoveRubricQuestionsResult;
+
+import swd392.group6.AIVES.questionbank.dto.MoveRubricQuestionsRequest;
+
+import swd392.group6.AIVES.questionbank.dto.RubricAssignResult;
+
+import swd392.group6.AIVES.questionbank.dto.RubricAssignRequest;
+
 import swd392.group6.AIVES.questionbank.domain.Rubric;
 import swd392.group6.AIVES.questionbank.domain.RubricCriterion;
 import swd392.group6.AIVES.questionbank.repository.QuestionRepository;
@@ -195,6 +207,67 @@ public class RubricService {
                     c.maxScore().setScale(2, RoundingMode.HALF_UP), c.weightPercent().setScale(2, RoundingMode.HALF_UP),
                     c.sortOrder() == null ? i : c.sortOrder()));
         }
+    }
+
+    /**
+     * Attach a rubric to many questions of its course (rubric by question type). A drawn (locked) question keeps its
+     * rubric — the attempt graded with it is evidence; a discarded or retired one is not touched.
+     */
+    @Transactional
+    public RubricAssignResult assign(UUID courseId, RubricAssignRequest request, User user) {
+        access.writeCourse(courseId, user);
+        Rubric rubric = load(request.rubricId());
+        if (!rubric.getCourseId().equals(courseId)) {
+            throw ApiException.unprocessable("RUBRIC_NOT_IN_COURSE", "The rubric does not belong to this course");
+        }
+        List<UUID> updated = new ArrayList<>();
+        List<PublishFailure> failed = new ArrayList<>();
+        java.sql.Timestamp now = java.sql.Timestamp.from(Instant.now(clock));
+        for (UUID id : new java.util.LinkedHashSet<>(request.questionIds())) {
+            List<java.util.Map<String, Object>> rows = jdbc.queryForList(
+                    "select status, is_locked from questions where question_id = ? and course_id = ?", id, courseId);
+            if (rows.isEmpty()) {
+                failed.add(new PublishFailure(id, List.of("QUESTION_NOT_FOUND")));
+                continue;
+            }
+            String status = (String) rows.getFirst().get("status");
+            if (Boolean.TRUE.equals(rows.getFirst().get("is_locked"))) {
+                failed.add(new PublishFailure(id, List.of("QUESTION_LOCKED")));
+                continue;
+            }
+            if (!"DRAFT".equals(status) && !"PUBLISHED".equals(status)) {
+                failed.add(new PublishFailure(id, List.of("INVALID_QUESTION_STATE")));
+                continue;
+            }
+            jdbc.update("update questions set rubric_id = ?, updated_at = ?, version = version + 1 where question_id = ?",
+                    rubric.getId(), now, id);
+            updated.add(id);
+        }
+        return new RubricAssignResult(updated, failed);
+    }
+
+    /**
+     * After "duplicate" of a locked rubric: every draft / published question that is not locked moves to the new
+     * version; locked ones keep the rubric they were graded with (successor to change them).
+     */
+    @Transactional
+    public MoveRubricQuestionsResult moveQuestions(UUID rubricId, MoveRubricQuestionsRequest request, User user) {
+        Rubric source = load(rubricId);
+        access.write(source.getCourseId(), user, "RUBRIC_NOT_FOUND", "Rubric not found");
+        Rubric target = load(request.targetRubricId());
+        if (!target.getCourseId().equals(source.getCourseId())) {
+            throw ApiException.unprocessable("RUBRIC_NOT_IN_COURSE", "The target rubric does not belong to this course");
+        }
+        if (target.getId().equals(source.getId())) {
+            throw ApiException.unprocessable("SAME_RUBRIC", "Choose another rubric");
+        }
+        int moved = jdbc.update("""
+                update questions set rubric_id = ?, updated_at = ?, version = version + 1
+                where rubric_id = ? and not is_locked and status in ('DRAFT', 'PUBLISHED')""",
+                target.getId(), java.sql.Timestamp.from(Instant.now(clock)), source.getId());
+        Integer kept = jdbc.queryForObject("select count(*) from questions where rubric_id = ? and is_locked", Integer.class,
+                source.getId());
+        return new MoveRubricQuestionsResult(moved, kept == null ? 0 : kept);
     }
 
     private Rubric load(UUID rubricId) {

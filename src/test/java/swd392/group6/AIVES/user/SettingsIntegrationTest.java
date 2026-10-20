@@ -49,7 +49,7 @@ class SettingsIntegrationTest {
     void adminListsSeededSettings() throws Exception {
         mockMvc.perform(get("/api/v1/admin/settings").header("Authorization", adminAuth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(30))  // 8 business settings (incl. retention) + 22 AI settings (D70, D76)
+                .andExpect(jsonPath("$.length()").value(32))  // 8 business settings (incl. retention) + 24 AI settings (D70, D76, D79)
                 .andExpect(jsonPath("$[?(@.key=='ai.timeout.turn_budget_sec')].value").value("11"))
                 .andExpect(jsonPath("$[?(@.key=='ai.timeout.turn_budget_sec')].rule.max").value(20.0))
                 .andExpect(jsonPath("$[?(@.key=='ai.model.tts')].rule.group").value("tts"))
@@ -127,7 +127,7 @@ class SettingsIntegrationTest {
             putSettings("{\"settings\":{\"ai.temperature.generation\":\"0.7\",\"ai.model.interview_fallback\":\"google/gemini-3.1-flash-lite\"}}");
         }
         mockMvc.perform(get("/api/v1/admin/ai/rules").header("Authorization", adminAuth))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(22));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(24));
     }
 
     @Test
