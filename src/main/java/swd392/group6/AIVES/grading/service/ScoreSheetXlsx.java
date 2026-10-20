@@ -75,7 +75,7 @@ public final class ScoreSheetXlsx {
                 + " · " + n + " câu chính · ngôn ngữ " + ("EN".equals(h.language()) ? "tiếng Anh" : "tiếng Việt"));
         r = fact(ws, st, r, lastCol, "Giám khảo", nz(h.examiner()));
         r = fact(ws, st, r, lastCol, "Thời gian check-in", TIME.format(h.checkinOpensAt()) + " – " + TIME.format(h.checkinClosesAt()));
-        r = fact(ws, st, r, lastCol, "Thang điểm", "10" + (h.passScore() != null ? " · điểm đạt " + num(h.passScore()) : ""));
+        r = fact(ws, st, r, lastCol, "Thang điểm", "10" + (h.weighted() ? " · mỗi câu có điểm tối đa theo đề thi, ô điểm = điểm đạt được" : "") + (h.passScore() != null ? " · điểm đạt " + num(h.passScore()) : ""));
         r = fact(ws, st, r, lastCol, "Ngày xuất", TIME.format(now));
         r++;
 
@@ -87,7 +87,8 @@ public final class ScoreSheetXlsx {
             cell(head, c++, t, st.head);
         }
         for (int i = 1; i <= n; i++) {
-            cell(head, c++, "Câu " + i, st.head);
+            BigDecimal points = h.questionPoints().get(i);
+            cell(head, c++, "Câu " + i + (points == null ? "" : " (" + num(points) + " đ)"), st.head);
         }
         for (String t : List.of("Tổng điểm", "AI gợi ý", "Kết quả", "Trạng thái chấm", "Ghi chú")) {
             cell(head, c++, t, st.head);

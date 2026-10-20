@@ -57,6 +57,10 @@ public class QuestionGrade {
     @Column(name = "include_in_total", nullable = false)
     private boolean includeInTotal = true;
 
+    /** Maximum points of this question in the total (D81), copied from the lượt thi; null = equal weight. */
+    @Column(name = "max_points", precision = 4, scale = 2)
+    private BigDecimal maxPoints;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "ai_strengths")
     private String aiStrengths;

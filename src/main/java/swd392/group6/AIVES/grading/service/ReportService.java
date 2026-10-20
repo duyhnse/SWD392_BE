@@ -26,10 +26,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -137,7 +139,8 @@ public class ReportService {
     /** Header facts of the buổi thi for the sheet. */
     record SheetHeader(String courseCode, String courseName, Long examNo, String examTitle, Long templateNo,
                        String templateTitle, String examiner, Instant checkinOpensAt, Instant checkinClosesAt,
-                       BigDecimal passScore, String language, int questionCount) {
+                       BigDecimal passScore, String language, int questionCount, boolean weighted,
+                       Map<Integer, BigDecimal> questionPoints) {
     }
 
     record Sheet(SheetHeader header, List<SheetRow> rows, ReportDto report) {
@@ -151,14 +154,29 @@ public class ReportService {
 
         // thread order numbers and final scores of every lượt thi of the exam
         Map<UUID, Integer> orderByAttemptQuestion = new HashMap<>();
+        // D81: the same position has the same points for every student (one row of the đề thi)
+        // Questions are ordered by Bloom at check-in, so a position may come from different rows: a position shows its
+        // points in the header only when every student has the same points there.
+        Map<Integer, BigDecimal> pointsByOrder = new HashMap<>();
+        Set<Integer> mixed = new HashSet<>();
+        boolean[] weighted = {support.jdbc().queryForObject("""
+                        select exists (select 1 from exam_template_items i join viva_exams e on e.exam_template_id = i.exam_template_id
+                                       where e.viva_exam_id = :exam and i.points_per_question is not null)""",
+                new MapSqlParameterSource("exam", vivaExamId), Boolean.class)};
         Integer maxOrder = support.jdbc().query("""
-                        select sq.attempt_question_id, sq.order_no from attempt_questions sq
+                        select sq.attempt_question_id, sq.order_no, sq.max_points from attempt_questions sq
                         join exam_attempts s on s.attempt_id = sq.attempt_id where s.viva_exam_id = :exam""",
                 new MapSqlParameterSource("exam", vivaExamId), rs -> {
                     int max = 0;
                     while (rs.next()) {
                         orderByAttemptQuestion.put(rs.getObject(1, UUID.class), rs.getInt(2));
                         max = Math.max(max, rs.getInt(2));
+                        BigDecimal points = rs.getBigDecimal(3);
+                        weighted[0] |= points != null;
+                        BigDecimal seen = pointsByOrder.putIfAbsent(rs.getInt(2), points);
+                        if (seen != null && (points == null || seen.compareTo(points) != 0)) {
+                            mixed.add(rs.getInt(2));
+                        }
                     }
                     return max;
                 });
@@ -200,7 +218,8 @@ public class ReportService {
                         continue;
                     }
                     if (g.isIncludeInTotal()) {
-                        scores[order - 1] = g.getFinalScore();
+                        scores[order - 1] = g.getMaxPoints() == null ? g.getFinalScore()
+                                : ScoreCalculator.earned(g.getFinalScore(), g.getMaxPoints());
                     } else {
                         excluded.add(order);
                     }
@@ -233,8 +252,19 @@ public class ReportService {
                         where e.viva_exam_id = :exam""", new MapSqlParameterSource("exam", vivaExamId));
         SheetHeader header = new SheetHeader((String) h.get("code"), (String) h.get("name"), number(h.get("exam_no")),
                 exam.title(), number(h.get("template_no")), (String) h.get("template_title"), (String) h.get("examiner"),
-                exam.checkinOpensAt(), exam.checkinClosesAt(), exam.passScore(), exam.language(), questionCount);
+                exam.checkinOpensAt(), exam.checkinClosesAt(), exam.passScore(), exam.language(), questionCount,
+                weighted[0], positionPoints(pointsByOrder, mixed));
         return new Sheet(header, rows, report(vivaExamId, user));
+    }
+
+    private static Map<Integer, BigDecimal> positionPoints(Map<Integer, BigDecimal> byOrder, Set<Integer> mixed) {
+        Map<Integer, BigDecimal> result = new HashMap<>();
+        byOrder.forEach((order, points) -> {
+            if (points != null && !mixed.contains(order)) {
+                result.put(order, points);
+            }
+        });
+        return result;
     }
 
     private static Long number(Object value) {
@@ -249,7 +279,8 @@ public class ReportService {
         StringBuilder csv = new StringBuilder();
         List<String> header = new ArrayList<>(List.of("STT", "MSSV", "Họ tên"));
         for (int i = 1; i <= questionCount; i++) {
-            header.add("Câu " + i);
+            BigDecimal points = sheet.header().questionPoints().get(i);
+            header.add("Câu " + i + (points == null ? "" : " (" + points.stripTrailingZeros().toPlainString() + " đ)"));
         }
         header.add("Tổng");
         if (pass) {

@@ -79,12 +79,12 @@ public class JdbcExamApi implements ExamApi {
         return jdbc.query("""
                         select attempt_question_id, question_id, order_no, status, topic_name, bloom_level,
                                language, content, reference_answer, rubric_snapshot::text, time_budget_sec, time_used_sec,
-                               void_reason, started_at
+                               void_reason, started_at, max_points
                         from attempt_questions where attempt_id = ? order by order_no, status = 'VOIDED' desc""",
                 (rs, i) -> new AttemptQuestionInfo(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getInt(3),
                         rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7), rs.getString(8),
                         rs.getString(9), rs.getString(10), rs.getInt(11), rs.getInt(12), rs.getString(13),
-                        instant(rs.getTimestamp(14))), attemptId);
+                        instant(rs.getTimestamp(14)), rs.getBigDecimal(15)), attemptId);
     }
 
     private static Instant instant(Timestamp ts) {

@@ -253,7 +253,8 @@ public class EvaluationService {
         for (QuestionGrade grade : included) {
             recompute(grade, criteria.get(grade.getQuestionGradeId()), user, now);
         }
-        BigDecimal total = ScoreCalculator.mean(included.stream().map(QuestionGrade::getFinalScore).toList());
+        BigDecimal total = ScoreCalculator.total(included.stream()
+                .map(g -> new ScoreCalculator.Weighted(g.getFinalScore(), g.getMaxPoints())).toList());
         log(evaluation, null, null, "status", evaluation.getStatus().name(), EvaluationStatus.CONFIRMED.name(), user, now);
         if (evaluation.getFinalTotalScore() == null || evaluation.getFinalTotalScore().compareTo(total) != 0) {
             log(evaluation, null, null, "final_total_score", plain(evaluation.getFinalTotalScore()), plain(total), user, now);
@@ -427,12 +428,14 @@ public class EvaluationService {
                     g.getFinalScore(), GradingJson.strings(g.getAiStrengths()), GradingJson.strings(g.getAiWeaknesses()),
                     GradingJson.strings(g.getAiMissingPoints()), g.getAiFeedback(), g.getAiError(),
                     GradingJson.signals(g.getSignals()), g.getLecturerComment(), g.getConfirmedBy(), g.getConfirmedAt(),
-                    grader.apply(g.getConfirmedBy())));
+                    grader.apply(g.getConfirmedBy()), g.getMaxPoints(),
+                    ScoreCalculator.earned(g.getFinalScore(), g.getMaxPoints())));
         }
         threadDtos.sort(Comparator.comparingInt(ThreadDto::orderNo));
         List<QuestionGrade> included = all.stream().filter(QuestionGrade::isIncludeInTotal).toList();
         BigDecimal current = included.stream().anyMatch(g -> g.getFinalScore() == null) ? null
-                : ScoreCalculator.mean(included.stream().map(QuestionGrade::getFinalScore).toList());
+                : ScoreCalculator.total(included.stream()
+                .map(g -> new ScoreCalculator.Weighted(g.getFinalScore(), g.getMaxPoints())).toList());
         return new EvaluationDto(evaluation.getEvaluationId(), attempt.attemptId(), attempt.vivaExamId(),
                 evaluation.getStatus().name(), evaluation.getVersion(),
                 new StudentRef(student.id(), student.fullName(), student.studentCode()), evaluation.getAiTotalScore(),

@@ -19,6 +19,23 @@ class ScoreCalculatorTest {
         return Arrays.stream(v).map(s -> s == null ? null : new BigDecimal(s)).toList();
     }
 
+    private static ScoreCalculator.Weighted w(String score, String points) {
+        return new ScoreCalculator.Weighted(score == null ? null : new BigDecimal(score), points == null ? null : new BigDecimal(points));
+    }
+
+    @Test
+    void totalUsesThePointsOfEachQuestion_D81() {
+        // 2 + 3 + 5 points; scores 8, 6, 9 on 10 → 1.6 + 1.8 + 4.5 = 7.90
+        assertThat(ScoreCalculator.total(List.of(w("8", "2"), w("6", "3"), w("9", "5")))).isEqualByComparingTo("7.90");
+        // a question left out → the others are rescaled to 10: (1.6 + 4.5) / 7 × 10 = 8.714… → 8.71
+        assertThat(ScoreCalculator.total(List.of(w("8", "2"), w("9", "5")))).isEqualByComparingTo("8.71");
+        // no points → equal weight (mean)
+        assertThat(ScoreCalculator.total(List.of(w("8", null), w("6", null)))).isEqualByComparingTo("7.00");
+        assertThat(ScoreCalculator.total(List.of(w(null, "5")))).isNull();
+        assertThat(ScoreCalculator.earned(new BigDecimal("7.8"), new BigDecimal("2.5"))).isEqualByComparingTo("1.95");
+        assertThat(ScoreCalculator.earned(null, new BigDecimal("2.5"))).isNull();
+    }
+
     @Test
     void weightedQuestionScore_AC_G2() {
         // w 60/40, max 10/10, scores 8/5 → 0.8×0.6×10 + 0.5×0.4×10 = 6.80

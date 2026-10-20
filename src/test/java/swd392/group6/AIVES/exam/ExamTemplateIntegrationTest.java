@@ -81,6 +81,17 @@ class ExamTemplateIntegrationTest extends ExamTestBase {
         call(put(url), c.token(), "{\"items\":[]}")
                 .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("TEMPLATE_ITEMS_REQUIRED"));
         call(put(url), c.token(), "{\"items\":[{\"count\":11}]}").andExpect(status().isBadRequest());
+        // D81: points on every row or none, 0.25 steps, Σ count × points = 10
+        call(put(url), c.token(), "{\"items\":[{\"count\":2,\"pointsPerQuestion\":3},{\"count\":1}]}")
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("INVALID_POINTS"));
+        call(put(url), c.token(), "{\"items\":[{\"count\":2,\"pointsPerQuestion\":3.3},{\"count\":1,\"pointsPerQuestion\":3.4}]}")
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("INVALID_POINTS"));
+        call(put(url), c.token(), "{\"items\":[{\"count\":2,\"pointsPerQuestion\":3},{\"count\":1,\"pointsPerQuestion\":3}]}")
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("POINTS_NOT_10"));
+        call(put(url), c.token(), "{\"items\":[{\"count\":2,\"pointsPerQuestion\":2.5},{\"count\":1,\"pointsPerQuestion\":5}]}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].pointsPerQuestion").value(2.5))
+                .andExpect(jsonPath("$.items[1].pointsPerQuestion").value(5.0));
     }
 
     @Test

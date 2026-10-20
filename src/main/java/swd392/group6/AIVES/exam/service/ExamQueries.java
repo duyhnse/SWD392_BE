@@ -95,7 +95,8 @@ public class ExamQueries {
             TopicInfo topic = i.getTopicId() == null ? null : topics.get(i.getTopicId());
             return new TemplateItemView(i.getId(), i.getTopicId(), topic == null ? null : topic.name(),
                     i.getBloomLevel(), i.getQuestionCount(),
-                    i.getSecondsPerQuestion(), i.getSortOrder(), (int) pool.stream().filter(row::matches).count());
+                    i.getSecondsPerQuestion(), i.getSortOrder(), (int) pool.stream().filter(row::matches).count(),
+                    i.getPointsPerQuestion());
         }).toList();
         boolean sufficient = !rows.isEmpty() && QuestionSelector.shortages(pool, rows(rows)).isEmpty();
         List<UUID> selected = t.getQuestionPoolMode() == QuestionPoolMode.SELECTED ? selectedQuestionIds(t.getId()) : List.of();

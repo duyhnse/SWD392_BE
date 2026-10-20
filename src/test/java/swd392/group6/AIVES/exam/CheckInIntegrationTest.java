@@ -75,6 +75,23 @@ class CheckInIntegrationTest extends ExamTestBase {
     }
 
     @Test
+    void eachQuestionKeepsThePointsOfItsRow_D81() throws Exception {
+        Course c = course();
+        questions(c, c.topicA(), UNDERSTAND, 2);
+        questions(c, c.topicB(), APPLY, 1);
+        UUID template = template(c, """
+                [{"topicId":"%s","bloomLevel":"UNDERSTAND","count":2,"pointsPerQuestion":2.5},
+                 {"topicId":"%s","bloomLevel":"APPLY","count":1,"pointsPerQuestion":5}]"""
+                .formatted(c.topicA(), c.topicB()), null);
+        User student = data.student();
+        UUID attempt = checkedIn(student, openExam(c, template, student));
+        assertThat(jdbc.queryForList("select max_points from attempt_questions where attempt_id = ? order by order_no",
+                java.math.BigDecimal.class, attempt))
+                .usingElementComparator(java.math.BigDecimal::compareTo)
+                .containsExactly(new java.math.BigDecimal("2.5"), new java.math.BigDecimal("2.5"), new java.math.BigDecimal("5"));
+    }
+
+    @Test
     void theDrawnQuestionIsSnapshotAndLocked_D49() throws Exception {
         Course c = course();
         UUID q = questions(c, c.topicA(), REMEMBER, 1).getFirst();

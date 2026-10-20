@@ -163,7 +163,7 @@ public class ExamTemplateService {
         templates.saveAndFlush(t);
         items.saveAllAndFlush(items.findByTemplateIdOrderBySortOrder(source.getId()).stream()
                 .map(i -> new ExamTemplateItem(UUID.randomUUID(), t.getId(), i.getTopicId(), i.getBloomLevel(),
-                        i.getQuestionCount(), i.getSecondsPerQuestion(), i.getSortOrder()))
+                        i.getQuestionCount(), i.getSecondsPerQuestion(), i.getSortOrder(), i.getPointsPerQuestion()))
                 .toList());
         jdbc.update("""
                 insert into exam_template_questions (exam_template_id, question_id)
@@ -228,17 +228,42 @@ public class ExamTemplateService {
             total += row.count();
             duration += row.count() * seconds;
             result.add(new ExamTemplateItem(UUID.randomUUID(), t.getId(), row.topicId(), row.bloomLevel(), row.count(),
-                    seconds, order++));
+                    seconds, order++, row.pointsPerQuestion()));
         }
         if (total > MAX_QUESTIONS) {
             throw ApiException.unprocessable("INVALID_QUESTION_COUNT", "A template has at most " + MAX_QUESTIONS
                     + " main questions (rows total " + total + ")");
         }
+        checkPoints(rows);
         if (duration > MAX_DURATION_SEC) {
             throw ApiException.unprocessable("INVALID_DURATION", "A template lasts at most 3 hours (rows total " + duration + " s)");
         }
         items.deleteByTemplate(t.getId());
         items.saveAllAndFlush(result);
+    }
+
+    /** D81: points on no row (equal weight) or on every row, each 0.25–10 in 0.25 steps, Σ count × points = 10. */
+    static void checkPoints(List<TemplateItemRequest> rows) {
+        long set = rows.stream().filter(r -> r.pointsPerQuestion() != null).count();
+        if (set == 0) {
+            return;
+        }
+        if (set != rows.size()) {
+            throw ApiException.unprocessable("INVALID_POINTS", "Set the points of every row or of none");
+        }
+        BigDecimal quarter = new BigDecimal("0.25");
+        BigDecimal sum = BigDecimal.ZERO;
+        for (TemplateItemRequest r : rows) {
+            BigDecimal p = r.pointsPerQuestion();
+            if (p.compareTo(quarter) < 0 || p.compareTo(BigDecimal.TEN) > 0 || p.remainder(quarter).signum() != 0) {
+                throw ApiException.unprocessable("INVALID_POINTS", "Points per question must be 0.25–10 in steps of 0.25");
+            }
+            sum = sum.add(p.multiply(BigDecimal.valueOf(r.count())));
+        }
+        if (sum.compareTo(BigDecimal.TEN) != 0) {
+            throw ApiException.unprocessable("POINTS_NOT_10", "Rows give " + sum.stripTrailingZeros().toPlainString()
+                    + " points; they must total exactly 10");
+        }
     }
 
     /** {@code exam.seconds.<BLOOM>} (or {@code .ANY}) from the settings, D46. */

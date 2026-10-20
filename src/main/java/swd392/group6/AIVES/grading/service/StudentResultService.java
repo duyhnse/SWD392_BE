@@ -111,7 +111,8 @@ public class StudentResultService {
             return new ResultThreadDto(g.getQuestionGradeId(), orderNo.getOrDefault(g.getAttemptQuestionId(), 0), content,
                     g.isIncludeInTotal(), g.getFinalScore(), criterionDtos, GradingJson.strings(g.getAiStrengths()),
                     GradingJson.strings(g.getAiWeaknesses()), GradingJson.strings(g.getAiMissingPoints()),
-                    g.getAiFeedback(), g.getLecturerComment());
+                    g.getAiFeedback(), g.getLecturerComment(), g.getMaxPoints(),
+                    ScoreCalculator.earned(g.getFinalScore(), g.getMaxPoints()));
         }).sorted(Comparator.comparingInt(ResultThreadDto::orderNo)).toList();
 
         Instant deadline = disputeDeadline(visible.exam());
