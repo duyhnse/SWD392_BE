@@ -834,7 +834,7 @@ public class InterviewService {
                 : qs.indexOf(current) + 1;
         int threadRemaining = current == null ? 0 : Math.max(0, current.timeBudgetSec() - current.timeUsedSec());
         return new Progress(index, count, open == null ? 0 : open.followupIndex(), exam.maxFollowupsPerQuestion(),
-                threadRemaining);
+                threadRemaining, current == null ? null : current.maxPoints());
     }
 
     // ================================================================================================ helpers
