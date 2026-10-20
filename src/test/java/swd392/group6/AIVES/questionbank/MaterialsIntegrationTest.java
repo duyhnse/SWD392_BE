@@ -20,6 +20,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -66,7 +67,7 @@ class MaterialsIntegrationTest {
 
         fx.perform(lecturer, get("/api/v1/materials/" + id))
                 .andExpect(status().isOk())
-                // indexed by the AI node (support.FakeAiNode)
+                // indexed by the AI node (support.AiNodeTestDouble)
                 .andExpect(jsonPath("$.status").value("INDEXED"))
                 .andExpect(jsonPath("$.fileName").value("Topic 3 slides.pdf"))
                 .andExpect(jsonPath("$.contentType").value(PDF))
@@ -87,6 +88,33 @@ class MaterialsIntegrationTest {
         fx.perform(lecturer, get("/api/v1/materials/" + id))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("MATERIAL_NOT_FOUND"));
+    }
+
+    @Test
+    void materialsBelongToChapters_D70() throws Exception {
+        UUID ch1 = fx.topic(lecturer, courseId, "Chương 1");
+        UUID ch2 = fx.topic(lecturer, courseId, "Chương 2");
+        UUID a = QuestionBankFixture.id(fx.perform(lecturer, multipart("/api/v1/courses/" + courseId + "/materials")
+                        .file(new MockMultipartFile("file", "c1.pdf", PDF, "%PDF a".getBytes(StandardCharsets.UTF_8)))
+                        .param("topicId", ch1.toString()))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.topicName").value("Chương 1")));
+        UUID b = upload("other.pdf", PDF, "%PDF b".getBytes(StandardCharsets.UTF_8));
+        fx.perform(lecturer, get("/api/v1/courses/" + courseId + "/materials").param("topicId", ch1.toString()))
+                .andExpect(jsonPath("$", hasSize(1))).andExpect(jsonPath("$[0].id").value(a.toString()));
+
+        fx.json(lecturer, patch("/api/v1/materials/" + b), "{\"topicId\":\"" + ch2 + "\"}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.topicId").value(ch2.toString()));
+        fx.json(lecturer, patch("/api/v1/materials/" + a), "{\"topicId\":null}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.topicId").doesNotExist());
+
+        UUID otherCourse = fx.course("VI");
+        fx.assign(otherCourse, lecturer);
+        UUID foreign = fx.topic(lecturer, otherCourse, "Khác");
+        fx.json(lecturer, patch("/api/v1/materials/" + b), "{\"topicId\":\"" + foreign + "\"}")
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("TOPIC_NOT_IN_COURSE"));
+
+        fx.perform(lecturer, delete("/api/v1/topics/" + ch2)).andExpect(status().isNoContent()); // the file stays
+        fx.perform(lecturer, get("/api/v1/materials/" + b)).andExpect(jsonPath("$.topicId").doesNotExist());
     }
 
     @Test

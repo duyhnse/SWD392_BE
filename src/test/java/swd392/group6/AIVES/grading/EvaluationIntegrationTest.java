@@ -107,7 +107,7 @@ class EvaluationIntegrationTest {
 
         String json = mockMvc.perform(post("/api/v1/attempts/{id}/evaluation", s.sessionId()).header("Authorization", lecturerToken))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("AWAITING_REVIEW"))
+                .andExpect(jsonPath("$.status").value("AWAITING_REVIEW"))  // opening a sheet never runs the AI (D78)
                 .andExpect(jsonPath("$.student.studentCode").value(student.getStudentCode()))
                 .andExpect(jsonPath("$.threads", hasSize(5)))
                 .andExpect(jsonPath("$.threads[0].status").value("AI_FAILED"))
@@ -134,6 +134,23 @@ class EvaluationIntegrationTest {
                 .andExpect(jsonPath("$.aiTotalScore").value(0.0))
                 .andReturn().getResponse().getContentAsString();
         String id = JsonPath.read(json, "$.id");
+        assertThat(jdbc.queryForObject("select count(*) from ai_jobs where job_type = 'GRADE_THREAD'"
+                + " and subject_id in (select question_grade_id from question_grades where evaluation_id = ?::uuid)", Integer.class, id)).isZero();
+        mockMvc.perform(post("/api/v1/evaluations/{id}/ai-grade", id).header("Authorization", lecturerToken))
+                .andExpect(status().isOk());                                 // the lecturer asks for the AI
+
+        // the AI node (test double) answered: only the thread with a transcript was sent; AI fields only (BR-G1)
+        mockMvc.perform(get("/api/v1/evaluations/{id}", id).header("Authorization", lecturerToken))
+                .andExpect(jsonPath("$.status").value("AWAITING_REVIEW"))
+                .andExpect(jsonPath("$.threads[0].status").value("AI_SCORED"))
+                .andExpect(jsonPath("$.threads[0].aiScore").value(7.5))
+                .andExpect(jsonPath("$.threads[0].criteria[0].aiScore").value(7.5))
+                .andExpect(jsonPath("$.threads[0].criteria[0].aiJustification").value("double: mostly covered"))
+                .andExpect(jsonPath("$.threads[0].criteria[0].finalScore").doesNotExist())
+                .andExpect(jsonPath("$.threads[0].aiMissingPoints[0]").value("double missing point"))
+                .andExpect(jsonPath("$.threads[3].status").value("MISSING_DATA"))
+                .andExpect(jsonPath("$.aiTotalScore").value(3.75))
+                .andExpect(jsonPath("$.aiGeneralFeedback").value("double summary"));
 
         mockMvc.perform(post("/api/v1/attempts/{id}/evaluation", s.sessionId()).header("Authorization", lecturerToken))
                 .andExpect(status().isOk())
@@ -288,7 +305,13 @@ class EvaluationIntegrationTest {
     void acceptAiCopiesSuggestionsAndKeepsAiScores() throws Exception {
         SessionFx s = twoThreadSession(fx.student("F"));
         String id = createEvaluation(s.sessionId());
-        // simulate the AI pipeline on thread 1 only
+        // the AI scored both threads; make thread 2 an AI failure and give thread 1 known scores
+        jdbc.update("""
+                update criterion_scores cs set ai_score = null, ai_justification = null from question_grades qg
+                where qg.question_grade_id = cs.question_grade_id and qg.evaluation_id = ?::uuid and qg.attempt_question_id = ?""",
+                id, s.sessionQuestionIds().get(1));
+        jdbc.update("update question_grades set status = 'AI_FAILED', ai_score = null where evaluation_id = ?::uuid and attempt_question_id = ?",
+                id, s.sessionQuestionIds().get(1));
         jdbc.update("""
                 update criterion_scores cs set ai_score = case when cs.criterion_id = ? then 8 else 5 end, ai_justification = 'ok'
                 from question_grades qg where qg.question_grade_id = cs.question_grade_id and qg.evaluation_id = ?::uuid
@@ -329,7 +352,8 @@ class EvaluationIntegrationTest {
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.items[0].evaluationId").value(id))
                 .andExpect(jsonPath("$.items[0].evaluationStatus").value("AWAITING_REVIEW"))
-                .andExpect(jsonPath("$.items[0].aiFailedThreads").value(2))
+                .andExpect(jsonPath("$.items[0].aiFailedThreads").value(0))     // not asked yet is not a failure
+                .andExpect(jsonPath("$.items[0].aiNotRequestedThreads").value(2))
                 .andExpect(jsonPath("$.items[0].student.fullName").value("G"))
                 .andExpect(jsonPath("$.items[1].attemptStatus").doesNotExist())
                 .andExpect(jsonPath("$.items[1].evaluationId").doesNotExist());

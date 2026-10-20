@@ -12,9 +12,12 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import swd392.group6.AIVES.ai.AiCatalogPort;
 import swd392.group6.AIVES.ai.AiJobPort;
 import swd392.group6.AIVES.ai.AiJobType;
 import swd392.group6.AIVES.ai.AiNodeProperties;
+import swd392.group6.AIVES.ai.AiSettings;
+import swd392.group6.AIVES.ai.AiSettingsSource;
 import swd392.group6.AIVES.ai.AiUnavailableException;
 import swd392.group6.AIVES.ai.AiMaterialIndexPort;
 import swd392.group6.AIVES.ai.InterviewAiPort;
@@ -43,7 +46,8 @@ import java.util.function.Supplier;
  * contract {@code SWD_Docs/api/ai-node.openapi.yaml}). Field names on the wire are snake_case.
  */
 @Slf4j
-public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSpeechPort, AiJobPort, AiMaterialIndexPort {
+public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSpeechPort, AiJobPort, AiMaterialIndexPort,
+        AiCatalogPort {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
     /** Log correlation on both nodes (16 §2.2): the turn id, the job id, or a fresh id. */
@@ -51,10 +55,17 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
 
     private final RestClient http;
     private final RestClient answerHttp;
+    private final AiSettingsSource settings;
 
-    public AiNodeClient(AiNodeProperties properties) {
-        this.http = client(properties, Duration.ofSeconds(15));
+    /** @param settings the admin's {@code ai.*} values, sent as {@code options} with every call (D70); null = defaults */
+    public AiNodeClient(AiNodeProperties properties, AiSettingsSource settings) {
+        this.http = client(properties, Duration.ofSeconds(25));
         this.answerHttp = client(properties, properties.processAnswerTimeout());
+        this.settings = settings;
+    }
+
+    private Map<String, Object> options() {
+        return AiSettings.options(key -> settings == null ? Optional.empty() : settings.value(key));
     }
 
     private static RestClient client(AiNodeProperties p, Duration readTimeout) {
@@ -84,6 +95,10 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
         context.put("followups_used", r.followupsUsed());
         context.put("max_followups", r.maxFollowups());
         context.put("want_follow_up_audio", r.wantFollowUpAudio());
+        if (r.transcriptPrefix() != null) {
+            context.put("transcript_prefix", r.transcriptPrefix()); // contract 1.3.0 (D74): the audio is the rest
+        }
+        context.put("options", options());
         MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
         form.add("audio", filePart(r.audio(), r.audioContentType(), "answer"));
         form.add("context", jsonPart(context));
@@ -120,7 +135,7 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
         MultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
         form.add("audio", filePart(r.audio(), r.contentType(), "answer"));
         form.add("context", jsonPart(Map.of("language", r.language().name(),
-                "prompt", r.hotwordPrompt() == null ? "" : r.hotwordPrompt())));
+                "prompt", r.hotwordPrompt() == null ? "" : r.hotwordPrompt(), "options", options())));
         JsonNode body = call(() -> http.post().uri("/v1/stt").header(REQUEST_ID, newRequestId()).contentType(MediaType.MULTIPART_FORM_DATA)
                 .body(form).retrieve().body(JsonNode.class));
         return new Transcript(body.path("text").asString(""), body.path("model").asString(null),
@@ -130,7 +145,7 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
     @Override
     public SynthesizedAudio synthesize(String text, Language language) {
         JsonNode body = call(() -> http.post().uri("/v1/tts").header(REQUEST_ID, newRequestId()).contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("text", text, "language", language.name(), "format", "mp3")).retrieve().body(JsonNode.class));
+                .body(Map.of("text", text, "language", language.name(), "options", options())).retrieve().body(JsonNode.class));
         SynthesizedAudio audio = audio(body);
         if (audio == null) {
             throw new AiUnavailableException("TTS returned no audio");
@@ -151,8 +166,11 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
 
     @Override
     public Optional<AiJobOutcome> submit(UUID jobId, AiJobType type, JsonNode input, String callbackUrl) {
+        tools.jackson.databind.node.ObjectNode withOptions = input != null && input.isObject()
+                ? ((tools.jackson.databind.node.ObjectNode) input.deepCopy()) : JSON.createObjectNode();
+        withOptions.set("options", JSON.valueToTree(options()));
         Map<String, Object> body = Map.of("job_id", jobId.toString(), "type", type.name(), "callback_url", callbackUrl,
-                "input", input);
+                "input", withOptions);
         call(() -> http.post().uri("/v1/jobs").header(REQUEST_ID, jobId.toString()).contentType(MediaType.APPLICATION_JSON).body(body).retrieve()
                 .toBodilessEntity());
         return Optional.empty();
@@ -178,6 +196,18 @@ public class AiNodeClient implements InterviewAiPort, SpeechToTextPort, TextToSp
         JsonNode error = body.path("error");
         return Optional.of(new AiJobOutcome(status, status.equals("SUCCEEDED") ? body.path("result") : null,
                 error.path("code").asString(null), error.path("message").asString(null)));
+    }
+
+    // ---- admin (D70) -----------------------------------------------------------------------------------------
+
+    @Override
+    public JsonNode models() {
+        return call(() -> http.get().uri("/v1/models").header(REQUEST_ID, newRequestId()).retrieve().body(JsonNode.class));
+    }
+
+    @Override
+    public JsonNode health() {
+        return call(() -> http.get().uri("/v1/health").header(REQUEST_ID, newRequestId()).retrieve().body(JsonNode.class));
     }
 
     // ---- helpers ---------------------------------------------------------------------------------------------

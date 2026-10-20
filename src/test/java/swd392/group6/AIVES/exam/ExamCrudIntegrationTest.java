@@ -9,7 +9,6 @@ import swd392.group6.AIVES.support.IntegrationTest;
 import swd392.group6.AIVES.user.User;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -112,8 +111,8 @@ class ExamCrudIntegrationTest extends ExamTestBase {
         call(get("/api/v1/courses/" + c.id() + "/viva-exams"), other).andExpect(status().isNotFound());
         call(patch("/api/v1/viva-exams/" + exam), other, "{\"version\":0,\"title\":\"x\"}").andExpect(status().isNotFound());
         call(post("/api/v1/viva-exams/" + exam + "/publish"), other).andExpect(status().isNotFound());
-        call(get("/api/v1/viva-exams/" + exam), student).andExpect(status().isNotFound());
-        call(get("/api/v1/viva-exams/" + exam + "/attempts"), student).andExpect(status().isNotFound());
+        call(get("/api/v1/viva-exams/" + exam), student).andExpect(status().isForbidden());
+        call(get("/api/v1/viva-exams/" + exam + "/attempts"), student).andExpect(status().isForbidden());
 
         call(get("/api/v1/viva-exams/" + exam), admin).andExpect(status().isOk());
         call(get("/api/v1/courses/" + c.id() + "/viva-exams"), admin).andExpect(jsonPath("$.total").value(1));

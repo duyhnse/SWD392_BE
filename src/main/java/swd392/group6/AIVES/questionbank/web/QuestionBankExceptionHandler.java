@@ -6,7 +6,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import swd392.group6.AIVES.common.GlobalExceptionHandler;
-import swd392.group6.AIVES.questionbank.internal.PublishValidationException;
+import swd392.group6.AIVES.questionbank.service.PublishValidationException;
 
 import java.util.List;
 import java.util.Map;

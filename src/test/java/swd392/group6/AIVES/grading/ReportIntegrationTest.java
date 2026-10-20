@@ -141,7 +141,8 @@ class ReportIntegrationTest {
         mockMvc.perform(get("/api/v1/viva-exams/{id}/report", examId).header("Authorization", lecturerToken))
                 .andExpect(jsonPath("$.passScore").value(5.0))
                 .andExpect(jsonPath("$.passedCount").value(1));
-        String csv = mockMvc.perform(get("/api/v1/viva-exams/{id}/export", examId).header("Authorization", lecturerToken))
+        String csv = mockMvc.perform(get("/api/v1/viva-exams/{id}/export", examId).param("format", "csv")
+                        .header("Authorization", lecturerToken))
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         List<String> lines = csv.substring(1).lines().toList();
         assertThat(lines.get(0)).isEqualTo("STT,MSSV,Họ tên,Câu 1,Câu 2,Tổng,Kết quả,Ghi chú");
@@ -176,5 +177,40 @@ class ReportIntegrationTest {
         mockMvc.perform(get("/api/v1/viva-exams/{id}/export", examId)
                         .header("Authorization", "Bearer " + TestUsers.login(mockMvc, admin.getUsername(), TestUsers.PASSWORD)))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void theDefaultExportIsAnExcelScoreSheetWithSummaryAndDetail_FG6() throws Exception {
+        jdbc.update("""
+                update exam_templates set pass_score = 5 where exam_template_id =
+                  (select exam_template_id from viva_exams where viva_exam_id = ?)""", examId);
+        byte[] body = mockMvc.perform(get("/api/v1/viva-exams/{id}/export", examId).header("Authorization", lecturerToken))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString(".xlsx")))
+                .andReturn().getResponse().getContentAsByteArray();
+        try (var wb = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(body))) {
+            assertThat(List.of(wb.getSheetName(0), wb.getSheetName(1), wb.getSheetName(2)))
+                    .containsExactly("Bảng điểm", "Chi tiết tiêu chí", "Thống kê câu hỏi");
+            var sheet = wb.getSheetAt(0);
+            var fmt = new org.apache.poi.ss.usermodel.DataFormatter();
+            List<String> rows = new java.util.ArrayList<>();
+            sheet.forEach(r -> {
+                StringBuilder line = new StringBuilder();
+                r.forEach(c -> line.append(fmt.formatCellValue(c)).append('|'));
+                rows.add(line.toString());
+            });
+            String all = String.join("\n", rows);
+            assertThat(rows.getFirst()).startsWith("BẢNG ĐIỂM THI VẤN ĐÁP");
+            assertThat(all).contains("Môn học|", "Buổi thi|", "Giám khảo|", "Thang điểm|10 · điểm đạt 5");
+            assertThat(all).contains("STT|MSSV|Họ và tên|Dự thi|Câu 1|Câu 2|Tổng điểm|AI gợi ý|Kết quả|Trạng thái chấm|Ghi chú|");
+            assertThat(all).contains(an.getStudentCode() + "|Nguyễn An|Đã thi|6.80|10.00|8.40|", "|Đạt|Đã chốt|");
+            assertThat(all).contains(binh.getStudentCode() + "|Lê Bình, \"B\"|Đã thi|5.00|4.00|4.50|", "|Không đạt|Đã chốt|");
+            assertThat(all).contains(dung.getStudentCode() + "|Đỗ Dung|Vắng thi|");
+            assertThat(all).contains("Sĩ số|4|", "Dự thi|3|", "Vắng thi|1|", "Đạt|1|", "Không đạt|1|", "Điểm trung bình|6.45|");
+            assertThat(all).contains("Giám khảo|", "(Ký, ghi rõ họ tên)");
+            assertThat(wb.getSheetAt(1).getPhysicalNumberOfRows()).isGreaterThan(1);   // criteria of the confirmed ones
+            assertThat(wb.getSheetAt(2).getPhysicalNumberOfRows()).isGreaterThan(1);
+        }
     }
 }

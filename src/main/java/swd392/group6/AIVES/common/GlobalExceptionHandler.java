@@ -42,6 +42,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.FORBIDDEN, "FORBIDDEN", "You do not have permission to perform this action");
     }
 
+    /** A file upload sent as something else than multipart/form-data: the client's mistake, not a server error. */
+    @ExceptionHandler(org.springframework.web.multipart.MultipartException.class)
+    public ProblemDetail handleNotMultipart(org.springframework.web.multipart.MultipartException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "MULTIPART_REQUIRED", "Send the file as multipart/form-data");
+    }
+
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpected(Exception ex, HttpServletRequest request) {
         // Never leak internals to the client; the stack trace goes to the log only.

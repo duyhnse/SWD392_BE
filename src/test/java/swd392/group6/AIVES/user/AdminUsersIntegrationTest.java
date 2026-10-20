@@ -1,5 +1,7 @@
 package swd392.group6.AIVES.user;
 
+import swd392.group6.AIVES.user.repository.UserRepository;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;

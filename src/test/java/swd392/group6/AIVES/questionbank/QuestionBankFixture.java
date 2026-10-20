@@ -11,7 +11,6 @@ import swd392.group6.AIVES.support.TestUsers;
 import swd392.group6.AIVES.user.Role;
 import swd392.group6.AIVES.user.User;
 
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;

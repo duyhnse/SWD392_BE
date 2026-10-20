@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** The node-1 side of the AI node contract (SWD_Docs api/ai-node.openapi.yaml) against a fake node. */
+/** The node-1 side of the AI node contract (SWD_Docs api/ai-node.openapi.yaml) against a test-double node. */
 class AiNodeClientTest {
 
     private HttpServer server;
@@ -55,7 +55,8 @@ class AiNodeClientTest {
         });
         server.start();
         client = new AiNodeClient(new AiNodeProperties("http://127.0.0.1:" + server.getAddress().getPort(), "node-token",
-                "secret", "http://node1:8081", Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofMinutes(1)));
+                "secret", "http://node1:8081", Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofMinutes(1)),
+                key -> key.equals("ai.temperature.grading") ? Optional.of("0.1") : Optional.empty());
     }
 
     @AfterEach
@@ -88,8 +89,17 @@ class AiNodeClientTest {
         assertThat(r.analysisError()).isNull();
         String sent = requests.get("POST /v1/interview/process-answer");
         assertThat(sent).contains("name=\"audio\"", "name=\"context\"", "\"request_id\":\"turn-7\"", "\"max_followups\":2",
-                "\"prior_turns\":[{");
+                "\"prior_turns\":[{", "\"options\":{\"models\":{\"interview\":\"google/gemini-3.5-flash-lite\"",
+                "\"turn_budget_sec\":11.0");
         assertThat(authHeaders.get("POST /v1/interview/process-answer")).isEqualTo("Bearer node-token");
+    }
+
+    @Test
+    void theTranscriptOfEarlierPartsTravelsAsThePrefix_D74() {
+        responses.put("POST /v1/interview/process-answer", new Object[]{200, "{\"transcript\":{\"text\":\"a b c\"}}"});
+        client.processAnswer(new AnswerRequest("t", Language.VI, new byte[] {1}, "audio/webm", List.of(), "Q", "", List.of(),
+                "Q", 0, 1, false, "phần đầu đã chép"));
+        assertThat(requests.get("POST /v1/interview/process-answer")).contains("\"transcript_prefix\":\"phần đầu đã chép\"");
     }
 
     @Test
@@ -116,7 +126,8 @@ class AiNodeClientTest {
         Optional<AiJobOutcome> immediate = client.submit(jobId, AiJobType.GRADE_THREAD,
                 JsonMapper.builder().build().readTree("{\"turns\":[]}"), "http://node1:8081/internal/ai-node/jobs/x/result");
         assertThat(immediate).isEmpty();
-        assertThat(requests.get("POST /v1/jobs")).contains("\"type\":\"GRADE_THREAD\"", "\"callback_url\"", "\"input\":{");
+        assertThat(requests.get("POST /v1/jobs")).contains("\"type\":\"GRADE_THREAD\"", "\"callback_url\"", "\"input\":{",
+                "\"turns\":[]", "\"grading\":0.1"); // the admin's settings travel with the job (D70)
 
         responses.put("GET /v1/jobs/" + jobId, new Object[]{200, "{\"status\":\"RUNNING\"}"});
         assertThat(client.poll(jobId)).isEmpty();

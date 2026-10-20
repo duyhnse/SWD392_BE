@@ -26,7 +26,16 @@ public interface InterviewAiPort {
      */
     record AnswerRequest(String requestId, Language language, byte[] audio, String audioContentType,
                          List<String> hotwords, String mainQuestion, String referenceAnswer, List<PriorTurn> priorTurns,
-                         String currentQuestionText, int followupsUsed, int maxFollowups, boolean wantFollowUpAudio) {
+                         String currentQuestionText, int followupsUsed, int maxFollowups, boolean wantFollowUpAudio,
+                         String transcriptPrefix) {
+
+        /** @param transcriptPrefix what earlier parts of the answer said (D74); the audio is then only the rest */
+        public AnswerRequest(String requestId, Language language, byte[] audio, String audioContentType, List<String> hotwords,
+                             String mainQuestion, String referenceAnswer, List<PriorTurn> priorTurns,
+                             String currentQuestionText, int followupsUsed, int maxFollowups, boolean wantFollowUpAudio) {
+            this(requestId, language, audio, audioContentType, hotwords, mainQuestion, referenceAnswer, priorTurns,
+                    currentQuestionText, followupsUsed, maxFollowups, wantFollowUpAudio, null);
+        }
     }
 
     record PriorTurn(String type, String questionText, String transcript) {

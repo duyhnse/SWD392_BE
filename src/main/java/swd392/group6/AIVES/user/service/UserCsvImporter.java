@@ -1,0 +1,142 @@
+package swd392.group6.AIVES.user.service;
+
+import swd392.group6.AIVES.user.Role;
+
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+import swd392.group6.AIVES.common.CsvTemplates;
+import swd392.group6.AIVES.common.DryRun;
+import swd392.group6.AIVES.common.ApiException;
+import swd392.group6.AIVES.user.dto.ImportReport;
+import swd392.group6.AIVES.user.dto.RowError;
+import swd392.group6.AIVES.user.UserApi.NewAccount;
+import swd392.group6.AIVES.user.UserApi.ProvisionResult;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+
+/** Parses the account import CSV (14 §3.4) and turns provisioning results into a row report. */
+@Component
+public class UserCsvImporter {
+
+    static final int MAX_ROWS = 1000;
+    private static final Set<String> REQUIRED = Set.of("username", "full_name", "email");
+
+    private final AccountProvisioningService provisioning;
+
+    UserCsvImporter(AccountProvisioningService provisioning) {
+        this.provisioning = provisioning;
+    }
+
+    /** {@code dryRun}: validate and report only (the transaction is rolled back). */
+    @Transactional
+    public ImportReport importCsv(InputStream input, boolean allowRoleColumn, boolean dryRun) {
+        List<NewAccount> accounts = new ArrayList<>();
+        List<RowError> errors = new ArrayList<>();
+        List<Integer> rowNumbers = new ArrayList<>();
+
+        try (Reader reader = new InputStreamReader(skipBom(input), StandardCharsets.UTF_8);
+             CSVParser parser = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true)
+                     .setIgnoreEmptyLines(true).setTrim(true).get().parse(reader)) {
+            Map<String, Integer> header = lowerCaseHeader(parser.getHeaderMap());
+            if (!header.keySet().containsAll(REQUIRED)) {
+                throw invalidFile("Header must contain: username, full_name, email (optional: role, student_code, password, active)");
+            }
+            for (CSVRecord record : parser) {
+                int row = (int) record.getRecordNumber() + 1; // +1: the header is row 1, as in a spreadsheet
+                if (accounts.size() + errors.size() >= MAX_ROWS) {
+                    throw invalidFile("A file may contain at most " + MAX_ROWS + " rows");
+                }
+                Role role = null;
+                String roleValue = value(record, header, "role");
+                if (allowRoleColumn && roleValue != null && !roleValue.isBlank()) {
+                    try {
+                        role = Role.valueOf(roleValue.trim().toUpperCase(Locale.ROOT));
+                    } catch (IllegalArgumentException e) {
+                        errors.add(new RowError(row, "role", "INVALID_ROLE", "Role must be ADMIN, LECTURER or STUDENT"));
+                        continue;
+                    }
+                }
+                Boolean active;
+                try {
+                    active = CsvTemplates.bool(value(record, header, "active"));
+                } catch (IllegalArgumentException e) {
+                    errors.add(new RowError(row, "active", "INVALID_ACTIVE", "active must be TRUE or FALSE (blank = TRUE)"));
+                    continue;
+                }
+                accounts.add(new NewAccount(value(record, header, "username"), value(record, header, "full_name"),
+                        value(record, header, "email"), value(record, header, "student_code"), role,
+                        value(record, header, "password"), active));
+                rowNumbers.add(row);
+            }
+        } catch (IOException | IllegalArgumentException | IllegalStateException e) {
+            throw invalidFile("The file is not a readable UTF-8 CSV");
+        }
+
+        int total = accounts.size() + errors.size(); // rows rejected before provisioning (bad role) count too
+        List<ProvisionResult> results = provisioning.provision(accounts);
+        int created = 0;
+        int existing = 0;
+        for (int i = 0; i < results.size(); i++) {
+            ProvisionResult result = results.get(i);
+            if (!result.ok()) {
+                errors.add(new RowError(rowNumbers.get(i), result.errorField(), result.errorCode(), result.message()));
+            } else if (result.created()) {
+                created++;
+            } else {
+                existing++;
+            }
+        }
+        errors.sort((a, b) -> Integer.compare(a.row(), b.row()));
+        DryRun.rollbackIf(dryRun);
+        return new ImportReport(total, created, existing, errors);
+    }
+
+    /** Account import template (14 §3.4, D62): row 1 = column names + what to write + what a blank cell means. */
+    public static byte[] template() {
+        return CsvTemplates.csv(List.of(
+                "username (bắt buộc — tên đăng nhập, duy nhất, 3–50 ký tự a-z 0-9 . - _; username đã có thì giữ nguyên, không ghi đè; vd. annvse190001)",
+                "full_name (bắt buộc với tài khoản mới — họ tên, tối đa 100 ký tự; vd. Nguyễn Văn An)",
+                "email (bắt buộc với tài khoản mới — duy nhất, dùng để gửi link đặt lại mật khẩu; vd. annvse190001@school.edu.vn)",
+                "role (STUDENT / LECTURER / ADMIN — trống = STUDENT)",
+                "student_code (MSSV — bắt buộc khi role là STUDENT, để trống với LECTURER / ADMIN; vd. SE190001)",
+                "password (8–100 ký tự — trống = mật khẩu mặc định ở trang Cấu hình; người dùng phải đổi ở lần đăng nhập đầu)",
+                "active (TRUE / FALSE — trống = TRUE)"));
+    }
+
+    private static Map<String, Integer> lowerCaseHeader(Map<String, Integer> header) {
+        Map<String, Integer> lower = new java.util.HashMap<>();
+        header.forEach((name, index) -> lower.putIfAbsent(CsvTemplates.columnName(name), index));
+        return lower;
+    }
+
+    private static String value(CSVRecord record, Map<String, Integer> header, String column) {
+        Integer index = header.get(column);
+        return index == null || index >= record.size() ? null : record.get(index);
+    }
+
+    private static InputStream skipBom(InputStream input) throws IOException {
+        var buffered = new java.io.BufferedInputStream(input);
+        buffered.mark(3);
+        byte[] bom = buffered.readNBytes(3);
+        if (!(bom.length == 3 && (bom[0] & 0xFF) == 0xEF && (bom[1] & 0xFF) == 0xBB && (bom[2] & 0xFF) == 0xBF)) {
+            buffered.reset();
+        }
+        return buffered;
+    }
+
+    private static ApiException invalidFile(String message) {
+        return ApiException.unprocessable("IMPORT_FILE_INVALID", message);
+    }
+}

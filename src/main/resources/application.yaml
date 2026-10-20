@@ -85,7 +85,8 @@ application:
     callback-secret: ${AI_NODE_CALLBACK_SECRET:}
     # How the AI node reaches this backend (tailnet address of node 1)
     callback-base-url: ${AI_NODE_CALLBACK_BASE_URL:http://localhost:8080}
-    process-answer-timeout: 12s
+    # safety net: the AI node answers within the admin turn budget (ai.timeout.turn_budget_sec, default 11 s, D70)
+    process-answer-timeout: 22s
     job-timeout: 5m
   storage:
     provider: ${STORAGE_PROVIDER:local}

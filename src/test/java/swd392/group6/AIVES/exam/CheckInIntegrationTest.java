@@ -109,7 +109,7 @@ class CheckInIntegrationTest extends ExamTestBase {
         assertThat(jdbc.queryForObject("""
                 select rubric_snapshot->>'rubricId' from attempt_questions where attempt_id = ?""", String.class, attempt))
                 .as("a question is graded with its own rubric (D57)").isEqualTo(questionRubric.toString());
-        call(get("/api/v1/attempts/" + attempt), token(student)).andExpect(status().isNotFound());
+        call(get("/api/v1/attempts/" + attempt), token(student)).andExpect(status().isForbidden());   // staff-only API
         call(get("/api/v1/attempts/" + attempt), token(data.lecturer())).andExpect(status().isNotFound());
     }
 

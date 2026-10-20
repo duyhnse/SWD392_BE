@@ -1,5 +1,7 @@
 package swd392.group6.AIVES.user;
 
+import swd392.group6.AIVES.user.domain.AvatarSource;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

@@ -1,12 +1,13 @@
 package swd392.group6.AIVES.user;
 
+import swd392.group6.AIVES.user.repository.UserRepository;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import swd392.group6.AIVES.support.ExamRows;
 import swd392.group6.AIVES.support.TestUsers;
 
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;

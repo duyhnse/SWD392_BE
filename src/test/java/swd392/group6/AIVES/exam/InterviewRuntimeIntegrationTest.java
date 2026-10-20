@@ -8,7 +8,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.ResultActions;
 import swd392.group6.AIVES.interview.AttemptCompletedEvent;
-import swd392.group6.AIVES.support.FakeAiNode;
+import swd392.group6.AIVES.ai.InterviewAiPort.AnswerRequest;
+import swd392.group6.AIVES.support.AiNodeTestDouble;
 import swd392.group6.AIVES.support.IntegrationTest;
 import swd392.group6.AIVES.user.User;
 
@@ -25,18 +26,18 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** WF3 runtime (05 §4–§8, AC-I1…AC-I17): the turn loop over the fake AI node, timing, disconnects, examiner control. */
+/** WF3 runtime (05 §4–§8, AC-I1…AC-I17): the turn loop over the AI node test double, timing, disconnects, examiner control. */
 @IntegrationTest
 @Import({ExamTestConfiguration.class, InterviewRuntimeIntegrationTest.Events.class,
-        swd392.group6.AIVES.interview.internal.InterviewTestHooks.class})
+        swd392.group6.AIVES.interview.service.InterviewTestHooks.class})
 class InterviewRuntimeIntegrationTest extends ExamTestBase {
 
     private static final String LONG = "Modular monolith là một khối triển khai duy nhất nhưng chia module theo nghiệp vụ, "
             + "mỗi module sở hữu dữ liệu riêng và giao tiếp qua interface rõ ràng nên dễ bảo trì";
     private static final String SHORT = "Là chia module";
 
-    @Autowired FakeAiNode aiNode;
-    @Autowired swd392.group6.AIVES.interview.internal.InterviewTestHooks hooks;
+    @Autowired AiNodeTestDouble aiNode;
+    @Autowired swd392.group6.AIVES.interview.service.InterviewTestHooks hooks;
     @Autowired Events completed;
 
     /** Collects completion events (BR-I9). */
@@ -54,6 +55,7 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
     void reset() {
         clock.set(T0);
         aiNode.ttsBroken = false;
+        aiNode.followUpVoiceLate = false;
         aiNode.answerRequests.clear();
     }
 
@@ -221,6 +223,87 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
     }
 
     @Test
+    void lateFollowUpVoiceIsShownAtOnceAndVoicedJustAfter_D70() throws Exception {
+        aiNode.followUpVoiceLate = true;
+        Started s = start(2);
+        String afterShort = answered(s, turnId(state(s)), SHORT);
+        assertThat((String) JsonPath.read(afterShort, "$.currentTurn.type")).isEqualTo("FOLLOW_UP");
+        assertThat((String) JsonPath.read(afterShort, "$.currentTurn.text")).isNotBlank();
+        String later = afterShort;
+        for (int i = 0; i < 50 && JsonPath.read(later, "$.currentTurn.audioUrl") == null; i++) {
+            Thread.sleep(100);
+            later = state(s);
+        }
+        assertThat((String) JsonPath.read(later, "$.currentTurn.audioUrl")).endsWith("/question-audio");
+        assertThat((Boolean) JsonPath.read(later, "$.currentTurn.audioPending")).isFalse();
+        assertThat(eventTypes(s.attempt())).doesNotContain("TTS_FAILED");
+    }
+
+    @Test
+    void mainQuestionsAreVoicedRightAfterCheckIn_D70() throws Exception {
+        Started s = start(2);
+        List<String> texts = jdbc.queryForList("select content from attempt_questions where attempt_id = ? and status <> 'VOIDED'",
+                String.class, s.attempt());
+        for (int i = 0; i < 50 && !aiNode.spoken.containsAll(texts); i++) {
+            Thread.sleep(100);
+        }
+        assertThat(aiNode.spoken).containsAll(texts);
+    }
+
+    private void part(Started s, String turnId, int index, String text) throws Exception {
+        mockMvc.perform(multipart("/api/v1/attempts/" + s.attempt() + "/turns/" + turnId + "/answer-parts/" + index)
+                        .file(new MockMultipartFile("audio", "p.webm", "audio/webm", text.getBytes(StandardCharsets.UTF_8)))
+                        .header("Authorization", "Bearer " + token(s.student())))
+                .andExpect(status().isAccepted());
+    }
+
+    private String answeredInParts(Started s, String turnId, String full, String tail, int parts) throws Exception {
+        return json(mockMvc.perform(multipart("/api/v1/attempts/" + s.attempt() + "/turns/" + turnId + "/answer")
+                .file(new MockMultipartFile("audio", "a.webm", "audio/webm", full.getBytes(StandardCharsets.UTF_8)))
+                .file(new MockMultipartFile("tail", "t.webm", "audio/webm", tail.getBytes(StandardCharsets.UTF_8)))
+                .param("durationSec", "80").param("parts", String.valueOf(parts))
+                .header("Authorization", "Bearer " + token(s.student()))).andExpect(status().isOk()));
+    }
+
+    @Test
+    void aLongAnswerSentInPartsOnlyLeavesTheTailToTranscribe_D74() throws Exception {
+        Started s = start(1);
+        String turn = turnId(state(s));
+        part(s, turn, 0, "Modular monolith là một khối triển khai duy nhất");
+        part(s, turn, 1, "nhưng chia module theo nghiệp vụ với ranh giới rõ ràng");
+        part(s, turn, 1, "a retried upload changes nothing");
+        answeredInParts(s, turn, "FULL RECORDING", "và giao tiếp qua API công khai của từng module", 2);
+        AnswerRequest sent = aiNode.answerRequests.getLast();
+        assertThat(new String(sent.audio(), StandardCharsets.UTF_8)).isEqualTo("và giao tiếp qua API công khai của từng module");
+        assertThat(sent.transcriptPrefix()).isEqualTo(
+                "Modular monolith là một khối triển khai duy nhất nhưng chia module theo nghiệp vụ với ranh giới rõ ràng");
+        assertThat(jdbc.queryForObject("select student_transcript from exam_turns where turn_id = ?::uuid", String.class, turn))
+                .startsWith("Modular monolith").endsWith("từng module");
+        assertThat(eventTypes(s.attempt())).contains("ANSWER_PARTS_USED");
+    }
+
+    @Test
+    void aMissingPartFallsBackToTheFullRecording_D74() throws Exception {
+        Started s = start(1);
+        String turn = turnId(state(s));
+        part(s, turn, 0, "phần đầu");
+        answeredInParts(s, turn, "FULL RECORDING", "đoạn cuối", 2);   // part 1 never arrived
+        AnswerRequest sent = aiNode.answerRequests.getLast();
+        assertThat(new String(sent.audio(), StandardCharsets.UTF_8)).isEqualTo("FULL RECORDING");
+        assertThat(sent.transcriptPrefix()).isNull();
+        assertThat(eventTypes(s.attempt())).contains("ANSWER_PARTS_IGNORED");
+    }
+
+    @Test
+    void partsOnlyForTheCurrentTurn_D74() throws Exception {
+        Started s = start(1);
+        mockMvc.perform(multipart("/api/v1/attempts/" + s.attempt() + "/turns/" + UUID.randomUUID() + "/answer-parts/0")
+                        .file(new MockMultipartFile("audio", "p.webm", "audio/webm", new byte[] {1}))
+                        .header("Authorization", "Bearer " + token(s.student())))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
     void ttsFailureFallsBackToBrowserSpeech_AC_I9() throws Exception {
         aiNode.ttsBroken = true;
         Started s = start(1);
@@ -323,7 +406,7 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
     void playbackAndProcessingAreNotCharged_AC_I17() throws Exception {
         Started s = start(1);
         String t1 = turnId(state(s));
-        clock.advance(Duration.ofSeconds(12)); // 2 s question audio (fake TTS) + 10 s answering
+        clock.advance(Duration.ofSeconds(12)); // 2 s question audio (test-double TTS) + 10 s answering
         answered(s, t1, LONG);
         assertThat(jdbc.queryForObject("select answer_counted_ms from exam_turns where turn_id = ?", Integer.class,
                 UUID.fromString(t1))).isEqualTo(10_000);
@@ -390,6 +473,8 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
                 "{\"type\":\"DEVICES_CHECKED\",\"details\":{\"camera\":false,\"screen\":false}}").andExpect(status().isNoContent());
         call(post("/api/v1/attempts/" + s.attempt() + "/client-events"), token(s.student()), "{\"type\":\"CAMERA_UNAVAILABLE\"}")
                 .andExpect(status().isNoContent());
+        call(post("/api/v1/attempts/" + s.attempt() + "/client-events"), token(s.student()),
+                "{\"type\":\"VIRTUAL_DEVICE\",\"details\":{\"camera\":\"OBS Virtual Camera\"}}").andExpect(status().isNoContent());
         call(post("/api/v1/attempts/" + s.attempt() + "/client-events"), token(s.student()), "{\"type\":\"HACK\"}")
                 .andExpect(status().isUnprocessableContent());
         call(get("/api/v1/viva-exams/" + s.exam() + "/live"), s.c().token()).andExpect(status().isOk())
@@ -397,7 +482,7 @@ class InterviewRuntimeIntegrationTest extends ExamTestBase {
                 .andExpect(jsonPath("$[0].online").value(true))
                 .andExpect(jsonPath("$[0].threadIndex").value(1))
                 .andExpect(jsonPath("$[0].currentTurnType").value("MAIN"));
-        assertThat(eventTypes(s.attempt())).contains("TAB_HIDDEN", "DEVICES_CHECKED", "CAMERA_UNAVAILABLE");
+        assertThat(eventTypes(s.attempt())).contains("TAB_HIDDEN", "DEVICES_CHECKED", "CAMERA_UNAVAILABLE", "VIRTUAL_DEVICE");
         String events = json(call(get("/api/v1/attempts/" + s.attempt() + "/events"), s.c().token()).andExpect(status().isOk()));
         assertThat(JsonPath.<List<Integer>>read(events, "$[?(@.type == 'TAB_HIDDEN')].payload.ms")).containsExactly(1200);
     }
