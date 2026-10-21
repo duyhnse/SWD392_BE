@@ -179,11 +179,14 @@ public class JdbcAttemptControl implements AttemptControlApi {
         jdbc.update("""
                         insert into attempt_questions (attempt_question_id, attempt_id, question_id, order_no, status, template_item_id,
                                                        topic_id, topic_name, bloom_level, language, content, reference_answer,
-                                                       question_version, rubric_snapshot, time_budget_sec, replaces_attempt_question_id)
-                        values (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb), ?, ?)""",
+                                                       question_version, rubric_snapshot, time_budget_sec, replaces_attempt_question_id,
+                                                       max_points)
+                        values (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb), ?, ?,
+                                (select max_points from attempt_questions where attempt_question_id = ?))""",
                 newId, old.attemptId(), q.questionId(), old.orderNo(), old.itemId(), q.topicId(), q.topicName(),
                 q.bloomLevel() == null ? null : q.bloomLevel().name(), q.language().name(), q.content(),
-                q.referenceAnswer(), q.version(), JSON.writeValueAsString(q.rubric()), old.budget(), attemptQuestionId);
+                q.referenceAnswer(), q.version(), JSON.writeValueAsString(q.rubric()), old.budget(), attemptQuestionId,
+                attemptQuestionId);
         questionBank.lockForExam(List.of(q.questionId()), List.of(q.rubric().rubricId()));
         return examApi.getAttemptQuestions(old.attemptId()).stream()
                 .filter(x -> x.attemptQuestionId().equals(newId)).findFirst();

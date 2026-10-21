@@ -1,5 +1,6 @@
 package swd392.group6.AIVES.exam.domain;
 
+import java.math.BigDecimal;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -47,4 +48,8 @@ public class ExamTemplateItem {
 
     @Column(name = "sort_order", nullable = false)
     private int sortOrder;
+
+    /** Maximum points of each question of this row (D81); null on every row = equal weight. */
+    @Column(name = "points_per_question", precision = 4, scale = 2)
+    private BigDecimal pointsPerQuestion;
 }

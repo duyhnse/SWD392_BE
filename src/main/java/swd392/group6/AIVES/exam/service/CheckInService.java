@@ -116,7 +116,8 @@ public class CheckInService {
                     .addValue("bloom", q.bloomLevel() == null ? null : q.bloomLevel().name())
                     .addValue("lang", q.language().name()).addValue("content", q.content())
                     .addValue("ref", q.referenceAnswer()).addValue("ver", q.version())
-                    .addValue("rubric", JSON.writeValueAsString(rubric)).addValue("budget", row.getSecondsPerQuestion()));
+                    .addValue("rubric", JSON.writeValueAsString(rubric)).addValue("budget", row.getSecondsPerQuestion())
+                    .addValue("points", row.getPointsPerQuestion()));
         }
 
         jdbc.update("""
@@ -130,9 +131,9 @@ public class CheckInService {
         jdbc.batchUpdate("""
                 insert into attempt_questions (attempt_question_id, attempt_id, question_id, order_no, status, template_item_id,
                                                topic_id, topic_name, bloom_level, language, content,
-                                               reference_answer, question_version, rubric_snapshot, time_budget_sec)
+                                               reference_answer, question_version, rubric_snapshot, time_budget_sec, max_points)
                 values (:id, :a, :q, :o, 'PENDING', :item, :topic, :topicName, :bloom, :lang, :content, :ref, :ver,
-                        cast(:rubric as jsonb), :budget)""", questionRows.toArray(MapSqlParameterSource[]::new));
+                        cast(:rubric as jsonb), :budget, :points)""", questionRows.toArray(MapSqlParameterSource[]::new));
         questionBank.lockForExam(questionIds, rubricIds);
         events.publishEvent(new AttemptStartedEvent(attemptId, examId, student.getUserId(), now, seed));
         return myExams.get(student, examId);

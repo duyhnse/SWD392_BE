@@ -36,6 +36,40 @@ public final class ScoreCalculator {
         return sum.divide(TEN, 2, RoundingMode.HALF_UP);
     }
 
+    /** A question score (0..10) and its maximum points in the total (D81; null = equal weight). */
+    public record Weighted(BigDecimal score, BigDecimal maxPoints) {
+    }
+
+    /**
+     * Total on 10 of the included questions (D81): {@code Σ score_i × p_i / Σ p_i} when every question has points —
+     * the sum of the points earned when all questions count, rescaled when some are left out — otherwise the mean of
+     * the scores (equal weight). Questions without a score are skipped; null when none has one.
+     */
+    public static BigDecimal total(Collection<Weighted> questions) {
+        List<Weighted> present = questions.stream().filter(q -> q.score() != null).toList();
+        if (present.isEmpty()) {
+            return null;
+        }
+        if (present.stream().anyMatch(q -> q.maxPoints() == null || q.maxPoints().signum() <= 0)) {
+            return mean(present.stream().map(Weighted::score).toList());
+        }
+        BigDecimal weighted = BigDecimal.ZERO;
+        BigDecimal points = BigDecimal.ZERO;
+        for (Weighted q : present) {
+            weighted = weighted.add(q.score().multiply(q.maxPoints()));
+            points = points.add(q.maxPoints());
+        }
+        return weighted.divide(points, 2, RoundingMode.HALF_UP);
+    }
+
+    /** Points earned on one question: {@code score / 10 × maxPoints}, 2 decimals; null without score or points. */
+    public static BigDecimal earned(BigDecimal score, BigDecimal maxPoints) {
+        if (score == null || maxPoints == null) {
+            return null;
+        }
+        return score.multiply(maxPoints).divide(TEN, 2, RoundingMode.HALF_UP);
+    }
+
     /** Mean of the non-null values, 2 decimals HALF_UP; null when there is none. */
     public static BigDecimal mean(Collection<BigDecimal> values) {
         List<BigDecimal> present = values.stream().filter(Objects::nonNull).toList();

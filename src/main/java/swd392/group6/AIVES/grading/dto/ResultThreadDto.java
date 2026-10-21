@@ -7,5 +7,5 @@ import java.util.UUID;
 public record ResultThreadDto(UUID gradeId, int orderNo, String questionContent, boolean includeInTotal,
                        BigDecimal finalScore, List<ResultCriterionDto> criteria, List<String> aiStrengths,
                        List<String> aiWeaknesses, List<String> aiMissingPoints, String aiFeedback,
-                       String lecturerComment) {
+                       String lecturerComment, BigDecimal maxPoints, BigDecimal finalPoints) {
 }

@@ -45,6 +45,6 @@ public interface ExamApi {
     record AttemptQuestionInfo(UUID attemptQuestionId, UUID questionId, int orderNo, String status, String topicName,
                                String bloomLevel, String language, String content,
                                String referenceAnswer, String rubricSnapshotJson, int timeBudgetSec, int timeUsedSec,
-                               String voidReason, Instant startedAt) {
+                               String voidReason, Instant startedAt, BigDecimal maxPoints) {
     }
 }

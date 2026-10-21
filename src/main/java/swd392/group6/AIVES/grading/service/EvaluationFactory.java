@@ -75,8 +75,13 @@ public class EvaluationFactory implements GradingApi {
         List<ThreadInfo> threads = interviewApi.getThreads(attemptId).stream()
                 .filter(t -> !"VOIDED".equals(t.status())).toList();
         Map<UUID, RubricSnapshot> snapshots = new HashMap<>();
-        examApi.getAttemptQuestions(attemptId).forEach(q -> snapshots.put(q.attemptQuestionId(),
-                GradingJson.readRubric(q.rubricSnapshotJson())));
+        Map<UUID, BigDecimal> maxPoints = new HashMap<>();
+        examApi.getAttemptQuestions(attemptId).forEach(q -> {
+            snapshots.put(q.attemptQuestionId(), GradingJson.readRubric(q.rubricSnapshotJson()));
+            if (q.maxPoints() != null) {
+                maxPoints.put(q.attemptQuestionId(), q.maxPoints());
+            }
+        });
         Map<UUID, RubricSnapshot> rubrics = new HashMap<>();
         List<Integer> withoutRubric = new ArrayList<>();
         for (ThreadInfo thread : threads) {
@@ -99,7 +104,7 @@ public class EvaluationFactory implements GradingApi {
         evaluation.setUpdatedAt(now);
 
         boolean anyPendingAi = false;
-        List<BigDecimal> aiScores = new ArrayList<>();
+        List<ScoreCalculator.Weighted> aiScores = new ArrayList<>();
         List<Object> rows = new ArrayList<>();
         for (ThreadInfo thread : threads) {
             RubricSnapshot rubric = rubrics.get(thread.attemptQuestionId());
@@ -108,6 +113,7 @@ public class EvaluationFactory implements GradingApi {
             grade.setEvaluationId(evaluation.getEvaluationId());
             grade.setAttemptQuestionId(thread.attemptQuestionId());
             grade.setQuestionId(thread.questionId());
+            grade.setMaxPoints(maxPoints.get(thread.attemptQuestionId()));
             grade.setRubricSnapshot(GradingJson.write(GradingJson.Snapshot.of(rubric)));
             grade.setSignals(GradingJson.write(signals(thread.turns())));
 
@@ -158,13 +164,13 @@ public class EvaluationFactory implements GradingApi {
                 }
             }
             if (grade.isIncludeInTotal() && grade.getAiScore() != null) {
-                aiScores.add(grade.getAiScore());
+                aiScores.add(new ScoreCalculator.Weighted(grade.getAiScore(), grade.getMaxPoints()));
             }
             rows.add(grade);
             rows.addAll(criteria);
         }
         evaluation.setStatus(anyPendingAi ? EvaluationStatus.PENDING_AI : EvaluationStatus.AWAITING_REVIEW);
-        evaluation.setAiTotalScore(ScoreCalculator.mean(aiScores));
+        evaluation.setAiTotalScore(ScoreCalculator.total(aiScores));
         entityManager.persist(evaluation);
         rows.forEach(entityManager::persist);
         entityManager.flush();

@@ -37,7 +37,7 @@ public class AttemptService {
         List<AttemptQuestionView> questions = jdbc.query("""
                         select attempt_question_id, question_id, order_no, status, topic_name, bloom_level,
                                content, reference_answer, time_budget_sec, time_used_sec, rubric_snapshot->>'name' as rubric_name,
-                               started_at, ended_at, replaces_attempt_question_id, void_reason
+                               started_at, ended_at, replaces_attempt_question_id, void_reason, max_points
                         from attempt_questions where attempt_id = :a order by order_no, status = 'VOIDED' desc""", p,
                 (rs, i) -> new AttemptQuestionView(rs.getObject("attempt_question_id", UUID.class),
                         rs.getObject("question_id", UUID.class), rs.getInt("order_no"), rs.getString("status"),
@@ -46,7 +46,8 @@ public class AttemptService {
                         rs.getString("content"), rs.getString("reference_answer"), rs.getInt("time_budget_sec"),
                         rs.getInt("time_used_sec"), rs.getString("rubric_name"),
                         ExamQueries.instant(rs.getTimestamp("started_at")), ExamQueries.instant(rs.getTimestamp("ended_at")),
-                        rs.getObject("replaces_attempt_question_id", UUID.class), rs.getString("void_reason")));
+                        rs.getObject("replaces_attempt_question_id", UUID.class), rs.getString("void_reason"),
+                        rs.getBigDecimal("max_points")));
         return jdbc.query("""
                         select a.attempt_id, a.display_no, a.viva_exam_id, a.course_id, a.student_id, u.username, u.full_name, u.student_code,
                                a.status, a.end_reason, a.cancel_reason, a.started_at, a.deadline_at, a.ended_at,

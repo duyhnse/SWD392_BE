@@ -258,6 +258,28 @@ class EvaluationIntegrationTest {
     }
 
     @Test
+    void pointsPerQuestionWeighTheTotal_D81() throws Exception {
+        SessionFx s = twoThreadSession(fx.student("P"));
+        // the đề thi gave question 1 three points and question 2 seven (copied at check-in)
+        jdbc.update("update attempt_questions set max_points = 3 where attempt_question_id = ?", s.sessionQuestionIds().get(0));
+        jdbc.update("update attempt_questions set max_points = 7 where attempt_question_id = ?", s.sessionQuestionIds().get(1));
+        String id = createEvaluation(s.sessionId());
+        String json = evaluationJson(id);
+        String g1 = JsonPath.read(json, "$.threads[0].gradeId");
+        String g2 = JsonPath.read(json, "$.threads[1].gradeId");
+        json = putThread(id, g1, JsonPath.read(json, "$.version"), criteria(8, 5), "").andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        // 6.80 / 10 × 3 = 2.04 and 9.00 / 10 × 7 = 6.30 → 8.34 (equal weight would give 7.90)
+        putThread(id, g2, JsonPath.read(json, "$.version"), criteria(10, 7.5), "").andExpect(status().isOk())
+                .andExpect(jsonPath("$.threads[0].maxPoints").value(3.0))
+                .andExpect(jsonPath("$.threads[0].finalPoints").value(2.04))
+                .andExpect(jsonPath("$.threads[1].finalPoints").value(6.3))
+                .andExpect(jsonPath("$.currentTotalScore").value(8.34));
+        mockMvc.perform(post("/api/v1/evaluations/{id}/confirm", id).header("Authorization", lecturerToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.finalTotalScore").value(8.34));
+    }
+
+    @Test
     void finalScoresAreValidatedAndIncludeToggleIsLogged() throws Exception {
         SessionFx s = twoThreadSession(fx.student("E"));
         String id = createEvaluation(s.sessionId());

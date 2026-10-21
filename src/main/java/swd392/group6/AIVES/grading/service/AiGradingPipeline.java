@@ -310,9 +310,10 @@ public class AiGradingPipeline {
     }
 
     private void refreshAiTotal(GradeEvaluation evaluation) {
-        List<BigDecimal> scores = grades.findByEvaluationId(evaluation.getEvaluationId()).stream()
-                .filter(g -> g.isIncludeInTotal() && g.getAiScore() != null).map(QuestionGrade::getAiScore).toList();
-        evaluation.setAiTotalScore(ScoreCalculator.mean(scores));
+        List<ScoreCalculator.Weighted> scores = grades.findByEvaluationId(evaluation.getEvaluationId()).stream()
+                .filter(g -> g.isIncludeInTotal() && g.getAiScore() != null)
+                .map(g -> new ScoreCalculator.Weighted(g.getAiScore(), g.getMaxPoints())).toList();
+        evaluation.setAiTotalScore(ScoreCalculator.total(scores));
         evaluation.setUpdatedAt(clock.instant());
         evaluations.saveAndFlush(evaluation);
     }
