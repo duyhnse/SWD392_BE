@@ -92,11 +92,6 @@ class QuestionController {
         return generations.get(id, user);
     }
 
-    @PostMapping("/questions/{id}/rubric/from-suggestion")
-    public QuestionDto rubricFromSuggestion(@PathVariable UUID id, @AuthenticationPrincipal User user) {
-        return service.rubricFromSuggestion(id, user);
-    }
-
     @GetMapping("/courses/{courseId}/questions")
     public PageResponse<QuestionSummaryDto> list(@PathVariable UUID courseId,
                                                  @RequestParam(required = false) List<QuestionStatus> status,

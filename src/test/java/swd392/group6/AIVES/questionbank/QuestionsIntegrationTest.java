@@ -109,8 +109,8 @@ class QuestionsIntegrationTest {
                         values (?, ?, 'slides.pdf', 'application/pdf', 10, 'materials/x/slides.pdf', ?)""",
                 material, bank.courseId(), owner.id());
         jdbc.update("""
-                        update questions set origin = 'AI_GENERATED', ai_original_content = 'AI text', ai_suggested_bloom = 'APPLY',
-                            ai_suggested_rubric = '{"name":"Suggested","criteria":[]}'::jsonb where question_id = ?""", id);
+                        update questions set origin = 'AI_GENERATED', ai_original_content = 'AI text', ai_suggested_bloom = 'APPLY'
+                            where question_id = ?""", id);
         jdbc.update("""
                         insert into question_sources (question_source_id, question_id, material_id, location_label, excerpt)
                         values (?, ?, ?, 'Page 3', 'excerpt')""", UUID.randomUUID(), id, material);
@@ -122,7 +122,6 @@ class QuestionsIntegrationTest {
                 .andExpect(jsonPath("$.rubric.totalWeight").value(100.0))
                 .andExpect(jsonPath("$.ai.originalContent").value("AI text"))
                 .andExpect(jsonPath("$.ai.suggestedBloom").value("APPLY"))
-                .andExpect(jsonPath("$.ai.suggestedRubric.name").value("Suggested"))
                 .andExpect(jsonPath("$.sources[0].materialName").value("slides.pdf"))
                 .andExpect(jsonPath("$.sources[0].locationLabel").value("Page 3"));
     }

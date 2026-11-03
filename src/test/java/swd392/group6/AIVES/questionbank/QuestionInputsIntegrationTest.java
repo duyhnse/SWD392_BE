@@ -100,27 +100,30 @@ class QuestionInputsIntegrationTest {
 
     // ------------------------------------------------------------------ AI generation (retrieval + LLM = AI node)
 
-    private String generation(UUID topic, List<UUID> materials, int count, String blooms, String focus) {
+    /** {@code counts}: the countsByBloom object body, e.g. {@code "APPLY":1,"ANALYZE":1} (D82). */
+    private String generation(UUID topic, List<UUID> materials, String counts, String focus) {
         return "{\"topicId\":\"" + topic + "\",\"materialIds\":[" + String.join(",", materials.stream().map(m -> "\"" + m + "\"").toList())
-                + "],\"count\":" + count + ",\"bloomLevels\":[" + blooms + "]" + (focus == null ? "" : ",\"focusText\":\"" + focus + "\"") + "}";
+                + "],\"countsByBloom\":{" + counts + "}" + (focus == null ? "" : ",\"focusText\":\"" + focus + "\"") + "}";
     }
 
-    private UUID generate(UUID topic, List<UUID> materials, int count, String blooms, String focus) throws Exception {
+    private UUID generate(UUID topic, List<UUID> materials, String counts, String focus) throws Exception {
         return QuestionBankFixture.id(fx.json(lecturer, post("/api/v1/courses/" + bank.courseId() + "/question-generations"),
-                generation(topic, materials, count, blooms, focus)).andExpect(status().isAccepted()));
+                generation(topic, materials, counts, focus)).andExpect(status().isAccepted()));
     }
 
     @Test
     void generationStoresCitedDrafts_andKeepsTheAiOriginal_AC_Q6() throws Exception {
         UUID material = upload("slides.pdf", PDF);
         UUID topic = fx.topic(lecturer, bank.courseId(), "Đạo hàm");
-        UUID request = generate(topic, List.of(material), 2, "\"APPLY\",\"ANALYZE\"", "quy tắc lũy thừa");
+        UUID request = generate(topic, List.of(material), "\"APPLY\":1,\"ANALYZE\":1,\"REMEMBER\":0", "quy tắc lũy thừa");
         String sent = jdbc.queryForObject("select request::text from ai_jobs where subject_id = ?", String.class, request);
-        assertThat(sent).contains("\"material_ids\"").contains(material.toString()).doesNotContain("\"chunks\"");
+        assertThat(sent).contains("\"material_ids\"").contains(material.toString()).doesNotContain("\"chunks\"")
+                .contains("\"counts_by_bloom\": {\"APPLY\": 1, \"ANALYZE\": 1}").doesNotContain("\"rubric");
 
         fx.perform(lecturer, get("/api/v1/question-generations/" + request))
                 .andExpect(jsonPath("$.status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$.generatedCount").value(2))
+                .andExpect(jsonPath("$.countsByBloom.APPLY").value(1))
                 .andExpect(jsonPath("$.topicName").value("Đạo hàm"));
         String list = QuestionBankFixture.body(fx.perform(lecturer, get("/api/v1/courses/" + bank.courseId() + "/questions")
                         .param("generationRequestId", request.toString()))
@@ -132,8 +135,7 @@ class QuestionInputsIntegrationTest {
                 .andExpect(jsonPath("$.sources[0].locationLabel", startsWith("Page ")))
                 .andExpect(jsonPath("$.sources[0].materialName").value("slides.pdf"))
                 .andExpect(jsonPath("$.sources[0].excerpt", startsWith("Đoạn trích")))
-                .andExpect(jsonPath("$.ai.suggestedRubric.criteria", hasSize(2)))
-                .andExpect(jsonPath("$.rubric").doesNotExist())
+                .andExpect(jsonPath("$.rubric").doesNotExist())                    // no rubric until the lecturer picks one (D82)
                 .andExpect(jsonPath("$.ownerName").value(lecturer.user().getFullName())), "$.ai.originalContent");   // who asked the AI
 
         int version = QuestionBankFixture.read(fx.perform(lecturer, get("/api/v1/questions/" + q)), "$.version");
@@ -142,16 +144,17 @@ class QuestionInputsIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ai.originalContent").value(original));
 
-        // "Use AI-suggested rubric" (04 §5 step 5), then the lecturer publishes — never the AI (BR-Q4)
-        fx.perform(lecturer, post("/api/v1/questions/" + q + "/rubric/from-suggestion"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.rubric.name", containsString("Q-")))
-                .andExpect(jsonPath("$.rubric.totalWeight").value(100.0));
+        // confirming needs a rubric of the course, and an AI draft is confirmed on its own, never in bulk (D82)
+        UUID other = UUID.fromString(JsonPath.read(list, "$.items[1].id"));
+        fx.json(lecturer, post("/api/v1/questions/publish"), "{\"questionIds\":[\"" + q + "\"]}")
+                .andExpect(jsonPath("$.failed[0].errors[0]").value("RUBRIC_MISSING"));
+        fx.json(lecturer, post("/api/v1/courses/" + bank.courseId() + "/rubrics/assign"),
+                "{\"questionIds\":[\"" + q + "\",\"" + other + "\"],\"rubricId\":\"" + bank.rubricId() + "\"}").andExpect(status().isOk());
+        fx.json(lecturer, post("/api/v1/questions/publish"), "{\"questionIds\":[\"" + q + "\",\"" + other + "\"]}")
+                .andExpect(jsonPath("$.published", hasSize(0)))
+                .andExpect(jsonPath("$.failed[0].errors[0]").value("AI_DRAFT_NEEDS_REVIEW"));
         fx.json(lecturer, post("/api/v1/questions/publish"), "{\"questionIds\":[\"" + q + "\"]}")
                 .andExpect(jsonPath("$.published", hasSize(1)));
-        UUID manual = fx.question(lecturer, bank.courseId(), QuestionBankFixture.completeQuestion(bank.topicId(), bank.rubricId(), "Manual"));
-        fx.perform(lecturer, post("/api/v1/questions/" + manual + "/rubric/from-suggestion"))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("NO_AI_RUBRIC"));
     }
 
     @Test
@@ -159,9 +162,9 @@ class QuestionInputsIntegrationTest {
         UUID material = upload("slides.pdf", PDF);
         UUID chapterA = fx.topic(lecturer, bank.courseId(), "Chương A");
         UUID chapterB = fx.topic(lecturer, bank.courseId(), "Chương B");
-        generate(chapterA, List.of(material), 2, "\"UNDERSTAND\"", null);
+        generate(chapterA, List.of(material), "\"UNDERSTAND\":2", null);
         fx.question(lecturer, bank.courseId(), QuestionBankFixture.completeQuestion(chapterB, bank.rubricId(), "Câu sẵn của chương B"));
-        UUID second = generate(chapterB, List.of(material), 1, "\"UNDERSTAND\"", null);
+        UUID second = generate(chapterB, List.of(material), "\"UNDERSTAND\":1", null);
         String sent = jdbc.queryForObject("select request::text from ai_jobs where subject_id = ?", String.class, second);
         List<String> existing = JsonPath.read(sent, "$.existing_questions");
         List<String> drafts = jdbc.queryForList("select content from questions where topic_id = ?", String.class, chapterA);
@@ -172,21 +175,18 @@ class QuestionInputsIntegrationTest {
     }
 
     @Test
-    void eachDraftGetsTheRubricOfItsBloomLevel_andRubricsCanBeAssignedOrReplacedInBulk_D79() throws Exception {
+    void draftsComeWithoutRubric_andRubricsCanBeAssignedOrReplacedInBulk_D82() throws Exception {
         UUID material = upload("slides.pdf", PDF);
         UUID topic = fx.topic(lecturer, bank.courseId(), "Theo loại câu");
         UUID r1 = fx.rubric(lecturer, bank.courseId(), "R1 Nhớ-Hiểu " + UUID.randomUUID(), 70, 30);
         UUID r2 = fx.rubric(lecturer, bank.courseId(), "R2 Vận dụng " + UUID.randomUUID(), 40, 40, 20);
-        String body = generation(topic, List.of(material), 4, "\"REMEMBER\",\"APPLY\"", null)
-                .replaceFirst("}$", ",\"rubricsByBloom\":{\"REMEMBER\":\"" + r1 + "\",\"APPLY\":\"" + r2 + "\"}}");
-        UUID request = QuestionBankFixture.id(fx.json(lecturer, post("/api/v1/courses/" + bank.courseId() + "/question-generations"), body)
-                .andExpect(status().isAccepted()).andExpect(jsonPath("$.rubricsByBloom.APPLY").value(r2.toString())));
+        UUID request = generate(topic, List.of(material), "\"REMEMBER\":1,\"APPLY\":3", null);
         String sent = jdbc.queryForObject("select request::text from ai_jobs where subject_id = ?", String.class, request);
-        assertThat(sent).contains("\"rubrics_by_bloom\"", "\"REMEMBER\"", "\"APPLY\"", "\"primary_material_ids\"");
+        assertThat(sent).contains("\"primary_material_ids\"");
         List<java.util.Map<String, Object>> drafts = jdbc.queryForList(
                 "select question_id, bloom_level, rubric_id from questions where generation_request_id = ?", request);
-        assertThat(drafts).hasSize(4).allSatisfy(d -> assertThat(d.get("rubric_id"))
-                .isEqualTo("REMEMBER".equals(d.get("bloom_level")) ? r1 : r2));
+        assertThat(drafts).hasSize(4).allSatisfy(d -> assertThat(d.get("rubric_id")).isNull());
+        assertThat(drafts).filteredOn(d -> "APPLY".equals(d.get("bloom_level"))).hasSize(3);
 
         // bulk: every draft onto R1, then R1's unlocked questions moved to a new version (after "duplicate")
         String ids = String.join(",", drafts.stream().map(d -> "\"" + d.get("question_id") + "\"").toList());
@@ -207,41 +207,16 @@ class QuestionInputsIntegrationTest {
     }
 
     @Test
-    void sharedRubricChosenAtGenerationIsAttachedAndSentToTheAi_D70() throws Exception {
-        UUID material = upload("slides.pdf", PDF);
-        UUID topic = fx.topic(lecturer, bank.courseId(), "Chương 2");
-        String body = generation(topic, List.of(material), 2, "\"UNDERSTAND\"", null)
-                .replaceFirst("}$", ",\"rubricId\":\"" + bank.rubricId() + "\"}");
-        UUID request = QuestionBankFixture.id(fx.json(lecturer, post("/api/v1/courses/" + bank.courseId() + "/question-generations"),
-                body).andExpect(status().isAccepted()).andExpect(jsonPath("$.rubricId").value(bank.rubricId().toString())));
-        String sent = jdbc.queryForObject("select request::text from ai_jobs where subject_id = ?", String.class, request);
-        assertThat(sent).contains("\"rubric\"", "\"criteria\"");
-        String list = QuestionBankFixture.body(fx.perform(lecturer, get("/api/v1/courses/" + bank.courseId() + "/questions")
-                .param("generationRequestId", request.toString())).andExpect(jsonPath("$.total").value(2)));
-        UUID q = UUID.fromString(JsonPath.read(list, "$.items[0].id"));
-        fx.perform(lecturer, get("/api/v1/questions/" + q))
-                .andExpect(jsonPath("$.rubric.id").value(bank.rubricId().toString()))
-                .andExpect(jsonPath("$.ai.suggestedRubric.criteria", hasSize(2))); // the AI's idea stays visible
-
-        UUID otherCourse = fx.course("VI");
-        fx.assign(otherCourse, lecturer);
-        UUID foreign = fx.rubric(lecturer, otherCourse, "Khác", 100);
-        fx.json(lecturer, post("/api/v1/courses/" + bank.courseId() + "/question-generations"),
-                        generation(topic, List.of(material), 1, "\"UNDERSTAND\"", null).replaceFirst("}$", ",\"rubricId\":\"" + foreign + "\"}"))
-                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("RUBRIC_NOT_IN_COURSE"));
-    }
-
-    @Test
     void noContextFailuresAndBadAnswersWriteNothing_AC_Q5_Q7_Q12() throws Exception {
         UUID material = upload("slides.pdf", PDF);
         UUID topic = fx.topic(lecturer, bank.courseId(), "Kanji");
-        UUID none = generate(topic, List.of(material), 3, "\"REMEMBER\"", "#no-context");
+        UUID none = generate(topic, List.of(material), "\"REMEMBER\":3", "#no-context");
         fx.perform(lecturer, get("/api/v1/question-generations/" + none))
                 .andExpect(jsonPath("$.status").value("NO_CONTEXT")).andExpect(jsonPath("$.generatedCount").value(0));
-        UUID failed = generate(topic, List.of(material), 2, "\"APPLY\"", "#fail");
+        UUID failed = generate(topic, List.of(material), "\"APPLY\":2", "#fail");
         fx.perform(lecturer, get("/api/v1/question-generations/" + failed))
                 .andExpect(jsonPath("$.status").value("FAILED")).andExpect(jsonPath("$.message", containsString("invalid twice")));
-        UUID cheat = generate(topic, List.of(material), 1, "\"APPLY\"", "#bad-citation");
+        UUID cheat = generate(topic, List.of(material), "\"APPLY\":1", "#bad-citation");
         fx.perform(lecturer, get("/api/v1/question-generations/" + cheat))
                 .andExpect(jsonPath("$.status").value("FAILED")).andExpect(jsonPath("$.message", containsString("not selected")));
         assertThat(jdbc.queryForObject("select count(*) from questions where generation_request_id in (?, ?, ?)",
@@ -256,14 +231,18 @@ class QuestionInputsIntegrationTest {
     void generationRequestIsValidated() throws Exception {
         UUID broken = upload("broken.pdf", PDF);
         String url = "/api/v1/courses/" + bank.courseId() + "/question-generations";
-        fx.json(lecturer, post(url), generation(bank.topicId(), List.of(broken), 2, "\"APPLY\"", null))
+        fx.json(lecturer, post(url), generation(bank.topicId(), List.of(broken), "\"APPLY\":2", null))
                 .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("MATERIAL_NOT_INDEXED"));
         UUID good = upload("slides.pdf", PDF);
-        fx.json(lecturer, post(url), generation(bank.topicId(), List.of(good), 21, "\"APPLY\"", null))
+        fx.json(lecturer, post(url), generation(bank.topicId(), List.of(good), "\"APPLY\":21", null))
                 .andExpect(status().isBadRequest());
-        fx.json(lecturer, post(url), generation(bank.topicId(), List.of(good), 2, "", null))
+        fx.json(lecturer, post(url), generation(bank.topicId(), List.of(good), "\"APPLY\":-1", null))
                 .andExpect(status().isBadRequest());
-        fx.json(lecturer, post(url), generation(UUID.randomUUID(), List.of(good), 2, "\"APPLY\"", null))
+        fx.json(lecturer, post(url), generation(bank.topicId(), List.of(good), "\"APPLY\":12,\"ANALYZE\":9", null))
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("BLOOM_COUNTS_INVALID"));
+        fx.json(lecturer, post(url), generation(bank.topicId(), List.of(good), "\"APPLY\":0", null))
+                .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("BLOOM_COUNTS_INVALID"));
+        fx.json(lecturer, post(url), generation(UUID.randomUUID(), List.of(good), "\"APPLY\":2", null))
                 .andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("TOPIC_NOT_IN_COURSE"));
     }
 
@@ -365,6 +344,6 @@ class QuestionInputsIntegrationTest {
         fx.json(lecturer, post("/api/v1/questions/publish"), "{\"questionIds\":[\"" + a + "\",\"" + b + "\"]}")
                 .andExpect(jsonPath("$.published", hasSize(2)));
         assertThat(jdbc.queryForList("select title from notifications where user_id = ? and type = 'QUESTIONS_PUBLISHED'",
-                String.class, lecturer.id())).containsExactly("Đã công bố 2 câu hỏi");
+                String.class, lecturer.id())).containsExactly("Đã xác nhận 2 câu hỏi vào ngân hàng");
     }
 }

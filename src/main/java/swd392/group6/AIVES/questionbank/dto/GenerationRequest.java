@@ -13,9 +13,7 @@ import java.util.UUID;
 
 // ---- AI generation (04 §9.2) ----
 public record GenerationRequest(@NotNull UUID topicId, @NotEmpty @Size(max = 20) List<@NotNull UUID> materialIds,
-                                @NotNull @Min(1) @Max(20) Integer count,
-                                @NotEmpty List<@NotNull BloomLevel> bloomLevels,
-                                @Size(max = 1000) String focusText, Language language, UUID rubricId,
-                                Map<BloomLevel, UUID> rubricsByBloom) {
-    /** {@code rubricsByBloom}: rubric per question type (Bloom level); a level without one takes {@code rubricId}. */
+                                @NotNull Map<@NotNull BloomLevel, @NotNull @Min(0) @Max(20) Integer> countsByBloom,
+                                @Size(max = 1000) String focusText, Language language) {
+    /** {@code countsByBloom}: how many questions of each Bloom level; 0 or absent = none of that level, 1–20 in all (D82). */
 }

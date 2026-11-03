@@ -8,8 +8,7 @@ import java.util.Map;
 import java.util.UUID;
 
 public record GenerationDto(UUID id, UUID courseId, UUID topicId, String topicName, List<UUID> materialIds,
-                            int requestedCount, List<BloomLevel> bloomLevels, String focusText, Language language,
+                            int requestedCount, Map<BloomLevel, Integer> countsByBloom, String focusText, Language language,
                             String status, int generatedCount, String message, UUID requestedBy,
-                            Instant createdAt, Instant finishedAt, UUID rubricId, String rubricName,
-                            Map<BloomLevel, UUID> rubricsByBloom) {
+                            Instant createdAt, Instant finishedAt) {
 }

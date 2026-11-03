@@ -31,22 +31,17 @@ import swd392.group6.AIVES.questionbank.PublishedPoolGuard;
 import swd392.group6.AIVES.questionbank.PublishedPoolGuard.PoolChange;
 import swd392.group6.AIVES.questionbank.dto.AiDto;
 import swd392.group6.AIVES.questionbank.dto.CreateQuestionRequest;
-import swd392.group6.AIVES.questionbank.dto.CriterionRequest;
 import swd392.group6.AIVES.questionbank.dto.PublishFailure;
 import swd392.group6.AIVES.questionbank.dto.PublishResult;
 import swd392.group6.AIVES.questionbank.dto.QuestionDto;
 import swd392.group6.AIVES.questionbank.dto.QuestionFilter;
 import swd392.group6.AIVES.questionbank.dto.QuestionRubricDto;
 import swd392.group6.AIVES.questionbank.dto.QuestionSummaryDto;
-import swd392.group6.AIVES.questionbank.dto.RubricDto;
-import swd392.group6.AIVES.questionbank.dto.RubricRequest;
 import swd392.group6.AIVES.questionbank.dto.SourceDto;
 import swd392.group6.AIVES.questionbank.dto.UpdateQuestionRequest;
 import swd392.group6.AIVES.user.NotificationApi;
 import swd392.group6.AIVES.user.Role;
 import swd392.group6.AIVES.user.User;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -56,6 +51,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -69,7 +65,6 @@ public class QuestionService {
 
     private static final String NOT_FOUND = "QUESTION_NOT_FOUND";
     private static final Pattern QUESTION_CODE = Pattern.compile("\\s*[Qq]?\\s*-?\\s*(\\d{1,12})\\s*");
-    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final QuestionRepository questions;
     private final TopicRepository topics;
@@ -79,7 +74,6 @@ public class QuestionService {
     private final ContentAccess access;
     private final JdbcTemplate jdbc;
     private final Clock clock;
-    private final RubricService rubricService;
     private final NotificationApi notifications;
     private final ObjectProvider<PublishedPoolGuard> poolGuard;
 
@@ -287,8 +281,6 @@ public class QuestionService {
             c.setExcerpt(s.getExcerpt());
             sources.save(c);
         }
-        jdbc.update("update questions set ai_suggested_rubric = (select ai_suggested_rubric from questions where question_id = ?)"
-                + " where question_id = ?", source.getId(), copy.getId());
         return toDto(copy);
     }
 
@@ -301,7 +293,8 @@ public class QuestionService {
         List<UUID> published = new ArrayList<>();
         List<PublishFailure> failed = new ArrayList<>();
         Instant now = Instant.now(clock);
-        for (UUID id : new LinkedHashSet<>(questionIds)) {
+        Set<UUID> ids = new LinkedHashSet<>(questionIds);
+        for (UUID id : ids) {
             Question q = questions.findById(id).orElse(null);
             if (q == null || !access.canWrite(q.getCourseId(), user)) {
                 failed.add(new PublishFailure(id, List.of(NOT_FOUND)));
@@ -313,6 +306,10 @@ public class QuestionService {
             }
             if (q.getStatus() != QuestionStatus.DRAFT) {
                 failed.add(new PublishFailure(id, List.of("INVALID_QUESTION_STATE")));
+                continue;
+            }
+            if (ids.size() > 1 && needsOwnReview(q)) {
+                failed.add(new PublishFailure(id, List.of("AI_DRAFT_NEEDS_REVIEW")));
                 continue;
             }
             List<String> errors = publishErrors(q);
@@ -337,44 +334,10 @@ public class QuestionService {
         questions.flush();
         if (!published.isEmpty()) {
             // 04 §5 step 9: one confirmation per publish action, never blocking it
-            notifications.notify(user.getUserId(), "QUESTIONS_PUBLISHED", "Đã công bố " + published.size() + " câu hỏi",
-                    "Các câu này giờ có thể được bốc vào đề thi.", Map.of("questionIds", published.stream().map(UUID::toString).toList()));
+            notifications.notify(user.getUserId(), "QUESTIONS_PUBLISHED",
+                    "Đã xác nhận " + published.size() + " câu hỏi vào ngân hàng", "Các câu này giờ có thể được bốc vào đề thi.", Map.of("questionIds", published.stream().map(UUID::toString).toList()));
         }
         return new PublishResult(published, failed);
-    }
-
-    /**
-     * "Use AI-suggested rubric" (04 §5 step 5): turns the generation's suggested rubric into a real course rubric
-     * named after the question and attaches it.
-     */
-    public QuestionDto rubricFromSuggestion(UUID questionId, User user) {
-        Question q = loadWritable(questionId, user);
-        if (q.isLocked() || (q.getStatus() != QuestionStatus.DRAFT && q.getStatus() != QuestionStatus.PUBLISHED)) {
-            throw q.isLocked() ? locked() : invalidState(q, "given a rubric");
-        }
-        String json = jdbc.queryForObject("select ai_suggested_rubric::text from questions where question_id = ?",
-                String.class, questionId);
-        JsonNode suggestion = json == null ? null : JSON.readTree(json);
-        if (suggestion == null || !suggestion.path("criteria").isArray() || suggestion.path("criteria").isEmpty()) {
-            throw ApiException.conflict("NO_AI_RUBRIC", "This question has no AI-suggested rubric");
-        }
-        List<CriterionRequest> criteria = new ArrayList<>();
-        int order = 0;
-        for (JsonNode c : suggestion.path("criteria")) {
-            criteria.add(new CriterionRequest(c.path("name").asString(), c.path("description").asString(""),
-                    c.path("max_score").decimalValue(), c.path("weight_percent").decimalValue(), order++));
-        }
-        String base = "Q-" + q.getDisplayNo() + " · " + suggestion.path("name").asString("Rubric AI");
-        base = base.length() > 140 ? base.substring(0, 140) : base;
-        String name = base;
-        for (int i = 2; rubrics.nameTaken(q.getCourseId(), name, new UUID(0, 0)); i++) {
-            name = base + " (" + i + ")";
-        }
-        RubricDto rubric = rubricService.create(q.getCourseId(), new RubricRequest(name,
-                "Tạo từ gợi ý của AI cho câu Q-" + q.getDisplayNo(), criteria), user);
-        q.setRubricId(rubric.id());
-        q.setUpdatedAt(Instant.now(clock));
-        return toDto(flush(q));
     }
 
     /** Hard delete of a never-used DRAFT (15 §5.2); everything else must be discarded instead. */
@@ -397,6 +360,14 @@ public class QuestionService {
     }
 
     // ---------------------------------------------------------------- rules
+
+    /**
+     * D82: an AI draft that never reached the bank is confirmed on its own, from its editor, after the lecturer has read
+     * it and given it a rubric; bulk confirmation skips it.
+     */
+    static boolean needsOwnReview(Question q) {
+        return q.getOrigin() == QuestionOrigin.AI_GENERATED && q.getPublishedAt() == null && q.getSupersedesQuestionId() == null;
+    }
 
     /** INV-02: per-question publish error codes (04 §5 step 7). */
     List<String> publishErrors(Question q) {
@@ -511,7 +482,7 @@ public class QuestionService {
         AiDto ai = null;
         if (q.getOrigin() == QuestionOrigin.AI_GENERATED || q.getAiOriginalContent() != null) {
             ai = new AiDto(q.getAiOriginalContent(), q.getAiOriginalReferenceAnswer(), q.getAiSuggestedBloom(),
-                    suggestedRubric(q.getId()), q.getGenerationRequestId());
+                    q.getGenerationRequestId());
         }
         Map<UUID, String> people = names(java.util.Arrays.asList(q.getOwnerId(), q.getPublishedBy()));
         return new QuestionDto(q.getId(), no(q.getDisplayNo()), q.getCourseId(), q.getTopicId(), topicName(topic), q.getContent(),
@@ -536,13 +507,6 @@ public class QuestionService {
 
     private static String topicName(Topic topic) {
         return topic == null ? null : topic.getName();
-    }
-
-    private JsonNode suggestedRubric(UUID questionId) {
-        List<String> raw = jdbc.queryForList(
-                "select ai_suggested_rubric::text from questions where question_id = ? and ai_suggested_rubric is not null",
-                String.class, questionId);
-        return raw.isEmpty() ? null : JSON.readTree(raw.getFirst());
     }
 
     static long no(Long displayNo) {

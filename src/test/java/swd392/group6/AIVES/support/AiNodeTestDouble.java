@@ -151,18 +151,19 @@ public class AiNodeTestDouble implements AiJobPort, AiMaterialIndexPort, Intervi
         String material = focus.contains("#bad-citation") ? UUID.randomUUID().toString()
                 : input.path("material_ids").path(0).asString();
         List<String> blooms = new ArrayList<>();
-        input.path("bloom_levels").forEach(b -> blooms.add(b.asString()));
+        input.path("counts_by_bloom").properties().forEach(e -> {
+            for (int k = 0; k < e.getValue().asInt(); k++) {
+                blooms.add(e.getKey());
+            }
+        });
         List<Map<String, Object>> questions = new ArrayList<>();
-        for (int i = 0; i < input.path("count").asInt(1); i++) {
+        for (int i = 0; i < blooms.size(); i++) {
             questions.add(Map.of(
                     "content", "Câu hỏi " + (i + 1) + " về " + input.path("topic").path("name").asString(),
                     "reference_answer", "- Ý chính " + (i + 1),
-                    "bloom_level", blooms.isEmpty() ? "UNDERSTAND" : blooms.get(i % blooms.size()),
+                    "bloom_level", blooms.get(i),
                     "sources", List.of(Map.of("material_id", material, "location_label", "Page " + (i + 1),
-                            "excerpt", "Đoạn trích " + (i + 1))),
-                    "rubric", Map.of("name", "Rubric gợi ý", "criteria", List.of(
-                            Map.of("name", "Độ chính xác", "description", "Đúng ý", "max_score", 10, "weight_percent", 60),
-                            Map.of("name", "Diễn đạt", "description", "Rõ ràng", "max_score", 10, "weight_percent", 40)))));
+                            "excerpt", "Đoạn trích " + (i + 1)))));
         }
         return ok(Map.of("questions", questions, "model", "double"));
     }

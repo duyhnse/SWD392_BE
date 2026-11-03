@@ -19,8 +19,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Main viva question of a course (WF1). {@code ai_suggested_rubric} (jsonb) is deliberately not mapped:
- * it is written only by the AI generation milestone and read with SQL.
+ * Main viva question of a course (WF1).
  */
 @Entity
 @Table(name = "questions")

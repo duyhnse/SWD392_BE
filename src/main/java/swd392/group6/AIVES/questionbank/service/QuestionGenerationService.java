@@ -4,7 +4,6 @@ import swd392.group6.AIVES.questionbank.domain.Question;
 import swd392.group6.AIVES.questionbank.domain.QuestionOrigin;
 import swd392.group6.AIVES.questionbank.domain.QuestionSource;
 import swd392.group6.AIVES.questionbank.domain.QuestionStatus;
-import swd392.group6.AIVES.questionbank.domain.Rubric;
 import swd392.group6.AIVES.questionbank.repository.QuestionRepository;
 import swd392.group6.AIVES.questionbank.repository.QuestionSourceRepository;
 
@@ -25,7 +24,6 @@ import swd392.group6.AIVES.user.User;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
@@ -52,6 +50,7 @@ public class QuestionGenerationService {
     static final String JOB_SUBJECT = "GENERATION_REQUEST";
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final int MAX_EXISTING_TITLES = 60;
+    static final int MAX_QUESTIONS = 20;
 
     private final NamedParameterJdbcTemplate jdbc;
     private final ContentAccess access;
@@ -79,42 +78,39 @@ public class QuestionGenerationService {
         Map<String, Object> course = jdbc.queryForMap("select code, name, default_language from courses where course_id = :c",
                 new MapSqlParameterSource("c", courseId));
         Language language = r.language() != null ? r.language() : Language.valueOf((String) course.get("default_language"));
-        List<BloomLevel> blooms = r.bloomLevels().stream().distinct().toList();
-        String focus = r.focusText() == null || r.focusText().isBlank() ? null : r.focusText().strip();
-        Map<String, Object> rubric = r.rubricId() == null ? null : sharedRubric(r.rubricId(), courseId);
-        // rubric by question type: only for the requested levels, each one a rubric of the course
-        Map<String, UUID> byBloom = new LinkedHashMap<>();
-        Map<String, Object> rubricsByBloom = new LinkedHashMap<>();
-        if (r.rubricsByBloom() != null) {
-            for (BloomLevel level : blooms) {
-                UUID rid = r.rubricsByBloom().get(level);
-                if (rid != null) {
-                    byBloom.put(level.name(), rid);
-                    rubricsByBloom.put(level.name(), sharedRubric(rid, courseId));
-                }
+        // D82: a number per Bloom level, 0 = none; cognitive order kept for the AI
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (BloomLevel level : BloomLevel.values()) {
+            Integer n = r.countsByBloom().get(level);
+            if (n != null && n > 0) {
+                counts.put(level.name(), n);
             }
         }
+        int total = counts.values().stream().mapToInt(Integer::intValue).sum();
+        if (total < 1 || total > MAX_QUESTIONS) {
+            throw ApiException.unprocessable("BLOOM_COUNTS_INVALID",
+                    "Ask for 1–" + MAX_QUESTIONS + " questions in all, at least one Bloom level above 0");
+        }
+        String focus = r.focusText() == null || r.focusText().isBlank() ? null : r.focusText().strip();
 
         UUID id = UUID.randomUUID();
         Instant now = clock.instant();
         jdbc.update("""
                 insert into ai_generation_requests (generation_request_id, course_id, topic_id, requested_by, material_ids,
-                    requested_count, bloom_levels, focus_text, language, status, created_at, rubric_id, rubrics_by_bloom)
-                values (:id, :c, :t, :u, cast(:m as jsonb), :n, cast(:b as jsonb), :f, :lang, 'PENDING', :now, :r,
-                        cast(:rb as jsonb))""",
+                    requested_count, bloom_levels, counts_by_bloom, focus_text, language, status, created_at)
+                values (:id, :c, :t, :u, cast(:m as jsonb), :n, cast(:b as jsonb), cast(:cb as jsonb), :f, :lang, 'PENDING',
+                        :now)""",
                 new MapSqlParameterSource("id", id).addValue("c", courseId).addValue("t", r.topicId())
                         .addValue("u", user.getUserId()).addValue("m", JSON.writeValueAsString(materialIds))
-                        .addValue("n", r.count()).addValue("b", JSON.writeValueAsString(blooms)).addValue("f", focus)
-                        .addValue("lang", language.name()).addValue("now", Timestamp.from(now))
-                        .addValue("r", r.rubricId())
-                        .addValue("rb", byBloom.isEmpty() ? null : JSON.writeValueAsString(byBloom)));
+                        .addValue("n", total).addValue("b", JSON.writeValueAsString(counts.keySet()))
+                        .addValue("cb", JSON.writeValueAsString(counts)).addValue("f", focus)
+                        .addValue("lang", language.name()).addValue("now", Timestamp.from(now)));
 
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("language", language.name());
         input.put("course", Map.of("code", course.get("code"), "name", course.get("name")));
         input.put("topic", mapOf("name", topic.get("name"), "description", topic.get("description")));
-        input.put("count", r.count());
-        input.put("bloom_levels", blooms.stream().map(Enum::name).toList());
+        input.put("counts_by_bloom", counts); // contract 1.5.0: exactly this many of each level, no rubric (D82)
         input.put("focus_text", focus);
         // drafts too: asking twice for the same topic must not repeat the first batch; other chapters of the course
         // too (a focus can reach their materials), the topic's own questions first (D76)
@@ -127,27 +123,10 @@ public class QuestionGenerationService {
         input.put("primary_material_ids", jdbc.queryForList("""
                         select material_id from course_materials where material_id in (:m) and topic_id = :t""",
                 new MapSqlParameterSource("m", materialIds).addValue("t", r.topicId()), UUID.class));
-        if (rubric != null) {
-            input.put("rubric", rubric); // reference answers are written so each criterion can be judged
-        }
-        if (!rubricsByBloom.isEmpty()) {
-            input.put("rubrics_by_bloom", rubricsByBloom); // contract 1.4.0: each question is written for its level's rubric
-        }
         jdbc.update("update ai_generation_requests set status = 'RUNNING' where generation_request_id = :id",
                 new MapSqlParameterSource("id", id));
         aiJobs.enqueue(AiJobType.GENERATE_QUESTIONS, JOB_SUBJECT, id, input);
         return get(id, user);
-    }
-
-    /** A rubric of the course with its criteria, as the AI node reads it (name, description per criterion). */
-    private Map<String, Object> sharedRubric(UUID rubricId, UUID courseId) {
-        Map<String, Object> rubric = jdbc.queryForList("select name from rubrics where rubric_id = :r and course_id = :c",
-                new MapSqlParameterSource("r", rubricId).addValue("c", courseId)).stream().findFirst()
-                .orElseThrow(() -> ApiException.unprocessable("RUBRIC_NOT_IN_COURSE", "The rubric does not belong to this course"));
-        List<Map<String, Object>> criteria = jdbc.queryForList("""
-                        select name, description, max_score, weight_percent from rubric_criteria where rubric_id = :r
-                        order by sort_order""", new MapSqlParameterSource("r", rubricId));
-        return Map.of("name", rubric.get("name"), "criteria", criteria);
     }
 
     @Transactional(readOnly = true)
@@ -171,8 +150,7 @@ public class QuestionGenerationService {
      */
     void onJobFinished(UUID requestId, String jobStatus, JsonNode result, String errorCode, String errorMessage) {
         Map<String, Object> req = jdbc.queryForList("""
-                        select status, course_id, topic_id, requested_by, requested_count, language, material_ids::text,
-                               rubric_id, rubrics_by_bloom::text
+                        select status, course_id, topic_id, requested_by, counts_by_bloom::text, language, material_ids::text
                         from ai_generation_requests where generation_request_id = :id for update""",
                 new MapSqlParameterSource("id", requestId)).stream().findFirst().orElse(null);
         if (req == null || !"RUNNING".equals(req.get("status"))) {
@@ -190,18 +168,13 @@ public class QuestionGenerationService {
         Set<String> materials = new HashSet<>();
         JSON.readTree((String) req.get("material_ids")).forEach(n -> materials.add(n.asString()));
         String problem = !"SUCCEEDED".equals(jobStatus) ? "AI generation failed: " + (errorMessage != null ? errorMessage : errorCode)
-                : validate(result, materials, (Integer) req.get("requested_count"));
+                : validate(result, materials, counts((String) req.get("counts_by_bloom")));
         if (problem != null) {
             finish(requestId, "FAILED", 0, problem.length() > 1000 ? problem.substring(0, 1000) : problem, null);
             notify(owner, requestId, courseId, "FAILED", 0);
             return;
         }
         Instant now = clock.instant();
-        Map<String, UUID> byBloom = new HashMap<>();
-        if (req.get("rubrics_by_bloom") != null) {
-            JSON.readTree((String) req.get("rubrics_by_bloom")).properties()
-                    .forEach(e -> byBloom.put(e.getKey(), UUID.fromString(e.getValue().asString())));
-        }
         int saved = 0;
         for (JsonNode g : result.path("questions")) {
             Question q = new Question();
@@ -218,14 +191,11 @@ public class QuestionGenerationService {
             q.setStatus(QuestionStatus.DRAFT);
             q.setOrigin(QuestionOrigin.AI_GENERATED);
             q.setGenerationRequestId(requestId);
-            // the rubric of the question's type, else the shared one; the AI's own idea stays a suggestion
-            q.setRubricId(byBloom.getOrDefault(bloom.name(), (UUID) req.get("rubric_id")));
+            // no rubric: the lecturer reads the draft and picks one of the course's rubrics before confirming (D82)
             q.setOwnerId(owner);
             q.setCreatedAt(now);
             q.setUpdatedAt(now);
             q = questions.saveAndFlush(q);
-            jdbc.update("update questions set ai_suggested_rubric = cast(:r as jsonb) where question_id = :q",
-                    new MapSqlParameterSource("r", JSON.writeValueAsString(g.path("rubric"))).addValue("q", q.getId()));
             for (JsonNode src : g.path("sources")) {
                 QuestionSource s = new QuestionSource();
                 s.setQuestionId(q.getId());
@@ -246,18 +216,12 @@ public class QuestionGenerationService {
     }
 
     /** null = valid; otherwise what is wrong (04 §9.2 step 6). */
-    static String validate(JsonNode result, Set<String> materialIds, int requested) {
+    static String validate(JsonNode result, Set<String> materialIds, Map<String, Integer> requested) {
         JsonNode list = result == null ? null : result.path("questions");
         if (list == null || !list.isArray() || list.isEmpty()) {
             return "questions must be a non-empty list";
         }
-        if (list.size() > requested) {
-            return "more questions than requested";
-        }
-        Set<String> blooms = new HashSet<>();
-        for (BloomLevel b : BloomLevel.values()) {
-            blooms.add(b.name());
-        }
+        Map<String, Integer> seen = new HashMap<>();
         int n = 0;
         for (JsonNode q : list) {
             n++;
@@ -269,8 +233,12 @@ public class QuestionGenerationService {
             if (reference.isBlank() || reference.length() > 4000) {
                 return "question " + n + ": reference_answer is empty or too long";
             }
-            if (!blooms.contains(q.path("bloom_level").asString(""))) {
-                return "question " + n + ": unknown bloom_level";
+            String bloom = q.path("bloom_level").asString("");
+            if (!requested.containsKey(bloom)) {
+                return "question " + n + ": bloom_level was not requested";
+            }
+            if (seen.merge(bloom, 1, Integer::sum) > requested.get(bloom)) {
+                return "more " + bloom + " questions than requested";
             }
             JsonNode cites = q.path("sources");
             if (!cites.isArray() || cites.isEmpty()) {
@@ -282,37 +250,9 @@ public class QuestionGenerationService {
                     return "question " + n + ": cites a material that was not selected";
                 }
             }
-            String rubricProblem = rubricProblem(q.path("rubric"));
-            if (rubricProblem != null) {
-                return "question " + n + ": " + rubricProblem;
-            }
         }
         return null;
     }
-
-    private static String rubricProblem(JsonNode rubric) {
-        JsonNode criteria = rubric.path("criteria");
-        if (!criteria.isArray() || criteria.isEmpty() || criteria.size() > RubricService.MAX_CRITERIA) {
-            return "rubric needs 1–" + RubricService.MAX_CRITERIA + " criteria";
-        }
-        BigDecimal total = BigDecimal.ZERO;
-        for (JsonNode c : criteria) {
-            if (c.path("name").asString("").isBlank()) {
-                return "rubric criterion without a name";
-            }
-            BigDecimal max = c.path("max_score").decimalValue(BigDecimal.ZERO);
-            BigDecimal weight = c.path("weight_percent").decimalValue(BigDecimal.ZERO);
-            if (max.signum() <= 0 || max.compareTo(RubricService.MAX_SCORE) > 0 || weight.signum() <= 0
-                    || weight.compareTo(Rubric.HUNDRED) > 0) {
-                return "rubric criterion out of range";
-            }
-            total = total.add(weight);
-        }
-        return total.subtract(Rubric.HUNDRED).abs().compareTo(Rubric.WEIGHT_TOLERANCE) > 0 ? "rubric weights do not total 100" : null;
-    }
-
-
-
 
     private void finish(UUID id, String status, int generated, String message, String model) {
         jdbc.update("""
@@ -326,17 +266,15 @@ public class QuestionGenerationService {
         boolean ok = "SUCCEEDED".equals(status);
         notifications.notify(user, "QUESTIONS_GENERATED",
                 ok ? "AI đã tạo " + generated + " câu hỏi nháp" : "AI chưa tạo được câu hỏi",
-                ok ? "Mở Ngân hàng câu hỏi → Nháp để duyệt và công bố." : "Xem chi tiết ở yêu cầu tạo câu hỏi.",
+                ok ? "Mở từng câu nháp, đọc lại, gắn rubric rồi xác nhận vào ngân hàng." : "Xem chi tiết ở yêu cầu tạo câu hỏi.",
                 Map.of("generationRequestId", requestId.toString(), "courseId", courseId.toString(), "status", status));
     }
 
     private static final String SELECT = """
             select g.generation_request_id, g.course_id, g.topic_id, t.name as topic_name, g.material_ids::text,
-                   g.requested_count, g.bloom_levels::text, g.focus_text, g.language, g.status, g.generated_count,
-                   g.message, g.requested_by, g.created_at, g.finished_at, g.rubric_id, r.name as rubric_name,
-                   g.rubrics_by_bloom::text
-            from ai_generation_requests g join topics t on t.topic_id = g.topic_id
-                 left join rubrics r on r.rubric_id = g.rubric_id""";
+                   g.requested_count, g.counts_by_bloom::text, g.focus_text, g.language, g.status, g.generated_count,
+                   g.message, g.requested_by, g.created_at, g.finished_at
+            from ai_generation_requests g join topics t on t.topic_id = g.topic_id""";
 
     private Optional<GenerationDto> find(UUID id) {
         return jdbc.query(SELECT + " where g.generation_request_id = :id", new MapSqlParameterSource("id", id),
@@ -346,21 +284,19 @@ public class QuestionGenerationService {
     private static GenerationDto row(java.sql.ResultSet rs) throws java.sql.SQLException {
         List<UUID> materials = new ArrayList<>();
         JSON.readTree(rs.getString(5)).forEach(n -> materials.add(UUID.fromString(n.asString())));
-        List<BloomLevel> blooms = new ArrayList<>();
-        JSON.readTree(rs.getString(7)).forEach(n -> blooms.add(BloomLevel.valueOf(n.asString())));
+        Map<BloomLevel, Integer> blooms = new java.util.EnumMap<>(BloomLevel.class);
+        counts(rs.getString(7)).forEach((k, v) -> blooms.put(BloomLevel.valueOf(k), v));
         Timestamp finished = rs.getTimestamp(15);
         return new GenerationDto(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getObject(3, UUID.class),
                 rs.getString(4), materials, rs.getInt(6), blooms, rs.getString(8), Language.valueOf(rs.getString(9)),
                 rs.getString(10), rs.getInt(11), rs.getString(12), rs.getObject(13, UUID.class),
-                rs.getTimestamp(14).toInstant(), finished == null ? null : finished.toInstant(),
-                rs.getObject(16, UUID.class), rs.getString(17), byBloom(rs.getString(18)));
+                rs.getTimestamp(14).toInstant(), finished == null ? null : finished.toInstant());
     }
 
-    private static Map<BloomLevel, UUID> byBloom(String json) {
-        Map<BloomLevel, UUID> out = new java.util.EnumMap<>(BloomLevel.class);
-        if (json != null) {
-            JSON.readTree(json).properties().forEach(e -> out.put(BloomLevel.valueOf(e.getKey()), UUID.fromString(e.getValue().asString())));
-        }
+    /** {@code counts_by_bloom} as stored: level → number asked for (empty for requests made before D82). */
+    private static Map<String, Integer> counts(String json) {
+        Map<String, Integer> out = new LinkedHashMap<>();
+        JSON.readTree(json).properties().forEach(e -> out.put(e.getKey(), e.getValue().asInt()));
         return out;
     }
 
