@@ -1,0 +1,9 @@
+# Profile "demo": adds the demo accounts, course, questions and viva exam (password Aives@123).
+# Never enable on a database with real users.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/demo
+application:
+  dev:
+    # The hosted demo lets testers create their own lecturer/student accounts (D39)
+    self-registration-enabled: true

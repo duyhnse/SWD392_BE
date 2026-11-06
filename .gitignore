@@ -37,4 +37,6 @@ build/
 application-local.yaml
 application-local.yml
 application-local.properties
-context/
+
+### Local app data ###
+data/
